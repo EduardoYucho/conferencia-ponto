@@ -23,3 +23,6 @@ Thumbs.db
 # capturas de tela e anotações locais (podem ter dados pessoais)
 Claude outputs/
 historico-importado.md
+
+# build da aplicacao completa (mvn -Papp)
+backend/target-app/

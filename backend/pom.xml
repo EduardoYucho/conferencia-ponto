@@ -115,4 +115,42 @@
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!--
+            Aplicação completa num jar só: mvn -Papp package (depois de "npm run build" no frontend).
+            Copia frontend/dist para static/ e compila em target-app/, separado do target/ usado pelo
+            Eclipse (um "clean" aqui não derruba o back-end rodando na IDE).
+        -->
+        <profile>
+            <id>app</id>
+            <build>
+                <directory>${project.basedir}/target-app</directory>
+                <finalName>conferencia-ponto</finalName>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-resources-plugin</artifactId>
+                        <executions>
+                            <execution>
+                                <id>frontend-no-jar</id>
+                                <phase>process-resources</phase>
+                                <goals>
+                                    <goal>copy-resources</goal>
+                                </goals>
+                                <configuration>
+                                    <outputDirectory>${project.build.outputDirectory}/static</outputDirectory>
+                                    <resources>
+                                        <resource>
+                                            <directory>${project.basedir}/../frontend/dist</directory>
+                                        </resource>
+                                    </resources>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
 </project>

@@ -2,6 +2,7 @@ package br.com.conferenciaponto.infrastructure.security;
 
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.servlet.DispatcherType;
+import jakarta.servlet.http.HttpServletRequest;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.annotation.Bean;
@@ -39,8 +40,11 @@ import java.security.NoSuchAlgorithmException;
  * PUT  /api/v1/auth/senha                  ✓     ✓      ✓       –
  * GET  /api/**  (leitura, SSE, download)   ✓     ✓      ✓       –
  * POST/PUT/PATCH/DELETE /api/**            ✓     ✓      –       –
+ * GET  fora de /api (front-end: HTML/JS)   ✓     ✓      ✓       ✓
  * qualquer outra rota                      negada
  * </pre>
+ *
+ * <p>O front-end é público porque só tem código (os dados vêm da API, que exige o token).
  */
 @Configuration
 @EnableWebSecurity
@@ -75,6 +79,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.PUT, "/api/**").hasAnyRole(ESCRITA)
                         .requestMatchers(HttpMethod.PATCH, "/api/**").hasAnyRole(ESCRITA)
                         .requestMatchers(HttpMethod.DELETE, "/api/**").hasAnyRole(ESCRITA)
+                        // front-end empacotado no jar (index.html, assets e rotas do Vue): só leitura
+                        .requestMatchers(SecurityConfig::leituraDoFrontend).permitAll()
                         .anyRequest().denyAll())
                 .oauth2ResourceServer(rs -> rs
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(conversor))
@@ -84,6 +90,16 @@ public class SecurityConfig {
                         .authenticationEntryPoint(respostas)
                         .accessDeniedHandler(respostas));
         return http.build();
+    }
+
+    /** GET/HEAD fora de /api: arquivos do front-end e rotas do Vue (ver FrontendConfig). */
+    static boolean leituraDoFrontend(HttpServletRequest requisicao) {
+        String metodo = requisicao.getMethod();
+        if (!HttpMethod.GET.matches(metodo) && !HttpMethod.HEAD.matches(metodo)) {
+            return false;
+        }
+        String caminho = requisicao.getRequestURI().substring(requisicao.getContextPath().length());
+        return !caminho.equals("/api") && !caminho.startsWith("/api/");
     }
 
     /** As authorities vêm da claim "roles" já com o prefixo ROLE_ (ex.: ROLE_VIEWER). */

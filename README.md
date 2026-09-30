@@ -12,6 +12,8 @@ banco de horas do RH** (tela dividida conferência × RH).
 
 ```
 conferencia-ponto/
+├── instalar.cmd                instala como serviço do Windows + comando "ponto" (veja abaixo)
+├── deploy/windows/             ponto.ps1 (instalar, iniciar, parar, logs, atualizar...) e ponto.cmd
 ├── docker-compose.yml          PostgreSQL 16 para desenvolvimento
 ├── exemplos/comprovantes/      PDFs de teste para a importação automática
 ├── backend/                    Java 17 · Spring Boot 3.5 · JPA · Flyway · Spring Security
@@ -52,7 +54,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 156 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação)
+.\iniciar.ps1 -Testes    # 161 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -100,6 +102,46 @@ cd frontend
 npm install
 npm run dev
 ```
+
+Os passos acima são para **desenvolver**. Para só **usar** o sistema, instale como serviço (abaixo).
+
+## Rodar como serviço no Windows (sem abrir a pasta)
+
+Uma vez, na pasta do projeto (precisa de Java 17+, Node.js e Maven — os mesmos do desenvolvimento — e do
+PostgreSQL rodando):
+
+```powershell
+.\instalar.cmd                 # ou: .\instalar.cmd -Porta 8090   /   .\instalar.cmd -Testes
+```
+
+O instalador compila o front-end (`npm run build`) e o back-end com o perfil Maven `app`, que coloca as telas
+**dentro do jar** (`mvn -Papp package` → `backend/target-app/conferencia-ponto.jar`): API e telas sobem juntas
+num único processo, em **http://localhost:8080**. Depois:
+
+- instala em `%USERPROFILE%\.conferencia-ponto\servico` (`app\`, `config\`, `logs\`, `bin\`), ao lado do arquivo
+  dos PDFs (`comprovantes\`);
+- copia a configuração desta máquina (`backend/config/application.yml`) para `config\application.yml` e gera
+  `config\servico.yml` (porta, o mesmo `PONTO_JWT_SEGREDO` do `ambiente.local.ps1` e o log com rotação);
+- cria a tarefa agendada **ConferenciaPonto**, que sobe a aplicação **quando você entra no Windows**, com o seu
+  usuário (acessa a pasta de rede com as suas credenciais), sem janela, e a sobe de novo em até 5 minutos se
+  ela cair — não precisa de administrador;
+- coloca o comando **`ponto`** no PATH do usuário (abra um terminal novo).
+
+| Comando | O que faz |
+|---|---|
+| `ponto` | Situação: rodando?, endereço, configuração e logs |
+| `ponto abrir` | Abre no navegador |
+| `ponto iniciar` · `ponto parar` · `ponto reiniciar` | Sobe · para (e não sobe sozinho até `iniciar`) · reinicia |
+| `ponto logs` | Acompanha o log (`Ctrl+C` para sair) |
+| `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
+| `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto e troca a versão (a configuração é mantida) |
+| `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
+| `ponto desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
+
+A porta é a mesma do desenvolvimento de propósito: **não rode o serviço e o Eclipse ao mesmo tempo** (os dois
+importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `ponto iniciar`. Se o Eclipse
+estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
+(`npm run dev`) funciona com qualquer um dos dois.
 
 ## Regras de cálculo (domínio)
 
@@ -174,7 +216,8 @@ escrita já nasce protegida:
 | `ROLE_USER` | ✔ | ✔ idem | Painel |
 | `ROLE_VIEWER` | ✔ inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
 
-Qualquer rota fora de `/api/**` é negada. No front-end, o perfil `VIEWER` vê o selo "somente leitura" e
+Fora de `/api/**`, só `GET`/`HEAD` são liberados: são as telas empacotadas no jar (HTML/JS/CSS, sem dados —
+`FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, o perfil `VIEWER` vê o selo "somente leitura" e
 os botões de bater ponto, lançamento manual e exclusão nem são renderizados — mas a garantia é do
 back-end, não da tela.
 

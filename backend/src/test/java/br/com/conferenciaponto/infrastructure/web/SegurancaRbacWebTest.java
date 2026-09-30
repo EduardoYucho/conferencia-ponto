@@ -162,6 +162,18 @@ class SegurancaRbacWebTest {
     }
 
     @Test
+    @DisplayName("Front-end fora de /api: GET sem token é liberado; escrita e /api continuam protegidas")
+    void frontendPublico() throws Exception {
+        // 200 com o front-end no classpath (build com -Papp), 404 sem ele — nunca 401: a segurança liberou
+        mvc.perform(get("/auditoria")).andExpect(r -> org.assertj.core.api.Assertions
+                .assertThat(r.getResponse().getStatus()).isIn(200, 404));
+        mvc.perform(get("/assets/index.js")).andExpect(status().isNotFound());
+        mvc.perform(post("/auditoria")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api")).andExpect(status().isUnauthorized());
+        mvc.perform(get("/api/v1/nao-existe")).andExpect(status().isUnauthorized());
+    }
+
+    @Test
     @DisplayName("VIEWER lê, mas não escreve (403) — e o caso de uso nem é chamado")
     void viewerSomenteLeitura() throws Exception {
         mesVazio();
