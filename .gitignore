@@ -1,0 +1,25 @@
+# back-end
+backend/target/
+backend/ambiente.local.ps1
+backend/config/
+*.class
+
+# front-end
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+frontend/.env.local
+
+# IDEs / SO
+.idea/
+.vscode/
+*.iml
+.classpath
+.project
+.settings/
+.DS_Store
+Thumbs.db
+
+# capturas de tela e anotações locais (podem ter dados pessoais)
+Claude outputs/
+historico-importado.md

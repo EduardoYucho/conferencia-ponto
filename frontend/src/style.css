@@ -1,0 +1,145 @@
+@import "tailwindcss";
+
+/*
+ * Identidade visual: cartão de ponto mecânico.
+ * Papel creme, tinta preta para batidas absorvidas pela tolerância e
+ * tinta vermelha (carimbo) para batidas fora da tolerância / débitos.
+ */
+@theme {
+  --font-sans: "Archivo Variable", "Archivo", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
+
+  --color-papel: #f4efe4;
+  --color-papel-escuro: #e8e0ce;
+  --color-cartao: #fbf8f1;
+  --color-tinta: #1d1c1a;
+  --color-tinta-suave: #5f5a51;
+  --color-tinta-apagada: #9a9282;
+  --color-linha: #d9d0be;
+  --color-carimbo: #c2362f;
+  --color-credito: #2d6a4c;
+
+  --animate-surgir: surgir 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-listras: listras 1.2s linear infinite;
+
+  @keyframes surgir {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @keyframes realce {
+    0%, 35% { background-color: color-mix(in srgb, var(--color-credito) 22%, transparent); }
+    100% { background-color: transparent; }
+  }
+
+  @keyframes listras {
+    from { background-position: 0 0; }
+    to { background-position: 16px 0; }
+  }
+}
+
+@utility botao {
+  @apply inline-flex items-center justify-center gap-2 rounded-[3px] px-4 py-2.5 text-sm font-semibold
+    transition-[transform,background-color,box-shadow] duration-150 active:translate-y-px
+    disabled:cursor-not-allowed disabled:opacity-50;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  body {
+    @apply bg-papel text-tinta font-sans antialiased;
+    /* granulação de papel */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.38 0 0 0 0 0.25 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-tinta);
+    outline-offset: 2px;
+  }
+}
+
+@layer components {
+  .cartao {
+    @apply bg-cartao border border-linha rounded-[3px];
+    box-shadow: 0 1px 0 var(--color-linha), 0 14px 30px -22px rgb(29 28 26 / 0.45);
+  }
+
+  /* Coluna de furos na lateral, como um cartão de ponto */
+  .perfurado {
+    position: relative;
+    padding-left: 1.75rem;
+  }
+  .perfurado::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 1.1rem;
+    border-right: 1px dashed var(--color-linha);
+    background-image: radial-gradient(circle at center, var(--color-papel-escuro) 3px, transparent 3.6px);
+    background-size: 100% 22px;
+    background-position: center 6px;
+  }
+
+  .rotulo {
+    @apply font-sans text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-tinta-suave;
+  }
+
+  /* Números "carimbados" */
+  .carimbo {
+    @apply font-mono tabular-nums;
+    letter-spacing: 0.02em;
+    mix-blend-mode: multiply;
+  }
+
+  .hachurado {
+    background-image: repeating-linear-gradient(
+      -45deg,
+      transparent 0 5px,
+      rgb(29 28 26 / 0.16) 5px 6px
+    );
+  }
+
+  .em-andamento {
+    --cor-listra: var(--color-tinta);
+    background-color: color-mix(in srgb, var(--cor-listra) 55%, transparent);
+    background-image: linear-gradient(
+      -45deg,
+      var(--cor-listra) 25%, transparent 25%, transparent 50%,
+      var(--cor-listra) 50%, var(--cor-listra) 75%, transparent 75%
+    );
+    background-size: 16px 16px;
+    @apply animate-listras;
+  }
+  /* Linha alterada por evento em tempo real (ex.: PDF importado) */
+  tr.realce > td {
+    animation: realce 2.4s ease-out both;
+  }
+
+  .em-andamento.listra-credito {
+    --cor-listra: var(--color-credito);
+  }
+
+  .botao-primario {
+    @apply botao bg-tinta text-cartao hover:bg-black;
+    box-shadow: 0 2px 0 #000;
+  }
+  .botao-secundario {
+    @apply botao border border-tinta bg-cartao text-tinta hover:bg-papel-escuro;
+  }
+
+  .campo {
+    @apply w-full rounded-[3px] border border-linha bg-white/70 px-3 py-2 font-mono text-base tabular-nums
+      text-tinta outline-none transition focus:border-tinta focus:bg-white;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

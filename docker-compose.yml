@@ -1,0 +1,21 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: conferencia-ponto-db
+    environment:
+      POSTGRES_DB: conferencia_ponto
+      POSTGRES_USER: ponto
+      POSTGRES_PASSWORD: ponto
+      TZ: America/Sao_Paulo
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ponto -d conferencia_ponto"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  pgdata:
