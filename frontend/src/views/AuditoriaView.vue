@@ -257,7 +257,7 @@ function exportarCsv() {
     l.batidas.filter((b) => b.ajustada).map((b) => b.real).join(' '),
     l.ajustes[0] ? `${l.ajustes[0].justificativa} (${l.ajustes[0].usuario}, ${formatarMomento(l.ajustes[0].ajustadoEm)})` : '',
   ])
-  salvarCsv([cabecalho, ...corpo], `auditoria-ponto-${ano.value}-${String(mes.value).padStart(2, '0')}.csv`)
+  salvarCsv([cabecalho, ...corpo], `auditoria-ponto-${auth.pessoaEmTela?.login ?? 'eu'}-${ano.value}-${String(mes.value).padStart(2, '0')}.csv`)
 }
 </script>
 
@@ -265,12 +265,13 @@ function exportarCsv() {
   <div class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
     <header class="flex flex-wrap items-end justify-between gap-4 border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <div>
-        <p class="rotulo">{{ auth.somenteLeitura ? 'Coordenação · somente leitura' : 'Auditoria' }}</p>
+        <p class="rotulo">{{ auth.somenteLeitura ? 'Consulta · somente leitura' : 'Auditoria' }}</p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">
           Auditoria do Ponto
         </h1>
+        <p v-if="!auth.vendoOsProprios" class="mt-1 font-sans text-lg font-semibold">{{ auth.pessoaEmTela?.nome }}</p>
         <p class="mt-2 max-w-xl text-sm text-tinta-suave">
-          Horários reais e considerados (com segundos, como no RH), tolerância de 5:00, saldo diário e comprovantes originais de cada batida.
+          Horários reais e considerados (com segundos, como no RH), tolerância do horário de trabalho, saldo diário e comprovantes originais de cada batida.
         </p>
       </div>
       <button type="button" class="botao-secundario" :disabled="!filtradas.length" @click="exportarCsv">

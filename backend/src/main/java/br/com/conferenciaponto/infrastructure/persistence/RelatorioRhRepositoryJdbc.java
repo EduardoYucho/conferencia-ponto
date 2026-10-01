@@ -34,13 +34,13 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
     @Override
     public void salvar(RelatorioRh r, List<DiaRelatorioRh> dias) {
         jdbc.sql("""
-                        INSERT INTO tb_relatorio_rh (id, nome_arquivo, hash_sha256, funcionario, emitido_em, periodo_inicio,
+                        INSERT INTO tb_relatorio_rh (id, usuario_id, nome_arquivo, hash_sha256, funcionario, emitido_em, periodo_inicio,
                             periodo_fim, total_previsto_segundos, total_trabalhado_segundos, total_saldo_segundos,
                             dias_lidos, status, mensagem, divergencias, enviado_em, enviado_por, processado_em)
-                        VALUES (:id, :nome, :hash, :funcionario, :emitido, :inicio, :fim, :previsto, :trabalhado, :saldo,
+                        VALUES (:id, :usuario, :nome, :hash, :funcionario, :emitido, :inicio, :fim, :previsto, :trabalhado, :saldo,
                             :dias, :status, :mensagem, :divergencias, :enviado, :por, :processado)
                         """)
-                .param("id", r.id()).param("nome", r.nomeArquivo()).param("hash", r.hashSha256())
+                .param("id", r.id()).param("usuario", r.usuarioId()).param("nome", r.nomeArquivo()).param("hash", r.hashSha256())
                 .param("funcionario", r.funcionario()).param("emitido", r.emitidoEm())
                 .param("inicio", r.periodoInicio()).param("fim", r.periodoFim())
                 .param("previsto", r.totalPrevistoSegundos()).param("trabalhado", r.totalTrabalhadoSegundos())
@@ -82,14 +82,19 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
     }
 
     @Override
-    public Optional<RelatorioRh> buscarPorHash(String hash) {
-        return jdbc.sql("SELECT * FROM tb_relatorio_rh WHERE hash_sha256 = :hash").param("hash", hash)
+    public Optional<RelatorioRh> buscarPorHash(UUID usuarioId, String hash) {
+        return jdbc.sql("SELECT * FROM tb_relatorio_rh WHERE usuario_id = :usuario AND hash_sha256 = :hash")
+                .param("usuario", usuarioId).param("hash", hash)
                 .query(RelatorioRhRepositoryJdbc::relatorio).optional();
     }
 
     @Override
-    public List<RelatorioRh> listar() {
-        return jdbc.sql("SELECT * FROM tb_relatorio_rh ORDER BY emitido_em DESC, enviado_em DESC")
+    public List<RelatorioRh> listar(UUID usuarioId) {
+        return jdbc.sql("""
+                        SELECT * FROM tb_relatorio_rh WHERE usuario_id = :usuario
+                         ORDER BY emitido_em DESC, enviado_em DESC
+                        """)
+                .param("usuario", usuarioId)
                 .query(RelatorioRhRepositoryJdbc::relatorio).list();
     }
 
@@ -105,33 +110,36 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
     }
 
     @Override
-    public List<DiaVigente> vigentes(LocalDate inicio, LocalDate fim) {
+    public List<DiaVigente> vigentes(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         return jdbc.sql("""
                         SELECT DISTINCT ON (d.data) d.*
                           FROM tb_relatorio_rh_dia d
                           JOIN tb_relatorio_rh r ON r.id = d.relatorio_id
-                         WHERE d.data BETWEEN :inicio AND :fim
+                         WHERE r.usuario_id = :usuario
+                           AND d.data BETWEEN :inicio AND :fim
                            AND r.status <> 'ERRO'
                          ORDER BY d.data, r.emitido_em DESC, r.enviado_em DESC
                         """)
-                .param("inicio", inicio).param("fim", fim)
+                .param("usuario", usuarioId).param("inicio", inicio).param("fim", fim)
                 .query((rs, i) -> new DiaVigente(rs.getObject("relatorio_id", UUID.class), dia(rs))).list();
     }
 
     @Override
-    public Optional<Abrangencia> abrangencia() {
+    public Optional<Abrangencia> abrangencia(UUID usuarioId) {
         return jdbc.sql("""
                         SELECT MIN(d.data) AS inicio, MAX(d.data) AS fim
                           FROM tb_relatorio_rh_dia d JOIN tb_relatorio_rh r ON r.id = d.relatorio_id
-                         WHERE r.status <> 'ERRO'
+                         WHERE r.usuario_id = :usuario AND r.status <> 'ERRO'
                         """)
+                .param("usuario", usuarioId)
                 .query((rs, i) -> rs.getObject("inicio", LocalDate.class) == null ? null
                         : new Abrangencia(rs.getObject("inicio", LocalDate.class), rs.getObject("fim", LocalDate.class)))
                 .optional();
     }
 
     private static RelatorioRh relatorio(ResultSet rs, int linha) throws SQLException {
-        return new RelatorioRh(rs.getObject("id", UUID.class), rs.getString("nome_arquivo"), rs.getString("hash_sha256"),
+        return new RelatorioRh(rs.getObject("id", UUID.class), rs.getObject("usuario_id", UUID.class),
+                rs.getString("nome_arquivo"), rs.getString("hash_sha256"),
                 rs.getString("funcionario"), rs.getObject("emitido_em", LocalDateTime.class),
                 rs.getObject("periodo_inicio", LocalDate.class), rs.getObject("periodo_fim", LocalDate.class),
                 inteiro(rs, "total_previsto_segundos"), inteiro(rs, "total_trabalhado_segundos"),

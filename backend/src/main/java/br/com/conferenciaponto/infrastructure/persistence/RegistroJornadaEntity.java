@@ -34,7 +34,10 @@ public class RegistroJornadaEntity implements Persistable<UUID> {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
-    @Column(name = "data_referencia", nullable = false, unique = true, updatable = false)
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
+    @Column(name = "data_referencia", nullable = false, updatable = false)
     private LocalDate dataReferencia;
 
     @Column(name = "entrada_1")
@@ -87,8 +90,9 @@ public class RegistroJornadaEntity implements Persistable<UUID> {
         // JPA
     }
 
-    RegistroJornadaEntity(UUID id, LocalDate dataReferencia) {
+    RegistroJornadaEntity(UUID id, UUID usuarioId, LocalDate dataReferencia) {
         this.id = id;
+        this.usuarioId = usuarioId;
         this.dataReferencia = dataReferencia;
     }
 
@@ -118,6 +122,10 @@ public class RegistroJornadaEntity implements Persistable<UUID> {
     @Override
     public boolean isNew() {
         return novo;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
     }
 
     public LocalDate getDataReferencia() {

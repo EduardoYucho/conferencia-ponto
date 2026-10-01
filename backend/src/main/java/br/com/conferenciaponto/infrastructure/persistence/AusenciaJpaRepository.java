@@ -10,8 +10,13 @@ import java.util.UUID;
 
 interface AusenciaJpaRepository extends JpaRepository<AusenciaEntity, UUID> {
 
-    @Query("select a from AusenciaEntity a where a.dataInicio <= :fim and a.dataFim >= :inicio order by a.dataInicio")
-    List<AusenciaEntity> noPeriodo(@Param("inicio") LocalDate inicio, @Param("fim") LocalDate fim);
+    @Query("""
+            select a from AusenciaEntity a
+             where a.usuarioId = :usuarioId and a.dataInicio <= :fim and a.dataFim >= :inicio
+             order by a.dataInicio""")
+    List<AusenciaEntity> noPeriodo(@Param("usuarioId") UUID usuarioId, @Param("inicio") LocalDate inicio,
+                                   @Param("fim") LocalDate fim);
 
-    boolean existsByDataInicioLessThanEqualAndDataFimGreaterThanEqual(LocalDate data1, LocalDate data2);
+    boolean existsByUsuarioIdAndDataInicioLessThanEqualAndDataFimGreaterThanEqual(UUID usuarioId, LocalDate data1,
+                                                                                  LocalDate data2);
 }

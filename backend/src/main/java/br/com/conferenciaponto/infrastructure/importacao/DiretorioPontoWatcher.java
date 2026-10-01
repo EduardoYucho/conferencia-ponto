@@ -1,18 +1,10 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
-import br.com.conferenciaponto.infrastructure.config.AsyncConfig;
 import br.com.conferenciaponto.infrastructure.importacao.EstadoMonitor.Situacao;
 import br.com.conferenciaponto.infrastructure.importacao.ProcessadorDeComprovantes.ArquivoPdf;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
-import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.ApplicationEventPublisher;
-import org.springframework.context.event.EventListener;
-import org.springframework.scheduling.annotation.Async;
-import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.ClosedWatchServiceException;
@@ -28,12 +20,14 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
 import java.util.Objects;
+import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
 /**
- * Monitora a pasta dos comprovantes e dispara a importação de cada PDF novo.
+ * Monitora a pasta dos comprovantes de um usuário e dispara a importação de cada PDF novo. Cada usuário com
+ * pasta configurada tem o seu monitor, numa thread própria (ver {@link GerenciadorMonitoresPdf}).
  *
  * <p>Pensado para funcionar também com <b>pasta de rede</b> (ex.: {@code \\servidor\Ponto} via VPN):
  * <ul>
@@ -47,10 +41,7 @@ import java.util.concurrent.TimeUnit;
  *       tenta de novo a cada {@code intervaloReconexao} e, ao voltar, confere o que chegou nesse meio-tempo.</li>
  * </ul>
  * A deduplicação por hash no caso de uso garante que reler um arquivo nunca duplica batidas.
- * Roda numa thread dedicada ({@code @Async}) iniciada quando a aplicação fica pronta.
  */
-@Component
-@ConditionalOnProperty(prefix = "ponto.importacao-pdf", name = "habilitado", havingValue = "true", matchIfMissing = true)
 public class DiretorioPontoWatcher {
 
     private static final Logger log = LoggerFactory.getLogger(DiretorioPontoWatcher.class);
@@ -60,7 +51,9 @@ public class DiretorioPontoWatcher {
     /** Sem varredura periódica, o laço ainda acorda nesse intervalo para checar a parada. */
     private static final Duration ESPERA_MAXIMA_SEM_VARREDURA = Duration.ofMinutes(1);
 
+    private final UUID usuarioId;
     private final Path diretorio;
+    private final boolean criarPasta;
     private final boolean processarExistentes;
     private final Duration varreduraPeriodica;
     private final Duration intervaloReconexao;
@@ -77,29 +70,29 @@ public class DiretorioPontoWatcher {
     private record Assinatura(long tamanho, long modificadoEm) {
     }
 
-    @Autowired
-    public DiretorioPontoWatcher(ImportacaoPdfProperties properties, ProcessadorDeComprovantes processador,
-                                 ApplicationEventPublisher eventos) {
-        this(properties.diretorioMonitorado(), properties.processarExistentes(), properties.varreduraPeriodica(),
-                properties.intervaloReconexao(), processador, eventos);
-    }
-
+    /** Monitor de teste/uso local: cria a pasta se ela não existir. */
     public DiretorioPontoWatcher(Path diretorio, boolean processarExistentes, Duration varreduraPeriodica,
                                  Duration intervaloReconexao, ProcessadorDeComprovantes processador,
                                  ApplicationEventPublisher eventos) {
+        this(null, diretorio, true, processarExistentes, varreduraPeriodica, intervaloReconexao, processador, eventos);
+    }
+
+    /**
+     * @param criarPasta cria a pasta se ela não existir (a pasta escolhida pelo usuário não é criada: se não
+     *                   existir, o monitor fica INDISPONIVEL com "pasta não encontrada")
+     */
+    public DiretorioPontoWatcher(UUID usuarioId, Path diretorio, boolean criarPasta, boolean processarExistentes,
+                                 Duration varreduraPeriodica, Duration intervaloReconexao,
+                                 ProcessadorDeComprovantes processador, ApplicationEventPublisher eventos) {
+        this.usuarioId = usuarioId;
         this.diretorio = diretorio;
+        this.criarPasta = criarPasta;
         this.processarExistentes = processarExistentes;
         this.varreduraPeriodica = varreduraPeriodica;
         this.intervaloReconexao = intervaloReconexao;
         this.processador = processador;
         this.eventos = eventos;
-        this.estado = new EstadoMonitor(Situacao.INICIANDO, diretorio.toString(), null, Instant.now(), null);
-    }
-
-    @Async(AsyncConfig.EXECUTOR_MONITOR_PDF)
-    @EventListener(ApplicationReadyEvent.class)
-    public void iniciar() {
-        monitorar();
+        this.estado = new EstadoMonitor(usuarioId, Situacao.INICIANDO, diretorio.toString(), null, Instant.now(), null);
     }
 
     /** Laço bloqueante de monitoramento; termina em {@link #parar()}. */
@@ -138,6 +131,9 @@ public class DiretorioPontoWatcher {
     /** Registra o aviso de novos arquivos ANTES de listar a pasta, para não perder nada no intervalo. */
     private void conectar() throws IOException {
         if (!Files.isDirectory(diretorio)) {
+            if (!criarPasta) {
+                throw new NoSuchFileException(diretorio.toString());
+            }
             Files.createDirectories(diretorio); // pasta local nova; em pasta de rede fora do ar, falha aqui
         }
         WatchService servico = diretorio.getFileSystem().newWatchService();
@@ -299,7 +295,7 @@ public class DiretorioPontoWatcher {
         if (atual.situacao() == situacao && Objects.equals(atual.mensagem(), mensagem)) {
             return;
         }
-        EstadoMonitor novo = new EstadoMonitor(situacao, diretorio.toString(), mensagem, Instant.now(),
+        EstadoMonitor novo = new EstadoMonitor(usuarioId, situacao, diretorio.toString(), mensagem, Instant.now(),
                 atual.ultimaVarredura());
         estado = novo;
         try {
@@ -344,7 +340,6 @@ public class DiretorioPontoWatcher {
         }
     }
 
-    @PreDestroy
     public void parar() {
         parada.countDown();
         fecharWatchService();
@@ -360,5 +355,9 @@ public class DiretorioPontoWatcher {
 
     public Path getDiretorio() {
         return diretorio;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
     }
 }

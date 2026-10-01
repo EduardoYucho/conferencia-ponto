@@ -13,7 +13,7 @@ const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /** Data sugerida (yyyy-MM-dd); sem ela, hoje. */
   dataInicial: { type: String, default: null },
-  /** Pré-preenchimento (ex.: folga compensada = 08:48). */
+  /** Pré-preenchimento (ex.: folga compensada = um dia inteiro do horário). */
   duracaoInicial: { type: String, default: '' },
   descricaoInicial: { type: String, default: '' },
 })
@@ -83,6 +83,13 @@ const saldoDepois = computed(() => {
 function preencher(hhmm) {
   duracaoTexto.value = hhmm
 }
+
+/** "Dia inteiro" e "meio dia" pelo horário da pessoa no dia escolhido (ou o dia típico do horário). */
+const diaInteiro = computed(() => {
+  const carga = (data.value && store.cargaDoDia(data.value)) || store.cargaDiaInteiro
+  return formatarDuracao(carga, { curto: true })
+})
+const meioDia = computed(() => formatarDuracao(Math.round(duracaoEmSegundos(diaInteiro.value) / 2 / 60) * 60, { curto: true }))
 
 async function enviar() {
   tentou.value = true
@@ -185,8 +192,8 @@ async function enviar() {
                   :aria-invalid="tentou && !!erros.duracao"
                 />
                 <span class="mt-1 flex gap-2 text-xs">
-                  <button type="button" class="text-tinta-suave underline underline-offset-4 hover:text-tinta" @click="preencher('08:48')">dia inteiro</button>
-                  <button type="button" class="text-tinta-suave underline underline-offset-4 hover:text-tinta" @click="preencher('04:24')">meio dia</button>
+                  <button type="button" class="text-tinta-suave underline underline-offset-4 hover:text-tinta" @click="preencher(diaInteiro)">dia inteiro ({{ diaInteiro }})</button>
+                  <button type="button" class="text-tinta-suave underline underline-offset-4 hover:text-tinta" @click="preencher(meioDia)">meio dia</button>
                 </span>
               </label>
             </div>

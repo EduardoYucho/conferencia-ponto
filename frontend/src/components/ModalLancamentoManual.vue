@@ -1,7 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { usePontoStore } from '@/stores/ponto'
-import { dataCurta, dataISO, deISO, diaSemanaCurto, ehFimDeSemana, formatarDuracao, paraMinutos } from '@/utils/tempo'
+import { dataCurta, dataISO, deISO, diaSemanaCurto, formatarDuracao, paraMinutos } from '@/utils/tempo'
 
 /**
  * Lançamento manual de intervalos em fim de semana/feriado.
@@ -73,7 +73,8 @@ function removerIntervalo(indice) {
 }
 
 // ------------------------------------------------------------- validação
-const fimDeSemana = computed(() => (data.value ? ehFimDeSemana(data.value) : false))
+/** Dia sem expediente no horário da pessoa (sábado e domingo no horário padrão). */
+const fimDeSemana = computed(() => (data.value ? !store.temExpediente(data.value) : false))
 
 const errosIntervalos = computed(() =>
   intervalos.value.map((iv, i) => {
@@ -150,7 +151,7 @@ async function enviar() {
             <div>
               <p class="rotulo text-carimbo">Lançamento manual</p>
               <h2 id="titulo-lancamento" class="mt-1 font-sans text-xl font-extrabold tracking-tight [font-stretch:88%]">
-                Horas em fim de semana / feriado
+                Horas em dia sem expediente / feriado
               </h2>
               <p class="mt-1 text-sm text-tinta-suave">Carga base zero: 100% do tempo informado vira crédito.</p>
             </div>
@@ -183,7 +184,7 @@ async function enviar() {
                   class="rounded-[2px] px-2 py-1 text-xs font-semibold uppercase tracking-wide"
                   :class="fimDeSemana ? 'bg-credito/10 text-credito' : 'bg-carimbo/10 text-carimbo'"
                 >
-                  {{ diaSemanaCurto(data) }} {{ dataCurta(data) }} · {{ fimDeSemana ? 'fim de semana' : 'dia útil' }}
+                  {{ diaSemanaCurto(data) }} {{ dataCurta(data) }} · {{ fimDeSemana ? 'sem expediente' : 'dia útil' }}
                 </span>
               </div>
               <p v-if="tentouEnviar && erroData" class="mt-1.5 text-sm text-carimbo">{{ erroData }}</p>

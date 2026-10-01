@@ -17,7 +17,7 @@ import java.util.TreeSet;
 import java.util.UUID;
 
 /**
- * Agregado: registro de jornada de uma data.
+ * Agregado: registro de jornada de uma data de um usuário.
  *
  * <p>Os campos {@code jornadaPrevistaSegundos}, {@code segundosTrabalhados} e
  * {@code saldoDiarioSegundos} são sempre recalculados pelo motor a cada mudança
@@ -30,6 +30,7 @@ import java.util.UUID;
 public class RegistroJornada {
 
     private final UUID id;
+    private final UUID usuarioId;
     private final LocalDate dataReferencia;
     private TipoDia tipoDia;
     private Batidas batidas;
@@ -39,10 +40,11 @@ public class RegistroJornada {
     private int segundosTrabalhados;
     private Integer saldoDiarioSegundos;
 
-    private RegistroJornada(UUID id, LocalDate dataReferencia, TipoDia tipoDia, Batidas batidas,
+    private RegistroJornada(UUID id, UUID usuarioId, LocalDate dataReferencia, TipoDia tipoDia, Batidas batidas,
                             boolean registroManual, Set<LocalTime> horariosAjustados,
                             int jornadaPrevistaSegundos, int segundosTrabalhados, Integer saldoDiarioSegundos) {
         this.id = Objects.requireNonNull(id, "id");
+        this.usuarioId = Objects.requireNonNull(usuarioId, "usuarioId");
         this.dataReferencia = Objects.requireNonNull(dataReferencia, "dataReferencia");
         this.tipoDia = Objects.requireNonNull(tipoDia, "tipoDia");
         this.batidas = Objects.requireNonNull(batidas, "batidas");
@@ -53,24 +55,17 @@ public class RegistroJornada {
         this.saldoDiarioSegundos = saldoDiarioSegundos;
     }
 
-    public static RegistroJornada novo(LocalDate data, TipoDia tipoDia) {
-        return new RegistroJornada(UUID.randomUUID(), data, tipoDia, Batidas.vazia(), false, Set.of(), 0, 0, null);
-    }
-
-    /** Reconstitui um registro já persistido (uso exclusivo da camada de persistência). */
-    public static RegistroJornada restaurar(UUID id, LocalDate data, TipoDia tipoDia, Batidas batidas,
-                                            boolean registroManual, int jornadaPrevistaSegundos,
-                                            int segundosTrabalhados, Integer saldoDiarioSegundos) {
-        return restaurar(id, data, tipoDia, batidas, registroManual, Set.of(),
-                jornadaPrevistaSegundos, segundosTrabalhados, saldoDiarioSegundos);
+    public static RegistroJornada novo(UUID usuarioId, LocalDate data, TipoDia tipoDia) {
+        return new RegistroJornada(UUID.randomUUID(), usuarioId, data, tipoDia, Batidas.vazia(), false, Set.of(),
+                0, 0, null);
     }
 
     /** Reconstitui um registro já persistido, com as batidas ajustadas manualmente. */
-    public static RegistroJornada restaurar(UUID id, LocalDate data, TipoDia tipoDia, Batidas batidas,
+    public static RegistroJornada restaurar(UUID id, UUID usuarioId, LocalDate data, TipoDia tipoDia, Batidas batidas,
                                             boolean registroManual, Set<LocalTime> horariosAjustados,
                                             int jornadaPrevistaSegundos, int segundosTrabalhados,
                                             Integer saldoDiarioSegundos) {
-        return new RegistroJornada(id, data, tipoDia, batidas, registroManual, horariosAjustados,
+        return new RegistroJornada(id, usuarioId, data, tipoDia, batidas, registroManual, horariosAjustados,
                 jornadaPrevistaSegundos, segundosTrabalhados, saldoDiarioSegundos);
     }
 
@@ -252,6 +247,17 @@ public class RegistroJornada {
     }
 
     /**
+     * Reavalia o dia com o tipo e o horário atuais (ex.: depois de mudar o horário de trabalho).
+     *
+     * @return {@code true} se o tipo ou algum valor gravado mudou
+     */
+    public boolean reavaliar(TipoDia tipoAtual, MotorCalculoJornadaService motor) {
+        boolean mudouTipo = tipoAtual != tipoDia;
+        this.tipoDia = Objects.requireNonNull(tipoAtual, "tipoAtual");
+        return atualizarCalculo(motor) || mudouTipo;
+    }
+
+    /**
      * Refaz o cálculo com as regras atuais (ex.: depois de mudar a regra de tolerância).
      *
      * @return {@code true} se algum valor gravado mudou
@@ -267,6 +273,10 @@ public class RegistroJornada {
 
     public UUID getId() {
         return id;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
     }
 
     public LocalDate getDataReferencia() {

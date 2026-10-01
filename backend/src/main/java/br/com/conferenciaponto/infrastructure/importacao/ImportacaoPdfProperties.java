@@ -4,14 +4,14 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.boot.context.properties.bind.DefaultValue;
 import org.springframework.util.unit.DataSize;
 
-import java.nio.file.Path;
 import java.time.Duration;
 
 /**
  * Configuração do monitor de comprovantes (prefixo {@code ponto.importacao-pdf}).
  *
- * @param diretorio           pasta monitorada (padrão: ~/Downloads/Ponto). Aceita pasta de rede
- *                            no formato UNC, de preferência com barras normais: {@code //servidor/Ponto}
+ * @param diretorio           pasta inicial do administrador (usada uma vez, na atualização para vários
+ *                            usuários, se ninguém tiver pasta). Depois cada usuário escolhe a sua em
+ *                            "Minha conta". Aceita pasta de rede: {@code //servidor/Ponto}
  * @param processarExistentes ao iniciar, importa PDFs que já estavam na pasta (deduplicado por hash)
  * @param varreduraPeriodica  de quanto em quanto tempo a pasta é conferida, além dos avisos do sistema
  *                            operacional (em pasta de rede os avisos podem se perder); zero desliga
@@ -32,11 +32,4 @@ public record ImportacaoPdfProperties(
         @DefaultValue("500ms") Duration intervaloTentativa,
         @DefaultValue("10MB") DataSize tamanhoMaximo,
         @DefaultValue(PdfParserService.REGEX_PADRAO) String regex) {
-
-    public Path diretorioMonitorado() {
-        if (diretorio == null || diretorio.isBlank()) {
-            return Path.of(System.getProperty("user.home"), "Downloads", "Ponto");
-        }
-        return Path.of(diretorio).toAbsolutePath().normalize();
-    }
 }

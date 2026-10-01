@@ -1,16 +1,18 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
 import java.time.Instant;
+import java.util.UUID;
 
 /**
  * Situação do monitor de comprovantes. Também é publicado como evento de aplicação
  * a cada mudança de situação (o canal SSE repassa ao front-end).
  *
+ * @param usuarioId       dono da pasta
  * @param mensagem        motivo quando a pasta está inacessível
  * @param desde           quando entrou na situação atual
  * @param ultimaVarredura última conferência completa da pasta
  */
-public record EstadoMonitor(Situacao situacao, String diretorio, String mensagem, Instant desde,
+public record EstadoMonitor(UUID usuarioId, Situacao situacao, String diretorio, String mensagem, Instant desde,
                             Instant ultimaVarredura) {
 
     public enum Situacao {
@@ -29,6 +31,6 @@ public record EstadoMonitor(Situacao situacao, String diretorio, String mensagem
     }
 
     EstadoMonitor comVarredura(Instant quando) {
-        return new EstadoMonitor(situacao, diretorio, mensagem, desde, quando);
+        return new EstadoMonitor(usuarioId, situacao, diretorio, mensagem, desde, quando);
     }
 }

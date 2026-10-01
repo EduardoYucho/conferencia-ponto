@@ -15,7 +15,8 @@ interface ComprovantePontoJpaRepository extends JpaRepository<ComprovantePontoEn
 
     Optional<ComprovantePontoEntity> findByHashSha256(String hashSha256);
 
-    boolean existsByDataHoraBatidaAndStatus(LocalDateTime dataHoraBatida, StatusImportacao status);
+    boolean existsByUsuarioIdAndDataHoraBatidaAndStatus(UUID usuarioId, LocalDateTime dataHoraBatida,
+                                                        StatusImportacao status);
 
-    List<ComprovantePontoEntity> findAllByOrderByProcessadoEmDesc(Pageable pageable);
+    List<ComprovantePontoEntity> findByUsuarioIdOrderByProcessadoEmDesc(UUID usuarioId, Pageable pageable);
 }

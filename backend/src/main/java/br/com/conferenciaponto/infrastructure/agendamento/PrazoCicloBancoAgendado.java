@@ -4,6 +4,8 @@ import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
 import br.com.conferenciaponto.application.usecase.VerificarPrazoCicloUseCase;
 import br.com.conferenciaponto.domain.model.CicloBanco;
+import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
@@ -16,11 +18,13 @@ import org.springframework.stereotype.Component;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * Ciclo do banco de horas:
  * <ul>
- *   <li>na subida, garante um ciclo aberto e confere os prazos (o PC pode estar desligado à 01:00);</li>
+ *   <li>na subida, garante um ciclo aberto para cada usuário e confere os prazos (o PC pode estar desligado à
+ *       01:00);</li>
  *   <li>todo dia às 01:00 ({@code ponto.banco-horas.cron-alertas}) confere de novo;</li>
  *   <li>ao fechar/corrigir o ciclo, confere na mesma transação (a nova previsão pode já estar perto).</li>
  * </ul>
@@ -34,19 +38,24 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
 
     private final GerenciarCicloBancoUseCase ciclos;
     private final VerificarPrazoCicloUseCase verificarPrazo;
+    private final UsuarioRepository usuarios;
     private final Clock clock;
 
-    PrazoCicloBancoAgendado(GerenciarCicloBancoUseCase ciclos, VerificarPrazoCicloUseCase verificarPrazo, Clock clock) {
+    PrazoCicloBancoAgendado(GerenciarCicloBancoUseCase ciclos, VerificarPrazoCicloUseCase verificarPrazo,
+                            UsuarioRepository usuarios, Clock clock) {
         this.ciclos = ciclos;
         this.verificarPrazo = verificarPrazo;
+        this.usuarios = usuarios;
         this.clock = clock;
     }
 
     @Override
     public void run(ApplicationArguments args) {
-        CicloBanco aberto = ciclos.garantirCicloAberto();
-        log.info("Banco de horas: ciclo aberto desde {} (fechamento previsto em {})",
-                DATA.format(aberto.dataInicio()), DATA.format(aberto.dataFimPrevista()));
+        for (Usuario u : titulares()) {
+            CicloBanco aberto = ciclos.garantirCicloAberto(u.id());
+            log.info("Banco de horas de {}: ciclo aberto desde {} (fechamento previsto em {})", u.login(),
+                    DATA.format(aberto.dataInicio()), DATA.format(aberto.dataFimPrevista()));
+        }
         verificar();
     }
 
@@ -57,15 +66,21 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
 
     @EventListener
     public void aoAtualizarCiclo(CicloAtualizadoEvento evento) {
-        verificarPrazo.executar(LocalDate.now(clock));
+        verificarPrazo.executar(evento.usuarioId(), LocalDate.now(clock));
     }
 
     private void verificar() {
-        try {
-            verificarPrazo.executar(LocalDate.now(clock))
-                    .ifPresent(n -> log.info("Aviso do banco de horas: {}", n.titulo()));
-        } catch (RuntimeException e) {
-            log.warn("Falha ao conferir o prazo do banco de horas: {}", e.getMessage());
+        for (Usuario u : titulares()) {
+            try {
+                verificarPrazo.executar(u.id(), LocalDate.now(clock))
+                        .ifPresent(n -> log.info("Aviso do banco de horas de {}: {}", u.login(), n.titulo()));
+            } catch (RuntimeException e) {
+                log.warn("Falha ao conferir o prazo do banco de horas de {}: {}", u.login(), e.getMessage());
+            }
         }
+    }
+
+    private List<Usuario> titulares() {
+        return usuarios.listar().stream().filter(u -> u.ativo() && u.isTitular()).toList();
     }
 }

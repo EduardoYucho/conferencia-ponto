@@ -1,8 +1,10 @@
 # Conferência de Ponto
 
 Controle de jornada e banco de horas: **Spring Boot 3 + PostgreSQL + Vue 3**.
-Jornada base de **08:48:00**, cálculo **igual ao do sistema de ponto do RH** (com segundos, tolerância
-de 5:00 por horário da grade, até 6 batidas), lançamento manual de fins de semana/feriados (100% crédito),
+**Vários usuários**, cada um com o próprio acesso, **horário de trabalho editável** (por dia da semana, com
+vigência) e **pasta de comprovantes** (ou envio dos PDFs pela tela). Cálculo **igual ao do sistema de ponto
+do RH** (com segundos, tolerância por horário da grade, até 6 batidas; horário padrão 08:00–12:00 e
+13:00–17:48 = 08:48), lançamento manual de dias sem expediente/feriados (100% crédito),
 **banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
 creditar horas), **feriados, férias, folgas, atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
@@ -26,9 +28,10 @@ conferencia-ponto/
 └── frontend/                   Vue 3 · Vite · Pinia · Axios · Tailwind 4
     └── src/
         ├── api/                http.js (Bearer), eventos.js (SSE autenticado), pontoApi, authApi
-        ├── stores/             auth.js (sessão e perfil) · ponto.js (usePontoStore, tempo real)
-        ├── views/              Login · Dashboard · Auditoria · Conciliacao · Ausencias
-        └── components/         TimelineDiaria, ModalLancamentoManual, CartaoMensal, ...
+        ├── stores/             auth.js (sessão, perfil, "dados de") · ponto.js (usePontoStore, tempo real)
+        ├── views/              Login · TrocarSenha · Dashboard · Auditoria · Conciliacao · Ausencias ·
+        │                       MinhaConta (senha, pasta, horário) · Usuarios (administrador)
+        └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EnvioComprovantes, ...
 ```
 
 ## Como rodar
@@ -55,7 +58,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 176 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação)
+.\iniciar.ps1 -Testes    # 191 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -85,8 +88,8 @@ Usuários iniciais: `admin` (perfil `ADMIN`) e `coordenacao` (perfil `VIEWER`), 
 Para usar outros logins e nomes, redefina a lista `ponto.seguranca.usuarios-iniciais` em
 `backend/config/application.yml`. As senhas `PONTO_ADMIN_SENHA` e `PONTO_VIEWER_SENHA` só são usadas quando o
 usuário ainda não existe no banco. Se não forem definidas, a senha gerada aparece **uma única vez** no log
-(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). Depois, cada um troca a própria senha
-por `PUT /api/v1/auth/senha`.
+(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). As demais pessoas são cadastradas pelo
+administrador na tela **Usuários** (veja [Vários usuários](#vários-usuários)).
 
 > Para usar o `mvnw.cmd` diretamente, crie uma vez o arquivo do Maven Wrapper (a ferramenta que gerou o
 > projeto não pode gravar em pastas `.mvn`):
@@ -144,6 +147,33 @@ importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `pont
 estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
 (`npm run dev`) funciona com qualquer um dos dois.
 
+## Vários usuários
+
+Cada pessoa tem o próprio acesso e os próprios dados: batidas, horário, banco de horas (ciclo), ausências,
+lançamentos, notificações, relatórios do RH e divergências. **Feriados valem para todos.**
+
+- **Cadastro (administrador, tela *Usuários*):** nome, login, perfil e uma **senha provisória** (gerada na
+  tela). No primeiro acesso a pessoa cria a própria senha. Usuários não são excluídos — são **desativados**
+  (não entram mais, a pasta deixa de ser monitorada e o histórico fica). Sempre sobra um administrador ativo.
+- **Perfis:** *Usuário* registra e confere o próprio ponto; *Administrador* também cadastra usuários e
+  feriados e consulta o ponto de todos; *Coordenação* só consulta o ponto de todos.
+- **"Dados de" (administrador e coordenação):** escolhe de quem são os dados em tela. Vendo outra pessoa,
+  todas as telas ficam **somente leitura** — ninguém altera o ponto de outra pessoa. Na API, as leituras
+  aceitam `?usuario=login`; as alterações são sempre do usuário do token.
+- **Horário de trabalho (*Minha conta*):** cada dia da semana com até 3 períodos (dia sem período = sem
+  expediente, todo o tempo é crédito) e a tolerância por marcação. Mudar o horário vale **a partir de uma
+  data**: os dias dali em diante são recalculados e os anteriores continuam com o horário que valia para eles.
+  Quem trabalha de terça a sábado, por exemplo, tem o sábado como dia útil. O próprio usuário ou o
+  administrador alteram; o horário não muda dentro de um ciclo do banco já fechado.
+- **Comprovantes (*Minha conta*):** cada pessoa escolhe a **pasta** onde os PDFs chegam — no computador onde
+  o sistema roda, uma pasta compartilhada na rede (`\\NOME-DO-PC\Ponto`) ou uma pasta sincronizada da
+  nuvem. O botão *Testar acesso* confere se o servidor enxerga a pasta, e duas pessoas não podem usar a mesma.
+  Também dá para **enviar os PDFs pela tela** (botão *Enviar PDFs* no painel ou arrastando os arquivos para a
+  página), com as mesmas regras de duplicidade.
+- **Atualização a partir da versão de um usuário só:** a migração `V12` passa todos os dados existentes para
+  o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
+  passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
+
 ## Regras de cálculo (domínio)
 
 Implementadas em `MotorCalculoJornadaService` (sem dependência de framework):
@@ -156,9 +186,10 @@ todos os dias de nov/2025 a ago/2026:
 | Precisão | **Segundos contam**: `08:05:22` é 5 min 22 s de atraso. Durações e saldos em segundos (`HH:mm:ss`). |
 | Batidas | Até **6 por dia** (3 intervalos, ex.: saída às 11:01 e volta às 11:15 além do almoço). |
 | Trabalhado | Soma bruta dos intervalos fechados (como "Hr. Trabalhadas" do RH). |
-| Tolerância | Cada horário da grade (08:00 e 13:00 de entrada, 12:00 e 17:48 de saída) é casado com a batida mais próxima do mesmo tipo; se a diferença for **até 5:00 (inclusive)**, vale a grade. Batidas extras não têm horário de grade: o tempo fora conta integralmente. |
-| Dia útil | Saldo = trabalhado + ajustes da tolerância − 08:48:00. |
-| Fim de semana / feriado / ausência | Base 0: todo o tempo é crédito. |
+| Grade | A do dia da semana no horário de trabalho da pessoa (vigente na data). Padrão: 08:00–12:00 e 13:00–17:48. |
+| Tolerância | Cada horário da grade (ex.: 08:00 e 13:00 de entrada, 12:00 e 17:48 de saída) é casado com a batida mais próxima do mesmo tipo; se a diferença for **até a tolerância do horário (padrão 5:00, inclusive)**, vale a grade. Batidas extras não têm horário de grade: o tempo fora conta integralmente. |
+| Dia útil | Saldo = trabalhado + ajustes da tolerância − carga do dia (padrão 08:48:00). |
+| Dia sem expediente / feriado / ausência | Base 0: todo o tempo é crédito. |
 | Jornada em andamento | Número ímpar de batidas: saldo = `null` (fora das consolidações até fechar). |
 
 Na subida, todos os dias gravados são recalculados com a regra atual (`RecalculoJornadasNaInicializacao`).
@@ -172,9 +203,15 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | Método | Rota | Descrição |
 |---|---|---|
 | POST | `/auth/login` | `{login, senha}` → `{token, tipo, expiraEm, usuario{login, nome, perfis}}` |
-| GET | `/auth/me` | Usuário da sessão |
-| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer perfil |
-| GET | `/configuracao` | Grade oficial, tolerância, jornada base, data/hora do servidor |
+| GET | `/auth/me` | Usuário da sessão (`titular`, `podeVerTodos`, `admin`, `trocarSenha`, `pastaComprovantes`) |
+| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer perfil; encerra a senha provisória |
+| GET | `/usuarios/titulares` | Pessoas com dados de ponto que o usuário pode consultar |
+| GET/POST | `/usuarios` | (ADMIN) lista · cria `{login, nome, perfil, senhaProvisoria, pastaComprovantes?}` |
+| PUT | `/usuarios/{id}` · `/{id}/senha` · `/{id}/pasta` | (ADMIN) `{nome, perfil, ativo}` · `{senhaProvisoria}` · `{pasta}` |
+| PUT | `/conta/pasta` · POST `/conta/pasta/verificar` | Pasta dos meus comprovantes `{pasta}` (vazia = sem monitoramento) · só confere o acesso |
+| GET/POST | `/horarios` | Vigências do horário · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}}` (ADMIN: `?usuario=login`) |
+| DELETE | `/horarios/{id}` | Remove uma vigência (os dias voltam ao horário anterior) |
+| GET | `/configuracao` | Horário da pessoa que vale hoje (grade, tolerância, jornada), data/hora do servidor |
 | GET | `/jornadas?ano=&mes=` | Dias do mês + resumo (saldo mensal e anual acumulado) |
 | GET | `/jornadas/{data}` | Um dia |
 | POST | `/jornadas/batidas` | Próxima batida `{data?, horario?}` (vazio = relógio do servidor) |
@@ -200,10 +237,15 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo |
 | GET | `/comprovantes/{id}/download` | PDF original (`attachment`); também em `/api/comprovantes/{id}/download` |
 | GET | `/eventos` | Stream SSE (`text/event-stream`) com as atualizações em tempo real |
-| GET | `/importacoes?limite=` | Monitor de PDFs (`situacao`, `mensagem`, `ultimaVarredura`) + últimos comprovantes |
-| POST | `/importacoes/reprocessar` | Relê a pasta monitorada (`202 Accepted`, roda em segundo plano) |
+| GET | `/importacoes?limite=` | Monitor da pasta da pessoa (`situacao`: ATIVO, INDISPONIVEL, SEM_PASTA...) + últimos comprovantes |
+| POST | `/importacoes/reprocessar` | Relê a pasta da pessoa (`202 Accepted`, roda em segundo plano) |
+| POST | `/importacoes/enviar` | Comprovantes PDF enviados pela tela (multipart, campo `arquivos`, até 50) |
 
-Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas · `403` perfil sem permissão ·
+Nos `GET`, `?usuario=login` consulta outra pessoa (ADMIN e coordenação). Dias, mês e saldos trazem a grade
+(`grade` do dia e `expedientes` do mês) pelo horário da pessoa.
+
+Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas · `403` perfil sem permissão
+(`ACESSO_NEGADO`, `ALTERAR_DADOS_DE_OUTRO`, `TROCAR_SENHA`) ·
 `404` não encontrado · `409` conflito · `422` regra de negócio · `500 COMPROVANTE_CORROMPIDO` (arquivo
 alterado em disco).
 
@@ -215,9 +257,9 @@ escrita já nasce protegida:
 
 | Perfil | Leitura (`GET`) | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | Tela inicial |
 |---|---|---|---|
-| `ROLE_ADMIN` | ✔ | ✔ batidas, manual, exclusão, reprocessar PDFs | Painel |
-| `ROLE_USER` | ✔ | ✔ idem | Painel |
-| `ROLE_VIEWER` | ✔ inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
+| `ROLE_ADMIN` | ✔ os próprios dados e os de todos | ✔ os próprios dados + usuários, feriados e horário de qualquer pessoa | Painel |
+| `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Painel |
+| `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
 
 Fora de `/api/**`, só `GET`/`HEAD` são liberados: são as telas empacotadas no jar (HTML/JS/CSS, sem dados —
 `FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, o perfil `VIEWER` vê o selo "somente leitura" e
@@ -251,6 +293,9 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V10` — `tb_relatorio_rh`, `tb_relatorio_rh_dia` e `tb_divergencia` (uma por data, com a decisão)
 - `V11` — `tb_lancamento_banco` (débitos/créditos avulsos, até 300 h, com justificativa), ausência `ABONO` e os
   feriados nacionais de 2027
+- `V12` — vários usuários: `usuario_id` em todas as tabelas de dados (os existentes vão para o primeiro
+  administrador), `tb_horario_trabalho` (períodos por dia da semana, tolerância e vigência), pasta dos
+  comprovantes e troca de senha obrigatória em `tb_usuario`, `vw_saldo_mensal` por usuário
 
 ## Banco de horas semestral (ciclo)
 
@@ -356,14 +401,11 @@ Fluxo: **navegador baixa o PDF → `DiretorioPontoWatcher` (WatchService, `ENTRY
 PDFBox + regex) → `ImportarComprovanteUseCase` (aloca a batida) → `EmissorEventosSse` (após o commit) →
 `usePontoStore` atualiza a tela.**
 
-1. **Pasta monitorada:** por padrão `~/Downloads/Ponto` (criada se não existir). Configure o navegador
-   para salvar os comprovantes nela (no Chrome/Edge: *Configurações › Downloads › Perguntar onde salvar*,
-   ou aponte a pasta padrão). Para usar outra pasta:
-   ```powershell
-   $env:PONTO_PDF_DIR = "$HOME\Downloads"; .\iniciar.ps1
-   ```
-   Se apontar para a pasta de Downloads inteira, PDFs que não são comprovantes ficam registrados como
-   `INVALIDO` e não afetam a jornada.
+1. **Pasta monitorada:** cada pessoa escolhe a sua em *Minha conta* (`GerenciadorMonitoresPdf` mantém um
+   monitor por pessoa, numa thread própria, e reorganiza os monitores quando o cadastro muda). Configure o
+   navegador para salvar os comprovantes nela (no Chrome/Edge: *Configurações › Downloads*). Se apontar para
+   a pasta de Downloads inteira, PDFs que não são comprovantes ficam registrados como `INVALIDO` e não
+   afetam a jornada. Sem pasta, os PDFs podem ser **enviados pela tela**.
 2. **Roteamento:** a data/hora do PDF define `data_referencia`; o horário entra na primeira coluna livre
    em ordem cronológica (`entrada_1` → `saida_1` → `entrada_2` → `saida_2`). PDFs baixados fora de ordem
    são encaixados na posição certa.
@@ -381,17 +423,10 @@ Status de cada PDF (tabela `tb_comprovante_ponto` e `GET /importacoes`):
 
 ### Pasta de rede (comprovantes salvos em outro computador)
 
-Quando o ponto é batido em outro PC e os PDFs caem numa pasta compartilhada, aponte o monitor para ela em
-`backend/config/application.yml`:
+Quando o ponto é batido em outro PC e os PDFs caem numa pasta compartilhada, informe o caminho de rede em
+*Minha conta* (ex.: `\\192.168.0.10\Ponto` ou `//192.168.0.10/Ponto`).
 
-```yaml
-ponto:
-  importacao-pdf:
-    diretorio: //192.168.0.10/Ponto   # o mesmo que \\192.168.0.10\Ponto
-```
-
-- Use o caminho de rede com **barras normais** (`//servidor/pasta`): evita escapes de `\` no YAML.
-  Evite letra de unidade mapeada (`Z:`), que depende da sessão do Windows.
+- Evite letra de unidade mapeada (`Z:`), que depende da sessão do Windows.
 - O back-end acessa a pasta com o usuário do Windows que o executa. Se a pasta pedir senha, abra-a uma vez
   no Explorer marcando *Lembrar minhas credenciais* (ou `cmdkey /add:192.168.0.10 /user:USUARIO /pass`).
 - **Queda da conexão** (VPN caiu, outro PC desligado): o painel mostra *Pasta dos PDFs inacessível ·
@@ -419,15 +454,20 @@ sem recompilar.
 
 | Evento | Quando | `data` |
 |---|---|---|
-| `conectado` | ao abrir a conexão | `{habilitado, ativo, situacao, diretorio, mensagem, ultimaVarredura}` |
+| `conectado` | ao abrir a conexão | monitor da pasta do usuário: `{habilitado, ativo, situacao, diretorio, mensagem, ultimaVarredura}` |
 | `jornada-atualizada` | PDF importado, "bater ponto", lançamento manual ou exclusão | `{origem, data, registro, mensagem}` |
 | `comprovante-nao-importado` | PDF lido que não gerou batida | `{nomeArquivo, status, dataHoraBatida, mensagem}` |
 | `monitor-atualizado` | a pasta dos PDFs ficou inacessível ou voltou | `{situacao, ativo, diretorio, mensagem, ultimaVarredura}` |
 | `ciclo-atualizado` | banco de horas fechado, fechamento desfeito ou período corrigido | ciclo aberto |
 | `notificacao` | novo aviso no sino | `{notificacao, naoLidas}` |
 | `conciliacao-atualizada` | relatório do RH conferido ou divergência resolvida | `{descricao, pendentes}` |
-| `calendario-atualizado` | feriado ou ausência cadastrado/removido | `{inicio, fim}` |
+| `calendario-atualizado` | feriado, ausência ou horário alterado | `{inicio, fim}` |
 | `banco-atualizado` | lançamento no banco de horas criado ou removido | `{data, descricao}` |
+| `usuarios-atualizados` | usuário cadastrado ou alterado (perfil, situação, pasta) | `{alterado, descricao}` |
+
+Todo evento leva `usuarioId`, o dono dos dados (`null` = vale para todos, como um feriado). Cada pessoa
+recebe os eventos dos próprios dados; administrador e coordenação recebem os de todos, e a tela ignora o que
+não é da pessoa em tela.
 
 No front-end, `usePontoStore().conectarTempoReal()` abre o stream assim que há sessão, substitui o dia
 afetado direto no estado (sem recarregar a página) e recarrega só os saldos — uma vez só depois de uma

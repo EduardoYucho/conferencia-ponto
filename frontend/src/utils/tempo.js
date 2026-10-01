@@ -132,3 +132,74 @@ export function duracaoEmSegundos(hhmmTexto) {
   const [h, m, s = 0] = hhmmTexto.split(':').map(Number)
   return h * 3600 + m * 60 + s
 }
+
+// ------------------------------------------------------------ horário de trabalho
+
+/** Dias da semana do horário (chaves usadas pela API), de segunda a domingo. */
+export const DIAS_HORARIO = [
+  { sigla: 'SEG', nome: 'Segunda' },
+  { sigla: 'TER', nome: 'Terça' },
+  { sigla: 'QUA', nome: 'Quarta' },
+  { sigla: 'QUI', nome: 'Quinta' },
+  { sigla: 'SEX', nome: 'Sexta' },
+  { sigla: 'SAB', nome: 'Sábado' },
+  { sigla: 'DOM', nome: 'Domingo' },
+]
+
+const PERIODO = /^(\d{1,2}):(\d{2})\s*[-–]\s*(\d{1,2}):(\d{2})$/
+
+/**
+ * "08:00-12:00 13:00-17:48" -> [{ entrada: '08:00', saida: '12:00' }, ...]; vazio -> [].
+ * Lança Error com a mensagem para o usuário quando o texto é inválido.
+ */
+export function periodosDoTexto(texto) {
+  const t = String(texto ?? '').trim()
+  if (!t) return []
+  const partes = t.split(/[\s,;]+(?=\d)/).map((p) => p.trim()).filter(Boolean)
+  const periodos = partes.map((p) => {
+    const m = p.match(PERIODO)
+    if (!m) throw new Error(`"${p}" não é um período (use 08:00-12:00).`)
+    const [h1, m1, h2, m2] = m.slice(1).map(Number)
+    if (h1 > 23 || h2 > 23 || m1 > 59 || m2 > 59) throw new Error(`Horário inválido em "${p}".`)
+    return { entrada: `${pad(h1)}:${pad(m1)}`, saida: `${pad(h2)}:${pad(m2)}` }
+  })
+  if (periodos.length > 3) throw new Error('No máximo 3 períodos por dia.')
+  let anterior = null
+  for (const p of periodos) {
+    if (p.saida <= p.entrada) throw new Error(`Em ${p.entrada}-${p.saida} a saída deve ser depois da entrada.`)
+    if (anterior && p.entrada < anterior) throw new Error('Os períodos precisam estar em ordem e sem sobreposição.')
+    anterior = p.saida
+  }
+  return periodos
+}
+
+/** [{ entrada, saida }] -> "08:00-12:00 13:00-17:48" */
+export function textoDosPeriodos(periodos) {
+  return (periodos ?? []).map((p) => `${hhmm(p.entrada)}-${hhmm(p.saida)}`).join(' ')
+}
+
+/** Carga (segundos) de uma lista de períodos. */
+export function cargaDosPeriodos(periodos) {
+  return (periodos ?? []).reduce((soma, p) => soma + (paraSegundos(comSegundos(hhmm(p.saida))) - paraSegundos(comSegundos(hhmm(p.entrada)))), 0)
+}
+
+/** Carga de um texto de períodos (texto inválido = null). */
+export function cargaDoTexto(texto) {
+  try {
+    return cargaDosPeriodos(periodosDoTexto(texto))
+  } catch {
+    return null
+  }
+}
+
+/** Carga mais comum entre os dias com expediente do horário (o "dia inteiro" de quem compensa uma folga). */
+export function cargaTipica(dias) {
+  const contagem = new Map()
+  for (const texto of Object.values(dias ?? {})) {
+    const carga = cargaDoTexto(texto)
+    if (carga) contagem.set(carga, (contagem.get(carga) ?? 0) + 1)
+  }
+  let melhor = null
+  for (const [carga, n] of contagem) if (!melhor || n > melhor.n || (n === melhor.n && carga > melhor.carga)) melhor = { carga, n }
+  return melhor?.carga ?? JORNADA_BASE_PADRAO
+}

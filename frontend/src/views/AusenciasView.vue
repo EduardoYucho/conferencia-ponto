@@ -196,6 +196,7 @@ async function excluirFeriado(f) {
     <header class="border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <p class="rotulo">Exceções de calendário</p>
       <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Folgas e feriados</h1>
+      <p v-if="!auth.vendoOsProprios" class="mt-1 font-sans text-lg font-semibold">{{ auth.pessoaEmTela?.nome }}</p>
       <p class="mt-2 max-w-2xl text-sm text-tinta-suave">
         Nos dias de feriado, férias, atestado, licença, folga ou outra justificativa a jornada base é zero: não há débito
         e o dia não aparece como pendente. Se trabalhar num desses dias, o tempo vira crédito. Também dá para marcar pelo
@@ -218,8 +219,11 @@ async function excluirFeriado(f) {
         </div>
       </div>
 
+      <p v-if="auth.podeEscrever && !auth.ehAdmin" class="border-b border-dashed border-linha px-5 py-3 text-sm text-tinta-suave">
+        Feriados valem para todos e são cadastrados pelo administrador.
+      </p>
       <form
-        v-if="auth.podeEscrever"
+        v-if="auth.podeEscrever && auth.ehAdmin"
         class="grid gap-3 border-b border-dashed border-linha px-5 py-4 sm:grid-cols-[10rem_1fr_12rem_auto]"
         novalidate
         @submit.prevent="cadastrarFeriado"
@@ -252,7 +256,7 @@ async function excluirFeriado(f) {
           <span class="min-w-0 flex-1">{{ f.descricao }}</span>
           <span class="rounded-[2px] bg-carimbo/10 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-carimbo">{{ f.abrangenciaRotulo }}</span>
           <button
-            v-if="auth.podeEscrever"
+            v-if="auth.podeEscrever && auth.ehAdmin"
             type="button"
             class="rounded-[3px] px-2 py-1 text-xs font-semibold transition"
             :class="confirmandoFeriado === f.data ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"

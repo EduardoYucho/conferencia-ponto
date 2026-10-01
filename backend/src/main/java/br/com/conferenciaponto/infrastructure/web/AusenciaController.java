@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.GerenciarAusenciasUseCase;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.AusenciaRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.AusenciaResponse;
@@ -17,7 +18,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.security.Principal;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
@@ -45,23 +45,24 @@ public class AusenciaController {
     @GetMapping
     public ApiResponse<List<AusenciaResponse>> listar(
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim,
+            Titular titular) {
         int ano = LocalDate.now(clock).getYear();
         LocalDate de = inicio != null ? inicio : LocalDate.of(ano - 1, 1, 1);
         LocalDate ate = fim != null ? fim : LocalDate.of(ano + 1, 12, 31);
-        return ApiResponse.ok(ausencias.listar(de, ate).stream().map(AusenciaResponse::de).toList());
+        return ApiResponse.ok(ausencias.listar(titular.id(), de, ate).stream().map(AusenciaResponse::de).toList());
     }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ApiResponse<AusenciaResponse> cadastrar(@Valid @RequestBody AusenciaRequest r, Principal usuario) {
-        return ApiResponse.ok(AusenciaResponse.de(
-                ausencias.cadastrar(r.dataInicio(), r.dataFim(), r.tipo(), r.descricao(), usuario.getName())));
+    public ApiResponse<AusenciaResponse> cadastrar(@Valid @RequestBody AusenciaRequest r, Titular titular) {
+        return ApiResponse.ok(AusenciaResponse.de(ausencias.cadastrar(titular.id(), r.dataInicio(), r.dataFim(),
+                r.tipo(), r.descricao(), titular.quem())));
     }
 
     @DeleteMapping("/{id}")
-    public ApiResponse<Void> excluir(@PathVariable UUID id) {
-        ausencias.excluir(id);
+    public ApiResponse<Void> excluir(@PathVariable UUID id, Titular titular) {
+        ausencias.excluir(titular.id(), id);
         return ApiResponse.ok(null);
     }
 }

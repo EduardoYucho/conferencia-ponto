@@ -8,7 +8,10 @@ import java.util.UUID;
 
 interface AjusteJornadaJpaRepository extends JpaRepository<AjusteJornadaEntity, UUID> {
 
-    List<AjusteJornadaEntity> findByDataReferenciaOrderByAjustadoEmDesc(LocalDate dataReferencia);
+    List<AjusteJornadaEntity> findByUsuarioIdAndDataReferenciaOrderByAjustadoEmDesc(UUID usuarioId,
+                                                                                   LocalDate dataReferencia);
 
-    List<AjusteJornadaEntity> findByDataReferenciaBetweenOrderByAjustadoEmDesc(LocalDate inicio, LocalDate fim);
+    List<AjusteJornadaEntity> findByUsuarioIdAndDataReferenciaBetweenOrderByAjustadoEmDesc(UUID usuarioId,
+                                                                                          LocalDate inicio,
+                                                                                          LocalDate fim);
 }

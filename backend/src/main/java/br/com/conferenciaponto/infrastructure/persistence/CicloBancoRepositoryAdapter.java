@@ -24,18 +24,24 @@ class CicloBancoRepositoryAdapter implements CicloBancoRepository {
     }
 
     @Override
-    public Optional<CicloBanco> buscarAberto() {
-        return jpa.findFirstByStatus(StatusCiclo.ABERTO.name()).map(CicloBancoRepositoryAdapter::paraDominio);
+    public Optional<CicloBanco> buscarAberto(UUID usuarioId) {
+        return jpa.findFirstByUsuarioIdAndStatus(usuarioId, StatusCiclo.ABERTO.name())
+                .map(CicloBancoRepositoryAdapter::paraDominio);
     }
 
     @Override
-    public List<CicloBanco> listar() {
-        return jpa.findAllByOrderByDataInicioDesc().stream().map(CicloBancoRepositoryAdapter::paraDominio).toList();
+    public List<CicloBanco> listar(UUID usuarioId) {
+        return jpa.findByUsuarioIdOrderByDataInicioDesc(usuarioId).stream()
+                .map(CicloBancoRepositoryAdapter::paraDominio).toList();
     }
 
     @Override
     public void salvar(CicloBanco c) {
-        CicloBancoEntity e = jpa.findById(c.id()).orElseGet(() -> new CicloBancoEntity(c.id()));
+        CicloBancoEntity e = jpa.findById(c.id()).orElseGet(() -> {
+            CicloBancoEntity novo = new CicloBancoEntity(c.id());
+            novo.setUsuarioId(c.usuarioId());
+            return novo;
+        });
         e.setDataInicio(c.dataInicio());
         e.setDataFim(c.dataFim());
         e.setDataFimPrevista(c.dataFimPrevista());
@@ -55,7 +61,7 @@ class CicloBancoRepositoryAdapter implements CicloBancoRepository {
     }
 
     private static CicloBanco paraDominio(CicloBancoEntity e) {
-        return new CicloBanco(e.getId(), e.getDataInicio(), e.getDataFim(), e.getDataFimPrevista(),
+        return new CicloBanco(e.getId(), e.getUsuarioId(), e.getDataInicio(), e.getDataFim(), e.getDataFimPrevista(),
                 StatusCiclo.valueOf(e.getStatus()), e.getSaldoFinalSegundos(),
                 e.getFechadoEm() == null ? null : e.getFechadoEm().toInstant(), e.getFechadoPor(), e.getObservacao(),
                 e.getCriadoEm().toInstant());

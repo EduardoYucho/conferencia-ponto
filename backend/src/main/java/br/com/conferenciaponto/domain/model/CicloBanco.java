@@ -15,7 +15,7 @@ import java.util.UUID;
  * (a {@code dataFim} é só a previsão); ao ser FECHADO, o saldo exato fica congelado e o próximo ciclo
  * começa do zero no dia seguinte.
  */
-public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, LocalDate dataFimPrevista,
+public record CicloBanco(UUID id, UUID usuarioId, LocalDate dataInicio, LocalDate dataFim, LocalDate dataFimPrevista,
                          StatusCiclo status, Integer saldoFinalSegundos, Instant fechadoEm, String fechadoPor,
                          String observacao, Instant criadoEm) {
 
@@ -23,6 +23,7 @@ public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, Local
 
     public CicloBanco {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(status, "status");
         Objects.requireNonNull(criadoEm, "criadoEm");
         if (dataInicio == null || dataFim == null || dataFimPrevista == null) {
@@ -43,12 +44,12 @@ public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, Local
     }
 
     /** Abre um ciclo com a duração informada (ex.: 25/05/2026 + 6 meses = até 24/11/2026). */
-    public static CicloBanco abrir(LocalDate inicio, int duracaoMeses, Instant agora) {
+    public static CicloBanco abrir(UUID usuarioId, LocalDate inicio, int duracaoMeses, Instant agora) {
         if (duracaoMeses < 1 || duracaoMeses > 24) {
             throw new IllegalArgumentException("Duração do ciclo deve estar entre 1 e 24 meses");
         }
         LocalDate previsao = inicio.plusMonths(duracaoMeses).minusDays(1);
-        return new CicloBanco(UUID.randomUUID(), inicio, previsao, previsao, StatusCiclo.ABERTO, null, null, null,
+        return new CicloBanco(UUID.randomUUID(), usuarioId, inicio, previsao, previsao, StatusCiclo.ABERTO, null, null, null,
                 null, agora);
     }
 
@@ -71,7 +72,7 @@ public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, Local
             throw new RegraNegocioException("CICLO_FECHAMENTO_FUTURO",
                     "O fechamento não pode ser depois de hoje (%s).".formatted(DATA.format(hoje)));
         }
-        return new CicloBanco(id, dataInicio, ultimoDia, dataFimPrevista, StatusCiclo.FECHADO, saldoSegundos, agora,
+        return new CicloBanco(id, usuarioId, dataInicio, ultimoDia, dataFimPrevista, StatusCiclo.FECHADO, saldoSegundos, agora,
                 usuario, observacao, criadoEm);
     }
 
@@ -80,7 +81,7 @@ public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, Local
         if (isAberto()) {
             throw new ConflitoException("CICLO_JA_ABERTO", "Este ciclo já está aberto.");
         }
-        return new CicloBanco(id, dataInicio, dataFimPrevista, dataFimPrevista, StatusCiclo.ABERTO, null, null, null,
+        return new CicloBanco(id, usuarioId, dataInicio, dataFimPrevista, dataFimPrevista, StatusCiclo.ABERTO, null, null, null,
                 observacao, criadoEm);
     }
 
@@ -89,7 +90,7 @@ public record CicloBanco(UUID id, LocalDate dataInicio, LocalDate dataFim, Local
         if (!isAberto()) {
             throw new ConflitoException("CICLO_JA_FECHADO", "Só o ciclo aberto pode ter o período alterado.");
         }
-        return new CicloBanco(id, inicio, fimPrevisto, fimPrevisto, status, null, null, null, observacao, criadoEm);
+        return new CicloBanco(id, usuarioId, inicio, fimPrevisto, fimPrevisto, status, null, null, null, observacao, criadoEm);
     }
 
     /** Dias até a previsão de término (0 = termina hoje; negativo = já passou). */

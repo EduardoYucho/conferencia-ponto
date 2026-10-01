@@ -1,8 +1,8 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
-import br.com.conferenciaponto.domain.model.Ausencia;
 import br.com.conferenciaponto.domain.model.DiaRelatorioRh;
 import br.com.conferenciaponto.domain.model.Divergencia;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
@@ -36,6 +36,7 @@ import java.util.Arrays;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -45,6 +46,7 @@ class ConciliacaoUseCasesTest {
 
     private static final ZoneId SP = ZoneId.of("America/Sao_Paulo");
     private static final String USUARIO = "eduardo";
+    private static final UUID DONO = Fixtures.USUARIO;
 
     private final Clock clock = Clock.fixed(ZonedDateTime.of(2026, 9, 29, 10, 0, 0, 0, SP).toInstant(), SP);
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
@@ -69,17 +71,19 @@ class ConciliacaoUseCasesTest {
         }
     };
     private final ClassificadorDiaService classificador = new ClassificadorDiaService(feriados, ausenciasRepo);
+    private final RegrasJornada regras = Fixtures.regras(classificador);
     private final NotificacaoRepositoryEmMemoria notificacoesRepo = new NotificacaoRepositoryEmMemoria();
     private final NotificacoesUseCase notificacoes = new NotificacoesUseCase(notificacoesRepo, eventos::add, clock);
     private final ConferirConciliacaoUseCase conferir = new ConferirConciliacaoUseCase(relatorios, divergencias,
-            registros, classificador, new ComparadorConciliacaoService(), notificacoes, eventos::add, clock);
+            registros, UsuarioRepositoryEmMemoria.comTitular(), regras, new ComparadorConciliacaoService(), notificacoes,
+            eventos::add, clock);
     private RelatorioRhLido proximoLido;
     private final ImportarRelatorioRhUseCase importar =
             new ImportarRelatorioRhUseCase(pdf -> proximoLido, relatorios, conferir, eventos::add, clock);
     private final AjustarBatidasUseCase ajustar =
-            new AjustarBatidasUseCase(registros, arquivos, ajustes, classificador, motor, eventos::add, clock);
+            new AjustarBatidasUseCase(registros, arquivos, ajustes, regras, eventos::add, clock);
     private final GerenciarAusenciasUseCase ausencias =
-            new GerenciarAusenciasUseCase(ausenciasRepo, registros, classificador, motor, eventos::add, clock);
+            new GerenciarAusenciasUseCase(ausenciasRepo, registros, regras, eventos::add, clock);
     private final PlatformTransactionManager semTransacao = new PlatformTransactionManager() {
         @Override
         public TransactionStatus getTransaction(TransactionDefinition definicao) {
@@ -95,9 +99,9 @@ class ConciliacaoUseCasesTest {
         }
     };
     private final ResolverDivergenciaUseCase resolver = new ResolverDivergenciaUseCase(divergencias, relatorios,
-            registros, ajustar, ausencias, feriados, classificador, motor, conferir, eventos::add, semTransacao, clock);
+            registros, ajustar, ausencias, feriados, regras, conferir, eventos::add, semTransacao, clock);
     private final ConsultarConciliacaoUseCase consultar =
-            new ConsultarConciliacaoUseCase(relatorios, divergencias, registros, classificador, motor);
+            new ConsultarConciliacaoUseCase(relatorios, divergencias, registros, regras);
 
     private static LocalDate d(int dia) {
         return LocalDate.of(2026, 7, dia);
@@ -116,7 +120,7 @@ class ConciliacaoUseCasesTest {
     }
 
     private void local(int dia, String... horarios) {
-        RegistroJornada r = RegistroJornada.novo(d(dia), classificador.classificar(d(dia)));
+        RegistroJornada r = RegistroJornada.novo(DONO, d(dia), regras.classificar(DONO, d(dia)));
         for (LocalTime t : h(horarios)) {
             r.incluirBatida(t, motor);
         }
@@ -126,7 +130,7 @@ class ConciliacaoUseCasesTest {
     private RelatorioRh enviar(LocalDateTime emissao, List<DiaRelatorioRh> dias, byte[] conteudo) {
         proximoLido = new RelatorioRhLido("000042 - Teste", emissao, dias.get(0).data(), dias.get(dias.size() - 1).data(),
                 null, null, dias.stream().mapToInt(DiaRelatorioRh::saldoSegundos).sum(), dias);
-        RelatorioRh r = importar.receber("relatorio.pdf", conteudo, USUARIO);
+        RelatorioRh r = importar.receber(DONO, "relatorio.pdf", conteudo, USUARIO);
         conferir.processarRelatorio(r.id());
         return r;
     }
@@ -153,7 +157,7 @@ class ConciliacaoUseCasesTest {
     @Test
     @DisplayName("Conferência do relatório: uma divergência por dia diferente, nada é alterado sozinho")
     void conferencia() {
-        assertThat(divergencias.listar(StatusDivergencia.PENDENTE, null, null))
+        assertThat(divergencias.listar(DONO, StatusDivergencia.PENDENTE, null, null))
                 .extracting(Divergencia::data, Divergencia::tipo)
                 .containsExactly(
                         org.assertj.core.groups.Tuple.tuple(d(20), TipoDivergencia.SOMENTE_RH),
@@ -164,25 +168,25 @@ class ConciliacaoUseCasesTest {
                         org.assertj.core.groups.Tuple.tuple(d(28), TipoDivergencia.HORARIO_DIFERENTE),
                         org.assertj.core.groups.Tuple.tuple(d(31), TipoDivergencia.SOMENTE_RH));
         assertThat(registros.quantidade()).isEqualTo(3);
-        assertThat(relatorios.listar()).singleElement().satisfies(r -> {
+        assertThat(relatorios.listar(DONO)).singleElement().satisfies(r -> {
             assertThat(r.status()).isEqualTo(StatusRelatorioRh.CONCLUIDO);
             assertThat(r.divergencias()).isEqualTo(7);
         });
-        assertThat(notificacoesRepo.listarRecentes(5)).singleElement()
+        assertThat(notificacoesRepo.listarRecentes(DONO, 5)).singleElement()
                 .satisfies(n -> assertThat(n.titulo()).isEqualTo("Relatório do RH: 7 divergência(s)"));
-        assertThatThrownBy(() -> importar.receber("de-novo.pdf", new byte[]{1}, USUARIO))
+        assertThatThrownBy(() -> importar.receber(DONO, "de-novo.pdf", new byte[]{1}, USUARIO))
                 .isInstanceOf(ConflitoException.class).hasMessageContaining("já foi enviado");
     }
 
     @Test
     @DisplayName("Aceite em lote: histórico só do RH, feriado e férias (o período inteiro de uma vez)")
     void aceiteEmLote() {
-        ResolverDivergenciaUseCase.ResultadoLote r = resolver.aceitarEmLote(
+        ResolverDivergenciaUseCase.ResultadoLote r = resolver.aceitarEmLote(DONO, 
                 Set.of(TipoDivergencia.SOMENTE_RH, TipoDivergencia.TIPO_DIA), null, null, USUARIO);
 
         assertThat(r.falhas()).isEmpty();
         assertThat(r.aceitas()).isEqualTo(4); // 20, 23, 24 (leva 25 a 27 junto) e 31
-        assertThat(registros.buscarPorData(d(20)).orElseThrow().getHorariosAjustados()).isEmpty();
+        assertThat(registros.buscarPorData(DONO, d(20)).orElseThrow().getHorariosAjustados()).isEmpty();
         assertThat(datasFeriado).containsExactly(d(23));
         assertThat(ausenciasRepo.todas()).singleElement().satisfies(a -> {
             assertThat(a.tipo()).isEqualTo(TipoAusencia.FERIAS);
@@ -191,40 +195,40 @@ class ConciliacaoUseCasesTest {
         });
         assertThat(divergencia(27).status()).isEqualTo(StatusDivergencia.RESOLVIDA);
         assertThat(divergencia(27).observacao()).contains("Aceito junto com 24/07");
-        assertThat(divergencias.listar(StatusDivergencia.PENDENTE, null, null)).extracting(Divergencia::data)
+        assertThat(divergencias.listar(DONO, StatusDivergencia.PENDENTE, null, null)).extracting(Divergencia::data)
                 .containsExactly(d(21), d(28));
     }
 
     @Test
     @DisplayName("Aceitar a batida que o RH corrigiu: o dia fecha igual ao RH e só a batida nova fica marcada")
     void aceitarBatidaFaltando() {
-        Divergencia aceita = resolver.aceitarRh(divergencia(21).id(), USUARIO);
+        Divergencia aceita = resolver.aceitarRh(DONO, divergencia(21).id(), USUARIO);
 
         assertThat(aceita.status()).isEqualTo(StatusDivergencia.ACEITO_RH);
-        RegistroJornada dia = registros.buscarPorData(d(21)).orElseThrow();
+        RegistroJornada dia = registros.buscarPorData(DONO, d(21)).orElseThrow();
         assertThat(dia.getSaldoDiarioSegundos()).isZero();
         assertThat(dia.getHorariosAjustados()).containsExactly(LocalTime.of(13, 0));
-        assertThat(ajustes.listarPorData(d(21))).singleElement()
+        assertThat(ajustes.listarPorData(DONO, d(21))).singleElement()
                 .satisfies(a -> assertThat(a.justificativa()).contains("relatório do RH emitido em 17/08/2026"));
-        assertThatThrownBy(() -> resolver.aceitarRh(aceita.id(), USUARIO)).isInstanceOf(ConflitoException.class);
+        assertThatThrownBy(() -> resolver.aceitarRh(DONO, aceita.id(), USUARIO)).isInstanceOf(ConflitoException.class);
     }
 
     @Test
     @DisplayName("Manter dados locais vale enquanto a situação não muda; se o dia mudar, volta a ficar pendente")
     void manterEReabrir() {
-        Divergencia mantida = resolver.manterLocal(divergencia(28).id(), "Vou conferir com o RH", USUARIO);
+        Divergencia mantida = resolver.manterLocal(DONO, divergencia(28).id(), "Vou conferir com o RH", USUARIO);
         assertThat(mantida.status()).isEqualTo(StatusDivergencia.MANTIDO_LOCAL);
 
         conferir.conferirTudo();
         assertThat(divergencia(28).status()).isEqualTo(StatusDivergencia.MANTIDO_LOCAL);
 
-        ajustar.executar(d(28), h("08:00:00", "12:05:00", "13:00:00", "17:48:00"), "Corrigido pelo RH", USUARIO);
-        conferir.conferirDatas(Set.of(d(28)), "após ajuste");
+        ajustar.executar(DONO, d(28), h("08:00:00", "12:05:00", "13:00:00", "17:48:00"), "Corrigido pelo RH", USUARIO);
+        conferir.conferirDatas(DONO, Set.of(d(28)), "após ajuste");
         assertThat(divergencia(28).status()).isEqualTo(StatusDivergencia.PENDENTE);
         assertThat(divergencia(28).descricao()).contains("12:05:00");
 
-        ajustar.executar(d(28), h("08:00:00", "12:00:00", "13:00:00", "17:48:00"), "Corrigido pelo RH", USUARIO);
-        conferir.conferirDatas(Set.of(d(28)), "Igual ao RH após ajuste manual");
+        ajustar.executar(DONO, d(28), h("08:00:00", "12:00:00", "13:00:00", "17:48:00"), "Corrigido pelo RH", USUARIO);
+        conferir.conferirDatas(DONO, Set.of(d(28)), "Igual ao RH após ajuste manual");
         assertThat(divergencia(28).status()).isEqualTo(StatusDivergencia.RESOLVIDA);
         assertThat(divergencia(28).observacao()).isEqualTo("Igual ao RH após ajuste manual");
     }
@@ -235,7 +239,7 @@ class ConciliacaoUseCasesTest {
         enviar(LocalDateTime.of(2026, 8, 18, 9, 0), List.of(
                 util(29, 61, "08:04:59", "12:00:20", "13:02:49", "17:49:01", "17:49:46")), new byte[]{2});
 
-        assertThatThrownBy(() -> resolver.aceitarRh(divergencia(29).id(), USUARIO))
+        assertThatThrownBy(() -> resolver.aceitarRh(DONO, divergencia(29).id(), USUARIO))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("ímpar");
     }
 
@@ -246,7 +250,7 @@ class ConciliacaoUseCasesTest {
                 List.of(util(28, 600, "08:00:00", "12:10:00", "13:00:00", "17:48:00")), new byte[]{3});
         assertThat(divergencia(28).status()).isEqualTo(StatusDivergencia.RESOLVIDA); // o RH corrigiu e agora bate
 
-        importar.excluir(novo.id());
+        importar.excluir(DONO, novo.id());
         assertThat(divergencia(28).status()).isEqualTo(StatusDivergencia.PENDENTE);
         assertThat(divergencia(28).relatorioId()).isNotEqualTo(novo.id());
     }
@@ -254,14 +258,14 @@ class ConciliacaoUseCasesTest {
     @Test
     @DisplayName("Tela dividida: conferência atual à esquerda, RH à direita; resumo compara os saldos do período")
     void consulta() {
-        var views = consultar.divergencias(StatusDivergencia.PENDENTE, d(21), d(21));
+        var views = consultar.divergencias(DONO, StatusDivergencia.PENDENTE, d(21), d(21));
         assertThat(views).singleElement().satisfies(v -> {
             assertThat(v.local().marcacoes().stream().filter(m -> m.real() != null)).hasSize(3);
             assertThat(v.rh().horarios()).hasSize(4);
             assertThat(v.tipoDiaLocal()).isEqualTo(TipoDia.UTIL);
         });
-        resolver.aceitarEmLote(Set.of(TipoDivergencia.values()), null, null, USUARIO);
-        var comparativo = consultar.resumo().relatorios().get(0);
+        resolver.aceitarEmLote(DONO, Set.of(TipoDivergencia.values()), null, null, USUARIO);
+        var comparativo = consultar.resumo(DONO).relatorios().get(0);
         assertThat(comparativo.saldoRhSegundos()).isZero();
         assertThat(comparativo.diasConferidos()).isEqualTo(10);
     }

@@ -18,7 +18,8 @@ public record RegistroJornadaResponse(
         List<MarcacaoResponse> batidas,
         int jornadaPrevistaSegundos,
         int segundosTrabalhados,
-        Integer saldoDiarioSegundos) {
+        Integer saldoDiarioSegundos,
+        List<ConfiguracaoResponse.Periodo> grade) {
 
     public static RegistroJornadaResponse de(RegistroJornadaView v) {
         return new RegistroJornadaResponse(
@@ -33,6 +34,7 @@ public record RegistroJornadaResponse(
                         .toList(),
                 v.jornadaPrevistaSegundos(),
                 v.segundosTrabalhados(),
-                v.saldoDiarioSegundos());
+                v.saldoDiarioSegundos(),
+                ConfiguracaoResponse.Periodo.de(v.grade()));
     }
 }

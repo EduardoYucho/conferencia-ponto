@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Avisa que o banco de horas está perto do fechamento previsto: 30 e 15 dias antes e depois que a
@@ -35,10 +36,10 @@ public class VerificarPrazoCicloUseCase {
     }
 
     @Transactional
-    public Optional<Notificacao> executar(LocalDate hoje) {
-        CicloBancoView view = ciclos.atual();
+    public Optional<Notificacao> executar(UUID usuarioId, LocalDate hoje) {
+        CicloBancoView view = ciclos.atual(usuarioId);
         CicloBanco ciclo = view.ciclo();
-        notificacoes.arquivarAvisosDeCicloExceto(":%s:%s".formatted(ciclo.id(), ciclo.dataFimPrevista()));
+        notificacoes.arquivarAvisosDeCicloExceto(usuarioId, ":%s:%s".formatted(ciclo.id(), ciclo.dataFimPrevista()));
         long dias = ciclo.diasAtePrevisao(hoje);
         String previsao = DATA.format(ciclo.dataFimPrevista());
         String saldo = TextoDuracao.saldo(view.saldoSegundos());
@@ -63,6 +64,6 @@ public class VerificarPrazoCicloUseCase {
             return Optional.empty();
         }
         String chave = "%s:%s:%s".formatted(tipo, ciclo.id(), ciclo.dataFimPrevista());
-        return notificacoes.notificar(tipo, chave, titulo, mensagem, "/");
+        return notificacoes.notificar(usuarioId, tipo, chave, titulo, mensagem, "/");
     }
 }

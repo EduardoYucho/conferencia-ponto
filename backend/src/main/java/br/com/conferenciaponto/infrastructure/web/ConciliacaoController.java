@@ -5,6 +5,7 @@ import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ImportarRelatorioRhUseCase;
 import br.com.conferenciaponto.application.usecase.ResolverDivergenciaUseCase;
 import br.com.conferenciaponto.domain.model.StatusDivergencia;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.AceiteLoteRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.AceiteLoteResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
@@ -29,7 +30,6 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.security.Principal;
 import java.time.LocalDate;
 import java.util.List;
 import java.util.UUID;
@@ -68,66 +68,68 @@ public class ConciliacaoController {
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     @ResponseStatus(HttpStatus.ACCEPTED)
-    public ApiResponse<RelatorioRhResponse> enviar(@RequestPart("arquivo") MultipartFile arquivo, Principal usuario)
+    public ApiResponse<RelatorioRhResponse> enviar(@RequestPart("arquivo") MultipartFile arquivo, Titular titular)
             throws IOException {
-        return ApiResponse.ok(RelatorioRhResponse.de(
-                importar.receber(arquivo.getOriginalFilename(), arquivo.getBytes(), usuario.getName())));
+        return ApiResponse.ok(RelatorioRhResponse.de(importar.receber(titular.id(), arquivo.getOriginalFilename(),
+                arquivo.getBytes(), titular.quem())));
     }
 
     @GetMapping("/resumo")
-    public ApiResponse<ConciliacaoResumoResponse> resumo() {
-        return ApiResponse.ok(ConciliacaoResumoResponse.de(consultar.resumo()));
+    public ApiResponse<ConciliacaoResumoResponse> resumo(Titular titular) {
+        return ApiResponse.ok(ConciliacaoResumoResponse.de(consultar.resumo(titular.id())));
     }
 
     @GetMapping("/divergencias")
     public ApiResponse<List<DivergenciaResponse>> divergencias(
             @RequestParam(defaultValue = "PENDENTE") String status,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
-            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim) {
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim,
+            Titular titular) {
         StatusDivergencia filtro = "TODAS".equalsIgnoreCase(status) ? null : StatusDivergencia.valueOf(status.toUpperCase());
-        return ApiResponse.ok(consultar.divergencias(filtro, inicio, fim).stream().map(DivergenciaResponse::de).toList());
+        return ApiResponse.ok(consultar.divergencias(titular.id(), filtro, inicio, fim).stream()
+                .map(DivergenciaResponse::de).toList());
     }
 
     @PostMapping("/divergencias/{id}/aceitar")
-    public ApiResponse<DivergenciaResponse> aceitar(@PathVariable UUID id, Principal usuario) {
-        resolver.aceitarRh(id, usuario.getName());
-        return ApiResponse.ok(uma(id));
+    public ApiResponse<DivergenciaResponse> aceitar(@PathVariable UUID id, Titular titular) {
+        resolver.aceitarRh(titular.id(), id, titular.quem());
+        return ApiResponse.ok(uma(titular, id));
     }
 
     @PostMapping("/divergencias/{id}/manter")
     public ApiResponse<DivergenciaResponse> manter(@PathVariable UUID id,
                                                    @Valid @RequestBody(required = false) ManterLocalRequest r,
-                                                   Principal usuario) {
-        resolver.manterLocal(id, r == null ? null : r.observacao(), usuario.getName());
-        return ApiResponse.ok(uma(id));
+                                                   Titular titular) {
+        resolver.manterLocal(titular.id(), id, r == null ? null : r.observacao(), titular.quem());
+        return ApiResponse.ok(uma(titular, id));
     }
 
     @PostMapping("/divergencias/{id}/reabrir")
-    public ApiResponse<DivergenciaResponse> reabrir(@PathVariable UUID id) {
-        resolver.reabrir(id);
-        return ApiResponse.ok(uma(id));
+    public ApiResponse<DivergenciaResponse> reabrir(@PathVariable UUID id, Titular titular) {
+        resolver.reabrir(titular.id(), id);
+        return ApiResponse.ok(uma(titular, id));
     }
 
     @PostMapping("/divergencias/aceitar-lote")
-    public ApiResponse<AceiteLoteResponse> aceitarLote(@Valid @RequestBody AceiteLoteRequest r, Principal usuario) {
-        return ApiResponse.ok(AceiteLoteResponse.de(resolver.aceitarEmLote(r.tipos(), r.inicio(), r.fim(),
-                usuario.getName())));
+    public ApiResponse<AceiteLoteResponse> aceitarLote(@Valid @RequestBody AceiteLoteRequest r, Titular titular) {
+        return ApiResponse.ok(AceiteLoteResponse.de(resolver.aceitarEmLote(titular.id(), r.tipos(), r.inicio(),
+                r.fim(), titular.quem())));
     }
 
     @PostMapping("/reconferir")
-    public ApiResponse<ConciliacaoResumoResponse> reconferir() {
-        conferir.conferirTudo();
-        return ApiResponse.ok(ConciliacaoResumoResponse.de(consultar.resumo()));
+    public ApiResponse<ConciliacaoResumoResponse> reconferir(Titular titular) {
+        conferir.conferirTudo(titular.id());
+        return ApiResponse.ok(ConciliacaoResumoResponse.de(consultar.resumo(titular.id())));
     }
 
     @DeleteMapping("/relatorios/{id}")
-    public ApiResponse<Void> excluirRelatorio(@PathVariable UUID id) {
-        importar.excluir(id);
+    public ApiResponse<Void> excluirRelatorio(@PathVariable UUID id, Titular titular) {
+        importar.excluir(titular.id(), id);
         return ApiResponse.ok(null);
     }
 
-    private DivergenciaResponse uma(UUID id) {
-        return consultar.divergencias(null, null, null).stream()
+    private DivergenciaResponse uma(Titular titular, UUID id) {
+        return consultar.divergencias(titular.id(), null, null, null).stream()
                 .filter(v -> v.divergencia().id().equals(id))
                 .findFirst().map(DivergenciaResponse::de).orElse(null);
     }

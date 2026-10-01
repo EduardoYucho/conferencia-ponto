@@ -17,10 +17,10 @@ public interface RelatorioRhRepository {
 
     Optional<RelatorioRh> buscarPorId(UUID id);
 
-    Optional<RelatorioRh> buscarPorHash(String hashSha256);
+    Optional<RelatorioRh> buscarPorHash(UUID usuarioId, String hashSha256);
 
     /** Do mais recente (emissão) para o mais antigo. */
-    List<RelatorioRh> listar();
+    List<RelatorioRh> listar(UUID usuarioId);
 
     void excluir(UUID id);
 
@@ -37,8 +37,8 @@ public interface RelatorioRhRepository {
      * Para cada data do período, o dia do relatório mais recente (pela emissão) que a contém — é o que
      * vale para a conciliação. Relatórios com erro ficam de fora.
      */
-    List<DiaVigente> vigentes(LocalDate inicio, LocalDate fim);
+    List<DiaVigente> vigentes(UUID usuarioId, LocalDate inicio, LocalDate fim);
 
     /** Primeira e última data cobertas por algum relatório (vazio se não houver relatórios). */
-    Optional<Abrangencia> abrangencia();
+    Optional<Abrangencia> abrangencia(UUID usuarioId);
 }

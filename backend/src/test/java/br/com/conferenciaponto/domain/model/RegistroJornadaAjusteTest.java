@@ -24,7 +24,7 @@ class RegistroJornadaAjusteTest {
 
     /** 24/06: faltou a saída do almoço; a importação deixou 12:58 como Saída 1 e o dia "em andamento". */
     private RegistroJornada diaComBatidaFaltando() {
-        RegistroJornada registro = RegistroJornada.novo(LocalDate.of(2026, 6, 24), TipoDia.UTIL);
+        RegistroJornada registro = RegistroJornada.novo(java.util.UUID.randomUUID(), LocalDate.of(2026, 6, 24), TipoDia.UTIL);
         registro.incluirBatida(t("08:05:53"), motor);
         registro.incluirBatida(t("12:58:33"), motor);
         registro.incluirBatida(t("18:03:22"), motor);

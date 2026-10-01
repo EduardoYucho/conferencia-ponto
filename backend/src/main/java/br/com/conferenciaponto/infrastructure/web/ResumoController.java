@@ -1,13 +1,17 @@
 package br.com.conferenciaponto.infrastructure.web;
 
-import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
-import br.com.conferenciaponto.application.view.CicloBancoView;
-import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
+import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
+import br.com.conferenciaponto.application.view.CicloBancoView;
+import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.GradeHoraria;
+import br.com.conferenciaponto.domain.model.HorarioTrabalho;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ConfiguracaoResponse;
+import br.com.conferenciaponto.infrastructure.web.dto.HorarioResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.SaldosResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,7 +25,7 @@ import java.time.temporal.ChronoUnit;
 /**
  * <pre>
  * GET /api/v1/saldos?ano=2026&mes=9   saldo mensal, anual acumulado, série dos 12 meses e ciclo aberto do banco
- * GET /api/v1/configuracao            grade oficial, tolerância, jornada base e relógio do servidor
+ * GET /api/v1/configuracao            horário do usuário (grade, tolerância, jornada base) e relógio do servidor
  * </pre>
  */
 @RestController
@@ -30,39 +34,45 @@ public class ResumoController {
 
     private final ConsultarJornadaUseCase consultar;
     private final GerenciarCicloBancoUseCase ciclos;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regras;
     private final Clock clock;
 
     public ResumoController(ConsultarJornadaUseCase consultar, GerenciarCicloBancoUseCase ciclos,
-                            MotorCalculoJornadaService motor, Clock clock) {
+                            RegrasJornada regras, Clock clock) {
         this.consultar = consultar;
         this.ciclos = ciclos;
-        this.motor = motor;
+        this.regras = regras;
         this.clock = clock;
     }
 
     @GetMapping("/saldos")
     public ApiResponse<SaldosResponse> saldos(@RequestParam(required = false) Integer ano,
-                                              @RequestParam(required = false) Integer mes) {
+                                              @RequestParam(required = false) Integer mes, Titular titular) {
         CicloBancoView ciclo;
         try {
-            ciclo = ciclos.atual();
+            ciclo = ciclos.atual(titular.id());
         } catch (RecursoNaoEncontradoException semCiclo) {
             ciclo = null;
         }
-        return ApiResponse.ok(SaldosResponse.de(consultar.saldos(ReferenciaMes.resolver(ano, mes, clock)), ciclo));
+        return ApiResponse.ok(SaldosResponse.de(
+                consultar.saldos(titular.id(), ReferenciaMes.resolver(ano, mes, clock)), ciclo));
     }
 
+    /** Horário do titular que vale hoje (a grade de hoje ou, num dia sem expediente, a do primeiro dia útil). */
     @GetMapping("/configuracao")
-    public ApiResponse<ConfiguracaoResponse> configuracao() {
-        GradeHoraria g = motor.grade();
+    public ApiResponse<ConfiguracaoResponse> configuracao(Titular titular) {
         LocalDateTime agora = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
+        HorarioTrabalho horario = regras.horario(titular.id(), agora.toLocalDate());
+        MotorCalculoJornadaService motor = horario.motor(agora.toLocalDate());
+        GradeHoraria g = motor.grade();
         return ApiResponse.ok(new ConfiguracaoResponse(
-                new ConfiguracaoResponse.Grade(g.entrada1(), g.saida1(), g.entrada2(), g.saida2()),
-                motor.jornadaBaseSegundos(),
+                ConfiguracaoResponse.Grade.de(g),
+                ConfiguracaoResponse.Periodo.de(g.periodos()),
+                g.cargaHorariaSegundos(),
                 motor.toleranciaMinutos(),
                 clock.getZone().getId(),
                 agora.toLocalDate(),
-                agora.toLocalTime()));
+                agora.toLocalTime(),
+                HorarioResponse.de(horario)));
     }
 }

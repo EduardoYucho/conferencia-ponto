@@ -17,6 +17,9 @@ public class CicloBancoEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "data_inicio", nullable = false)
     private LocalDate dataInicio;
 
@@ -71,4 +74,12 @@ public class CicloBancoEntity {
     public void setObservacao(String v) { this.observacao = v; }
     public OffsetDateTime getCriadoEm() { return criadoEm; }
     public void setCriadoEm(OffsetDateTime v) { this.criadoEm = v; }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
+    }
 }

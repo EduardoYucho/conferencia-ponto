@@ -12,7 +12,7 @@ import java.util.UUID;
  *
  * @param emitidoEm quando o RH gerou o relatório: dias a partir dessa data não são conferidos (parciais)
  */
-public record RelatorioRh(UUID id, String nomeArquivo, String hashSha256, String funcionario, LocalDateTime emitidoEm,
+public record RelatorioRh(UUID id, UUID usuarioId, String nomeArquivo, String hashSha256, String funcionario, LocalDateTime emitidoEm,
                           LocalDate periodoInicio, LocalDate periodoFim, Integer totalPrevistoSegundos,
                           Integer totalTrabalhadoSegundos, Integer totalSaldoSegundos, int diasLidos,
                           StatusRelatorioRh status, String mensagem, int divergencias, Instant enviadoEm,
@@ -20,6 +20,7 @@ public record RelatorioRh(UUID id, String nomeArquivo, String hashSha256, String
 
     public RelatorioRh {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(nomeArquivo, "nomeArquivo");
         Objects.requireNonNull(hashSha256, "hashSha256");
         Objects.requireNonNull(emitidoEm, "emitidoEm");
@@ -30,13 +31,13 @@ public record RelatorioRh(UUID id, String nomeArquivo, String hashSha256, String
     }
 
     public RelatorioRh concluido(int divergenciasEncontradas, Instant quando) {
-        return new RelatorioRh(id, nomeArquivo, hashSha256, funcionario, emitidoEm, periodoInicio, periodoFim,
+        return new RelatorioRh(id, usuarioId, nomeArquivo, hashSha256, funcionario, emitidoEm, periodoInicio, periodoFim,
                 totalPrevistoSegundos, totalTrabalhadoSegundos, totalSaldoSegundos, diasLidos,
                 StatusRelatorioRh.CONCLUIDO, null, divergenciasEncontradas, enviadoEm, enviadoPor, quando);
     }
 
     public RelatorioRh comErro(String erro, Instant quando) {
-        return new RelatorioRh(id, nomeArquivo, hashSha256, funcionario, emitidoEm, periodoInicio, periodoFim,
+        return new RelatorioRh(id, usuarioId, nomeArquivo, hashSha256, funcionario, emitidoEm, periodoInicio, periodoFim,
                 totalPrevistoSegundos, totalTrabalhadoSegundos, totalSaldoSegundos, diasLidos, StatusRelatorioRh.ERRO,
                 erro, divergencias, enviadoEm, enviadoPor, quando);
     }

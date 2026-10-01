@@ -25,6 +25,7 @@ import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.List;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -60,7 +61,7 @@ class GerenciarCicloBancoUseCaseTest {
 
     /** Dia útil fechado com o saldo desejado (entrada às 08:00 e saída ajustada). */
     private void dia(LocalDate data, int saldoSegundos) {
-        RegistroJornada r = RegistroJornada.novo(data, TipoDia.UTIL);
+        RegistroJornada r = RegistroJornada.novo(USUARIO, data, TipoDia.UTIL);
         LocalTime saida = LocalTime.of(17, 48).plusSeconds(saldoSegundos);
         for (LocalTime t : List.of(LocalTime.of(8, 0), LocalTime.of(12, 0), LocalTime.of(13, 0), saida)) {
             r.incluirBatida(t, motor);
@@ -71,7 +72,7 @@ class GerenciarCicloBancoUseCaseTest {
 
     @BeforeEach
     void cicloInicial() {
-        CicloBanco aberto = useCase().garantirCicloAberto();
+        CicloBanco aberto = useCase().garantirCicloAberto(USUARIO);
         assertThat(aberto.dataInicio()).isEqualTo(INICIO);
         assertThat(aberto.dataFimPrevista()).isEqualTo(LocalDate.of(2026, 11, 24));
         dia(LocalDate.of(2026, 5, 22), 7_200);  // ciclo anterior: não entra
@@ -84,7 +85,7 @@ class GerenciarCicloBancoUseCaseTest {
     @Test
     @DisplayName("Saldo do ciclo aberto soma só os dias desde o início do ciclo, mês a mês")
     void saldoDoCicloAberto() {
-        CicloBancoView v = useCase().atual();
+        CicloBancoView v = useCase().atual(USUARIO);
 
         assertThat(v.saldoSegundos()).isEqualTo(600 - 1_000 + 1_800 + 3_600);
         assertThat(v.diasAtePrevisao()).isEqualTo(56);
@@ -97,9 +98,9 @@ class GerenciarCicloBancoUseCaseTest {
     @Test
     @DisplayName("Lançamento negativo no banco abate do ciclo (num sábado sem registro também) e entra no mês")
     void lancamentoAbateDoCiclo() {
-        lancamentosUseCase().lancar(LocalDate.of(2026, 9, 26), -4 * 3600, "Compensação de horas", "eduardo");
+        lancamentosUseCase().lancar(USUARIO, LocalDate.of(2026, 9, 26), -4 * 3600, "Compensação de horas", "eduardo");
 
-        CicloBancoView v = useCase().atual();
+        CicloBancoView v = useCase().atual(USUARIO);
         assertThat(v.saldoSegundos()).isEqualTo(5_000 - 14_400);
         SaldoMensal setembro = v.meses().get(4);
         assertThat(setembro.mes()).isEqualTo(9);
@@ -108,7 +109,7 @@ class GerenciarCicloBancoUseCaseTest {
         assertThat(setembro.diasRegistrados()).isEqualTo(2); // o lançamento não vira "dia registrado"
 
         // o fechamento leva o lançamento junto
-        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(LocalDate.of(2026, 9, 28), null, "eduardo");
+        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(USUARIO, LocalDate.of(2026, 9, 28), null, "eduardo");
         assertThat(f.fechado().saldoSegundos()).isEqualTo(600 - 1_000 + 1_800 - 14_400);
         assertThat(f.novo().saldoSegundos()).isEqualTo(3_600);
     }
@@ -116,7 +117,7 @@ class GerenciarCicloBancoUseCaseTest {
     @Test
     @DisplayName("Fechar: congela o saldo exato até o último dia e recomeça do zero no dia seguinte")
     void fecharRecomecaContagem() {
-        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(null, "Zerado pelo RH", "eduardo");
+        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(USUARIO, null, "Zerado pelo RH", "eduardo");
 
         assertThat(f.fechado().ciclo().status()).isEqualTo(StatusCiclo.FECHADO);
         assertThat(f.fechado().ciclo().dataFim()).isEqualTo(LocalDate.of(2026, 9, 28));
@@ -129,7 +130,7 @@ class GerenciarCicloBancoUseCaseTest {
 
         // o saldo do fechado não muda mais, mesmo que um dia antigo seja alterado depois
         dia(LocalDate.of(2026, 6, 11), 999);
-        assertThat(useCase().listar()).extracting(CicloBancoView::saldoSegundos).containsExactly(3_600, 1_400);
+        assertThat(useCase().listar(USUARIO)).extracting(CicloBancoView::saldoSegundos).containsExactly(3_600, 1_400);
     }
 
     @Test
@@ -138,7 +139,7 @@ class GerenciarCicloBancoUseCaseTest {
         hoje = LocalDate.of(2026, 11, 30);
         dia(LocalDate.of(2026, 11, 25), 900);
 
-        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(null, null, "eduardo");
+        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(USUARIO, null, null, "eduardo");
 
         assertThat(f.fechado().ciclo().dataFim()).isEqualTo(LocalDate.of(2026, 11, 24));
         assertThat(f.fechado().saldoSegundos()).isEqualTo(600 - 1_000 + 1_800 + 3_600);
@@ -149,65 +150,65 @@ class GerenciarCicloBancoUseCaseTest {
     @Test
     @DisplayName("Fechamento antes do início ou no futuro é recusado; clique duplo não fecha o ciclo novo")
     void validacoesDoFechamento() {
-        assertThatThrownBy(() -> useCase().fechar(LocalDate.of(2026, 5, 24), null, "eduardo"))
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, LocalDate.of(2026, 5, 24), null, "eduardo"))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("começou em 25/05/2026");
-        assertThatThrownBy(() -> useCase().fechar(LocalDate.of(2026, 9, 30), null, "eduardo"))
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, LocalDate.of(2026, 9, 30), null, "eduardo"))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("depois de hoje");
 
-        useCase().fechar(LocalDate.of(2026, 9, 28), null, "eduardo");
-        assertThatThrownBy(() -> useCase().fechar(LocalDate.of(2026, 9, 28), null, "eduardo"))
+        useCase().fechar(USUARIO, LocalDate.of(2026, 9, 28), null, "eduardo");
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, LocalDate.of(2026, 9, 28), null, "eduardo"))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("começou em 29/09/2026");
-        assertThatThrownBy(() -> useCase().fechar(null, null, "eduardo"))
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, null, null, "eduardo"))
                 .isInstanceOf(ConflitoException.class).hasMessageContaining("ainda não há dias para fechar");
     }
 
     @Test
     @DisplayName("Desfazer o fechamento devolve o ciclo anterior aberto, com a previsão original")
     void desfazer() {
-        useCase().fechar(null, null, "eduardo");
+        useCase().fechar(USUARIO, null, null, "eduardo");
 
-        CicloBancoView reaberto = useCase().desfazerUltimoFechamento();
+        CicloBancoView reaberto = useCase().desfazerUltimoFechamento(USUARIO);
 
         assertThat(reaberto.ciclo().isAberto()).isTrue();
         assertThat(reaberto.ciclo().dataInicio()).isEqualTo(INICIO);
         assertThat(reaberto.ciclo().dataFimPrevista()).isEqualTo(LocalDate.of(2026, 11, 24));
         assertThat(reaberto.saldoSegundos()).isEqualTo(5_000);
-        assertThat(ciclos.listar()).hasSize(1);
-        assertThatThrownBy(() -> useCase().desfazerUltimoFechamento()).isInstanceOf(ConflitoException.class);
+        assertThat(ciclos.listar(USUARIO)).hasSize(1);
+        assertThatThrownBy(() -> useCase().desfazerUltimoFechamento(USUARIO)).isInstanceOf(ConflitoException.class);
     }
 
     @Test
     @DisplayName("Corrigir o início: recalcula a previsão e não pode invadir o ciclo anterior")
     void corrigirPeriodo() {
-        CicloBancoView v = useCase().corrigirPeriodo(LocalDate.of(2026, 5, 22), null);
+        CicloBancoView v = useCase().corrigirPeriodo(USUARIO, LocalDate.of(2026, 5, 22), null);
         assertThat(v.ciclo().dataFimPrevista()).isEqualTo(LocalDate.of(2026, 11, 21));
         assertThat(v.saldoSegundos()).isEqualTo(7_200 + 5_000);
 
-        useCase().fechar(LocalDate.of(2026, 6, 30), null, "eduardo");
-        assertThatThrownBy(() -> useCase().corrigirPeriodo(LocalDate.of(2026, 6, 30), null))
+        useCase().fechar(USUARIO, LocalDate.of(2026, 6, 30), null, "eduardo");
+        assertThatThrownBy(() -> useCase().corrigirPeriodo(USUARIO, LocalDate.of(2026, 6, 30), null))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("a partir de 01/07/2026");
     }
 
     @Test
     @DisplayName("Avisos: 30 dias, 15 dias e previsão vencida — cada um uma única vez")
     void avisosDePrazo() {
-        assertThat(alertas().executar(LocalDate.of(2026, 10, 24))).isEmpty(); // 31 dias
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 10, 24))).isEmpty(); // 31 dias
 
-        assertThat(alertas().executar(LocalDate.of(2026, 10, 25))).hasValueSatisfying(n -> {
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 10, 25))).hasValueSatisfying(n -> {
             assertThat(n.tipo()).isEqualTo(TipoNotificacao.CICLO_30_DIAS);
             assertThat(n.titulo()).isEqualTo("Faltam 30 dias para o fechamento do banco");
             assertThat(n.mensagem()).contains("24/11/2026").contains("+01:23:20");
         });
-        assertThat(alertas().executar(LocalDate.of(2026, 10, 26))).isEmpty();          // já avisado
-        assertThat(alertas().executar(LocalDate.of(2026, 11, 12))).hasValueSatisfying(n ->
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 10, 26))).isEmpty();          // já avisado
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 11, 12))).hasValueSatisfying(n ->
                 assertThat(n.tipo()).isEqualTo(TipoNotificacao.CICLO_15_DIAS));          // perdeu o dia 09: avisa no 12
-        assertThat(alertas().executar(LocalDate.of(2026, 11, 25))).hasValueSatisfying(n ->
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 11, 25))).hasValueSatisfying(n ->
                 assertThat(n.tipo()).isEqualTo(TipoNotificacao.CICLO_VENCIDO));
-        assertThat(notificacoesRepo.contarNaoLidas()).isEqualTo(3);
+        assertThat(notificacoesRepo.contarNaoLidas(USUARIO)).isEqualTo(3);
 
         hoje = LocalDate.of(2026, 11, 26);
-        useCase().fechar(null, null, "eduardo");
-        assertThat(alertas().executar(LocalDate.of(2026, 11, 26))).isEmpty();           // ciclo novo, longe do prazo
-        assertThat(notificacoesRepo.contarNaoLidas()).isZero();                         // avisos do ciclo fechado arquivados
+        useCase().fechar(USUARIO, null, null, "eduardo");
+        assertThat(alertas().executar(USUARIO, LocalDate.of(2026, 11, 26))).isEmpty();           // ciclo novo, longe do prazo
+        assertThat(notificacoesRepo.contarNaoLidas(USUARIO)).isZero();                         // avisos do ciclo fechado arquivados
     }
 }

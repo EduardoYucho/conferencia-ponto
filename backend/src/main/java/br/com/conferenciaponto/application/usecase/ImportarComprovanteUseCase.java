@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.ComprovanteNaoImportadoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
@@ -15,7 +16,6 @@ import br.com.conferenciaponto.domain.port.ArmazenamentoComprovantes;
 import br.com.conferenciaponto.domain.port.ComprovanteArquivadoRepository;
 import br.com.conferenciaponto.domain.port.ComprovantePontoRepository;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
-import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -25,6 +25,7 @@ import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.time.format.DateTimeFormatter;
@@ -59,21 +60,18 @@ public class ImportarComprovanteUseCase {
     private final ComprovantePontoRepository comprovantes;
     private final ComprovanteArquivadoRepository arquivos;
     private final ArmazenamentoComprovantes armazenamento;
-    private final ClassificadorDiaService classificador;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regras;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public ImportarComprovanteUseCase(RegistroJornadaRepository registros, ComprovantePontoRepository comprovantes,
                                       ComprovanteArquivadoRepository arquivos, ArmazenamentoComprovantes armazenamento,
-                                      ClassificadorDiaService classificador, MotorCalculoJornadaService motor,
-                                      ApplicationEventPublisher eventos, Clock clock) {
+                                      RegrasJornada regras, ApplicationEventPublisher eventos, Clock clock) {
         this.registros = registros;
         this.comprovantes = comprovantes;
         this.arquivos = arquivos;
         this.armazenamento = armazenamento;
-        this.classificador = classificador;
-        this.motor = motor;
+        this.regras = regras;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -91,39 +89,45 @@ public class ImportarComprovanteUseCase {
     public record Resultado(StatusImportacao status, String mensagem, RegistroJornadaView registro) {
     }
 
-    /** @return vazio quando o arquivo já havia sido processado (mesmo hash). */
+    /**
+     * @param usuarioId dono do comprovante (o da pasta monitorada ou quem enviou o PDF pela tela)
+     * @return vazio quando o arquivo já havia sido processado (mesmo hash).
+     */
     @Transactional
-    public Optional<Resultado> executar(Comprovante comprovante) {
+    public Optional<Resultado> executar(UUID usuarioId, Comprovante comprovante) {
         Optional<ComprovanteImportado> anterior = comprovantes.buscarPorHash(comprovante.hashSha256());
         if (anterior.isPresent()) {
-            arquivarRetroativamente(anterior.get(), comprovante);
+            if (anterior.get().usuarioId().equals(usuarioId)) {
+                arquivarRetroativamente(anterior.get(), comprovante);
+            }
             return Optional.empty();
         }
 
         if (comprovante.dataHoraBatida().isEmpty()) {
-            return Optional.of(naoImportado(comprovante, null, StatusImportacao.INVALIDO,
+            return Optional.of(naoImportado(usuarioId, comprovante, null, StatusImportacao.INVALIDO,
                     "Padrão \"Comprovante de Ponto - dd/MM/yyyy HH:mm:ss\" não encontrado no PDF."));
         }
 
         LocalDateTime dataHora = comprovante.dataHoraBatida().get();
-        if (comprovantes.existeImportado(dataHora)) {
-            return Optional.of(naoImportado(comprovante, dataHora, StatusImportacao.DUPLICADO,
+        if (comprovantes.existeImportado(usuarioId, dataHora)) {
+            return Optional.of(naoImportado(usuarioId, comprovante, dataHora, StatusImportacao.DUPLICADO,
                     "A batida de %s já foi importada por outro comprovante.".formatted(FORMATO.format(dataHora))));
         }
         if (dataHora.isAfter(LocalDateTime.now(clock).plus(TOLERANCIA_RELOGIO))) {
-            return Optional.of(naoImportado(comprovante, dataHora, StatusImportacao.REJEITADO,
+            return Optional.of(naoImportado(usuarioId, comprovante, dataHora, StatusImportacao.REJEITADO,
                     "Comprovante com data/hora futura (%s).".formatted(FORMATO.format(dataHora))));
         }
 
-        RegistroJornada registro = registros.buscarPorData(dataHora.toLocalDate())
-                .orElseGet(() -> RegistroJornada.novo(dataHora.toLocalDate(),
-                        classificador.classificar(dataHora.toLocalDate())));
+        LocalDate data = dataHora.toLocalDate();
+        RegistroJornada registro = registros.buscarPorData(usuarioId, data)
+                .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regras.classificar(usuarioId, data)));
+        MotorCalculoJornadaService motor = regras.motor(usuarioId, data);
 
         Optional<LocalTime> proxima = registro.getBatidas().batidaProxima(dataHora.toLocalTime(), JANELA_DUPLICIDADE);
         if (proxima.isPresent()) {
             // A batida já existe (ex.: registrada pelo botão "bater ponto"): o PDF ainda serve de prova.
             boolean arquivado = arquivarSeLivre(registro, dataHora, comprovante);
-            return Optional.of(naoImportado(comprovante, dataHora, StatusImportacao.DUPLICADO,
+            return Optional.of(naoImportado(usuarioId, comprovante, dataHora, StatusImportacao.DUPLICADO,
                     "Já existe batida às %s neste dia (diferença de até %d min).%s".formatted(
                             HORA.format(proxima.get()), JANELA_DUPLICIDADE.toMinutes(),
                             arquivado ? " O PDF foi arquivado como comprovante dessa batida." : "")));
@@ -135,7 +139,7 @@ public class ImportarComprovanteUseCase {
             StatusImportacao status = CODIGOS_DUPLICIDADE.contains(e.getCodigo())
                     ? StatusImportacao.DUPLICADO
                     : StatusImportacao.REJEITADO;
-            return Optional.of(naoImportado(comprovante, dataHora, status, e.getMessage()));
+            return Optional.of(naoImportado(usuarioId, comprovante, dataHora, status, e.getMessage()));
         }
         registros.salvar(registro);
 
@@ -147,9 +151,9 @@ public class ImportarComprovanteUseCase {
         String mensagem = "%s registrada às %s (comprovante %s)."
                 .formatted(posicao.rotulo(), HORA.format(dataHora), comprovante.nomeArquivo());
 
-        comprovantes.salvar(ComprovanteImportado.novo(comprovante.nomeArquivo(), comprovante.hashSha256(),
+        comprovantes.salvar(ComprovanteImportado.novo(usuarioId, comprovante.nomeArquivo(), comprovante.hashSha256(),
                 dataHora, StatusImportacao.IMPORTADO, mensagem));
-        eventos.publishEvent(new JornadaAtualizadaEvento(view.data(), OrigemAtualizacao.COMPROVANTE_PDF, view, mensagem));
+        eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, view.data(), OrigemAtualizacao.COMPROVANTE_PDF, view, mensagem));
         return Optional.of(new Resultado(StatusImportacao.IMPORTADO, mensagem, view));
     }
 
@@ -194,7 +198,7 @@ public class ImportarComprovanteUseCase {
             return;
         }
         LocalDateTime dataHora = anterior.dataHoraBatida();
-        registros.buscarPorData(dataHora.toLocalDate())
+        registros.buscarPorData(anterior.usuarioId(), dataHora.toLocalDate())
                 .ifPresent(registro -> arquivarSeLivre(registro, dataHora, c));
     }
 
@@ -207,11 +211,12 @@ public class ImportarComprovanteUseCase {
         return VinculoComprovantes.tipoComprovado(batidas, horario);
     }
 
-    private Resultado naoImportado(Comprovante comprovante, LocalDateTime dataHora,
+    private Resultado naoImportado(UUID usuarioId, Comprovante comprovante, LocalDateTime dataHora,
                                    StatusImportacao status, String mensagem) {
-        comprovantes.salvar(ComprovanteImportado.novo(comprovante.nomeArquivo(), comprovante.hashSha256(),
+        comprovantes.salvar(ComprovanteImportado.novo(usuarioId, comprovante.nomeArquivo(), comprovante.hashSha256(),
                 dataHora, status, mensagem));
-        eventos.publishEvent(new ComprovanteNaoImportadoEvento(comprovante.nomeArquivo(), status, dataHora, mensagem));
+        eventos.publishEvent(new ComprovanteNaoImportadoEvento(usuarioId, comprovante.nomeArquivo(), status,
+                dataHora, mensagem));
         return new Resultado(status, mensagem, null);
     }
 }

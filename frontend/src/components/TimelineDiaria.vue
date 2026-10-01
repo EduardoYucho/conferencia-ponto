@@ -9,8 +9,8 @@ import { formatarDuracao, formatarSaldo, minutosAgora, paraMinutos, paraSegundos
 const props = defineProps({
   /** Registro do dia (RegistroJornadaResponse) */
   registro: { type: Object, required: true },
-  /** { entrada1, saida1, entrada2, saida2 } no formato HH:mm */
-  grade: { type: Object, default: null },
+  /** Grade do dia pelo horário da pessoa: [{ entrada, saida }] (HH:mm), de 1 a 3 períodos. */
+  periodos: { type: Array, default: () => [] },
   toleranciaMinutos: { type: Number, default: 5 },
   hoje: { type: String, default: null },
   agora: { type: Date, default: () => new Date() },
@@ -21,9 +21,8 @@ const ehHoje = computed(() => props.registro.data === props.hoje)
 const agoraMin = computed(() => minutosAgora(props.agora))
 
 const oficiais = computed(() => {
-  if (!ehUtil.value || !props.grade) return []
-  const g = props.grade
-  return [g.entrada1, g.saida1, g.entrada2, g.saida2].map(paraMinutos)
+  if (!ehUtil.value || !props.periodos?.length) return []
+  return props.periodos.flatMap((p) => [paraMinutos(p.entrada), paraMinutos(p.saida)])
 })
 
 /** Posição na régua em minutos (fração inclui os segundos). */
@@ -83,7 +82,9 @@ const horas = computed(() => {
 
 const barrasOficiais = computed(() => {
   const o = oficiais.value
-  return o.length ? [{ ini: o[0], fim: o[1] }, { ini: o[2], fim: o[3] }] : []
+  const barras = []
+  for (let i = 0; i + 1 < o.length; i += 2) barras.push({ ini: o[i], fim: o[i + 1] })
+  return barras
 })
 
 function descricaoDesvio(b) {

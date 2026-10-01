@@ -4,8 +4,10 @@ import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 
 @Repository
 class UsuarioRepositoryAdapter implements UsuarioRepository {
@@ -24,6 +26,16 @@ class UsuarioRepositoryAdapter implements UsuarioRepository {
     }
 
     @Override
+    public Optional<Usuario> buscarPorId(UUID id) {
+        return usuarios.findById(id).map(UsuarioEntity::paraDominio);
+    }
+
+    @Override
+    public List<Usuario> listar() {
+        return usuarios.findAllByOrderByCriadoEmAsc().stream().map(UsuarioEntity::paraDominio).toList();
+    }
+
+    @Override
     public void salvar(Usuario usuario) {
         UsuarioEntity entity = usuarios.findById(usuario.id())
                 .orElseGet(() -> new UsuarioEntity(usuario.id(), usuario.login()));
@@ -32,6 +44,7 @@ class UsuarioRepositoryAdapter implements UsuarioRepository {
             throw new IllegalStateException("Perfis inexistentes em tb_role: " + usuario.perfis());
         }
         entity.copiar(usuario, perfis);
-        usuarios.save(entity);
+        // flush imediato: horário e ciclo do usuário novo são gravados por JDBC logo em seguida (chave estrangeira)
+        usuarios.saveAndFlush(entity);
     }
 }

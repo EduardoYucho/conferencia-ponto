@@ -1,17 +1,17 @@
 package br.com.conferenciaponto.infrastructure.config;
 
-import br.com.conferenciaponto.domain.service.ComparadorConciliacaoService;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
-import br.com.conferenciaponto.domain.port.CalendarioAusencias;
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.domain.model.GradeHoraria;
+import br.com.conferenciaponto.domain.port.CalendarioAusencias;
 import br.com.conferenciaponto.domain.port.CalendarioFeriados;
+import br.com.conferenciaponto.domain.port.HorarioTrabalhoRepository;
 import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
-import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
+import br.com.conferenciaponto.domain.service.ComparadorConciliacaoService;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
 import java.time.Clock;
-import java.time.Duration;
 import java.time.LocalTime;
 import java.time.ZoneId;
 
@@ -27,15 +27,20 @@ public class DominioConfig {
         return Clock.system(ZoneId.of(properties.fusoHorario()));
     }
 
-    @Bean
-    public MotorCalculoJornadaService motorCalculoJornadaService(PontoProperties properties) {
+    /** Horário padrão (da configuração) para quem ainda não cadastrou o próprio. */
+    static GradeHoraria gradePadrao(PontoProperties properties) {
         PontoProperties.Grade g = properties.grade();
-        GradeHoraria grade = new GradeHoraria(
+        return new GradeHoraria(
                 LocalTime.parse(g.entrada1()),
                 LocalTime.parse(g.saida1()),
                 LocalTime.parse(g.entrada2()),
                 LocalTime.parse(g.saida2()));
-        return new MotorCalculoJornadaService(grade, Duration.ofMinutes(properties.toleranciaMinutos()));
+    }
+
+    @Bean
+    public RegrasJornada regrasJornada(HorarioTrabalhoRepository horarios, ClassificadorDiaService classificador,
+                                       PontoProperties properties) {
+        return new RegrasJornada(horarios, classificador, gradePadrao(properties), properties.toleranciaMinutos());
     }
 
     @Bean

@@ -48,6 +48,12 @@ public class UsuarioEntity implements Persistable<UUID> {
     @Column(name = "ultimo_login_em")
     private OffsetDateTime ultimoLoginEm;
 
+    @Column(name = "pasta_comprovantes", length = 500)
+    private String pastaComprovantes;
+
+    @Column(name = "trocar_senha", nullable = false)
+    private boolean trocarSenha;
+
     @ManyToMany(fetch = FetchType.EAGER)
     @JoinTable(name = "tb_usuario_role",
             joinColumns = @JoinColumn(name = "usuario_id"),
@@ -71,6 +77,8 @@ public class UsuarioEntity implements Persistable<UUID> {
         this.senhaHash = usuario.senhaHash();
         this.ativo = usuario.ativo();
         this.ultimoLoginEm = usuario.ultimoLoginEm() == null ? null : usuario.ultimoLoginEm().atOffset(ZoneOffset.UTC);
+        this.pastaComprovantes = usuario.pastaComprovantes();
+        this.trocarSenha = usuario.trocarSenha();
         this.roles.clear();
         this.roles.addAll(rolesDoUsuario);
     }
@@ -78,7 +86,7 @@ public class UsuarioEntity implements Persistable<UUID> {
     Usuario paraDominio() {
         return new Usuario(id, login, nome, senhaHash, ativo,
                 roles.stream().map(RoleEntity::getNome).collect(Collectors.toSet()),
-                ultimoLoginEm == null ? null : ultimoLoginEm.toInstant());
+                ultimoLoginEm == null ? null : ultimoLoginEm.toInstant(), pastaComprovantes, trocarSenha);
     }
 
     @PrePersist

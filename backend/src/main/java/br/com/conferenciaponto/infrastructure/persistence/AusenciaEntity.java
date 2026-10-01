@@ -17,6 +17,9 @@ public class AusenciaEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "data_inicio", nullable = false)
     private LocalDate dataInicio;
 
@@ -93,5 +96,13 @@ public class AusenciaEntity {
 
     public void setCriadoPor(String criadoPor) {
         this.criadoPor = criadoPor;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
     }
 }

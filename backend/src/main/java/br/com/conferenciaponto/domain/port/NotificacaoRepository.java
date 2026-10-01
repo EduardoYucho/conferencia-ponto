@@ -8,20 +8,20 @@ import java.util.UUID;
 
 public interface NotificacaoRepository {
 
-    boolean existeChave(String chave);
+    boolean existeChave(UUID usuarioId, String chave);
 
     void salvar(Notificacao notificacao);
 
     /** As mais recentes primeiro. */
-    List<Notificacao> listarRecentes(int limite);
+    List<Notificacao> listarRecentes(UUID usuarioId, int limite);
 
-    int contarNaoLidas();
+    int contarNaoLidas(UUID usuarioId);
 
     /** @return false se a notificação não existe */
-    boolean marcarLida(UUID id, Instant quando);
+    boolean marcarLida(UUID usuarioId, UUID id, Instant quando);
 
-    int marcarTodasLidas(Instant quando);
+    int marcarTodasLidas(UUID usuarioId, Instant quando);
 
     /** Marca como lidos os avisos de prazo (CICLO_*) que não terminam com o sufixo informado (ciclo atual). */
-    int marcarLidosAvisosDeCicloExceto(String sufixoChave, Instant quando);
+    int marcarLidosAvisosDeCicloExceto(UUID usuarioId, String sufixoChave, Instant quando);
 }

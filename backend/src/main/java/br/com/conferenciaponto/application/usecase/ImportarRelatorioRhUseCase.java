@@ -52,7 +52,7 @@ public class ImportarRelatorioRhUseCase {
     }
 
     @Transactional
-    public RelatorioRh receber(String nomeArquivo, byte[] pdf, String usuario) {
+    public RelatorioRh receber(UUID usuarioId, String nomeArquivo, byte[] pdf, String usuario) {
         if (pdf == null || pdf.length == 0) {
             throw new RegraNegocioException("RELATORIO_VAZIO", "Selecione o PDF do relatório de banco de horas.");
         }
@@ -60,7 +60,7 @@ public class ImportarRelatorioRhUseCase {
             throw new RegraNegocioException("RELATORIO_GRANDE_DEMAIS", "O arquivo passa de 10 MB.");
         }
         String hash = sha256(pdf);
-        relatorios.buscarPorHash(hash).ifPresent(existente -> {
+        relatorios.buscarPorHash(usuarioId, hash).ifPresent(existente -> {
             throw new ConflitoException("RELATORIO_JA_ENVIADO",
                     "Este relatório (período %s a %s) já foi enviado em %s.".formatted(
                             DATA.format(existente.periodoInicio()), DATA.format(existente.periodoFim()),
@@ -79,7 +79,7 @@ public class ImportarRelatorioRhUseCase {
                             .formatted(DATA.format(diaDaEmissao)));
         }
         String nome = nomeArquivo == null || nomeArquivo.isBlank() ? "relatorio-rh.pdf" : nomeArquivo.strip();
-        RelatorioRh relatorio = new RelatorioRh(UUID.randomUUID(), nome.length() > 255 ? nome.substring(0, 255) : nome,
+        RelatorioRh relatorio = new RelatorioRh(UUID.randomUUID(), usuarioId, nome.length() > 255 ? nome.substring(0, 255) : nome,
                 hash, lido.funcionario(), lido.emitidoEm(), lido.periodoInicio(), lido.periodoFim(),
                 lido.totalPrevistoSegundos(), lido.totalTrabalhadoSegundos(), lido.totalSaldoSegundos(), dias.size(),
                 StatusRelatorioRh.PROCESSANDO, null, 0, clock.instant(), usuario, null);
@@ -93,11 +93,14 @@ public class ImportarRelatorioRhUseCase {
      * os relatórios que sobraram (o que foi aceito do RH continua na conferência).
      */
     @Transactional
-    public void excluir(UUID id) {
-        RelatorioRh relatorio = relatorios.buscarPorId(id).orElseThrow(() ->
-                new RecursoNaoEncontradoException("RELATORIO_NAO_ENCONTRADO", "Relatório do RH não encontrado."));
+    public void excluir(UUID usuarioId, UUID id) {
+        RelatorioRh relatorio = relatorios.buscarPorId(id)
+                .filter(r -> r.usuarioId().equals(usuarioId))
+                .orElseThrow(() -> new RecursoNaoEncontradoException("RELATORIO_NAO_ENCONTRADO",
+                        "Relatório do RH não encontrado."));
         relatorios.excluir(id);
-        conferir.conferir(relatorio.periodoInicio(), relatorio.ultimoDiaConferido(), "Relatório do RH removido");
+        conferir.conferir(usuarioId, relatorio.periodoInicio(), relatorio.ultimoDiaConferido(),
+                "Relatório do RH removido");
     }
 
     private ZoneId zona() {

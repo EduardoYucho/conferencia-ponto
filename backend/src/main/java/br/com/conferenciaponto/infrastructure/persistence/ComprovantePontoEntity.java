@@ -26,6 +26,9 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "nome_arquivo", nullable = false, length = 255)
     private String nomeArquivo;
 
@@ -55,6 +58,7 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
     static ComprovantePontoEntity de(ComprovanteImportado c) {
         ComprovantePontoEntity e = new ComprovantePontoEntity();
         e.id = c.id();
+        e.setUsuarioId(c.usuarioId());
         e.nomeArquivo = truncar(c.nomeArquivo(), 255);
         e.hashSha256 = c.hashSha256();
         e.dataHoraBatida = c.dataHoraBatida();
@@ -65,7 +69,7 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
     }
 
     ComprovanteImportado paraDominio() {
-        return new ComprovanteImportado(id, nomeArquivo, hashSha256, dataHoraBatida, status, mensagem,
+        return new ComprovanteImportado(id, getUsuarioId(), nomeArquivo, hashSha256, dataHoraBatida, status, mensagem,
                 processadoEm.toInstant());
     }
 
@@ -87,5 +91,13 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
     @Override
     public boolean isNew() {
         return novo;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
     }
 }

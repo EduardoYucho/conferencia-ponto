@@ -17,5 +17,5 @@ public interface LancamentoBancoRepository {
     void excluir(UUID id);
 
     /** Lançamentos com data no período (inclusive), por data e ordem de criação. */
-    List<LancamentoBanco> listarNoPeriodo(LocalDate inicio, LocalDate fim);
+    List<LancamentoBanco> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim);
 }

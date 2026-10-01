@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.config;
 
+import br.com.conferenciaponto.infrastructure.importacao.GerenciadorMonitoresPdf;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.scheduling.annotation.EnableAsync;
@@ -7,8 +8,7 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 
 /**
- * Threads de segundo plano: o monitor de PDFs roda num executor próprio de 1 thread
- * (o laço do WatchService é bloqueante e não deve ocupar o pool compartilhado).
+ * Threads de segundo plano (os monitores de PDFs têm threads próprias: ver GerenciadorMonitoresPdf).
  * {@code @EnableScheduling} habilita o heartbeat das conexões SSE.
  */
 @Configuration
@@ -16,7 +16,6 @@ import org.springframework.scheduling.concurrent.ThreadPoolTaskExecutor;
 @EnableScheduling
 public class AsyncConfig {
 
-    public static final String EXECUTOR_MONITOR_PDF = "monitorPdfExecutor";
     public static final String EXECUTOR_REPROCESSAMENTO = "reprocessamentoExecutor";
     public static final String EXECUTOR_CONCILIACAO = "conciliacaoExecutor";
 
@@ -44,18 +43,6 @@ public class AsyncConfig {
         executor.setQueueCapacity(2);
         executor.setThreadNamePrefix("reprocessamento-");
         executor.setDaemon(true);
-        return executor;
-    }
-
-    @Bean(name = EXECUTOR_MONITOR_PDF)
-    public ThreadPoolTaskExecutor monitorPdfExecutor() {
-        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
-        executor.setCorePoolSize(1);
-        executor.setMaxPoolSize(1);
-        executor.setQueueCapacity(1);
-        executor.setThreadNamePrefix("monitor-pdf-");
-        executor.setDaemon(true);
-        executor.setWaitForTasksToCompleteOnShutdown(false);
         return executor;
     }
 }

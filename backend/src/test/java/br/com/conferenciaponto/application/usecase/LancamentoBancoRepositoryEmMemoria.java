@@ -32,8 +32,9 @@ class LancamentoBancoRepositoryEmMemoria implements LancamentoBancoRepository {
     }
 
     @Override
-    public List<LancamentoBanco> listarNoPeriodo(LocalDate inicio, LocalDate fim) {
+    public List<LancamentoBanco> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         return lancamentos.values().stream()
+                .filter(l -> l.usuarioId().equals(usuarioId))
                 .filter(l -> !l.data().isBefore(inicio) && !l.data().isAfter(fim))
                 .sorted(Comparator.comparing(LancamentoBanco::data).thenComparing(LancamentoBanco::criadoEm))
                 .toList();

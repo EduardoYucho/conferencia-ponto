@@ -21,8 +21,10 @@ class LancamentoBancoRepositoryAdapter implements LancamentoBancoRepository {
 
     @Override
     public LancamentoBanco salvar(LancamentoBanco l) {
-        jpa.save(new LancamentoBancoEntity(l.id(), l.data(), l.segundos(), l.descricao(),
-                l.criadoEm().atOffset(ZoneOffset.UTC), l.criadoPor()));
+        LancamentoBancoEntity e = new LancamentoBancoEntity(l.id(), l.data(), l.segundos(), l.descricao(),
+                l.criadoEm().atOffset(ZoneOffset.UTC), l.criadoPor());
+        e.setUsuarioId(l.usuarioId());
+        jpa.save(e);
         return l;
     }
 
@@ -37,13 +39,13 @@ class LancamentoBancoRepositoryAdapter implements LancamentoBancoRepository {
     }
 
     @Override
-    public List<LancamentoBanco> listarNoPeriodo(LocalDate inicio, LocalDate fim) {
-        return jpa.findByDataBetweenOrderByDataAscCriadoEmAsc(inicio, fim).stream()
+    public List<LancamentoBanco> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return jpa.findByUsuarioIdAndDataBetweenOrderByDataAscCriadoEmAsc(usuarioId, inicio, fim).stream()
                 .map(LancamentoBancoRepositoryAdapter::paraDominio).toList();
     }
 
     private static LancamentoBanco paraDominio(LancamentoBancoEntity e) {
-        return new LancamentoBanco(e.getId(), e.getData(), e.getSegundos(), e.getDescricao(),
+        return new LancamentoBanco(e.getId(), e.getUsuarioId(), e.getData(), e.getSegundos(), e.getDescricao(),
                 e.getCriadoEm().toInstant(), e.getCriadoPor());
     }
 }

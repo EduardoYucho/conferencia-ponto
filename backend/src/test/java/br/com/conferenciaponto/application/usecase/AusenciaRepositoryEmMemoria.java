@@ -32,17 +32,17 @@ class AusenciaRepositoryEmMemoria implements AusenciaRepository, CalendarioAusen
     }
 
     @Override
-    public List<Ausencia> listarNoPeriodo(LocalDate inicio, LocalDate fim) {
-        return ausencias.values().stream().filter(a -> a.sobrepoe(inicio, fim))
+    public List<Ausencia> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return ausencias.values().stream().filter(a -> a.usuarioId().equals(usuarioId) && a.sobrepoe(inicio, fim))
                 .sorted(Comparator.comparing(Ausencia::dataInicio)).toList();
     }
 
     @Override
-    public boolean isAusencia(LocalDate data) {
-        return ausencias.values().stream().anyMatch(a -> a.contem(data));
+    public boolean isAusencia(UUID usuarioId, LocalDate data) {
+        return ausencias.values().stream().anyMatch(a -> a.usuarioId().equals(usuarioId) && a.contem(data));
     }
 
     List<Ausencia> todas() {
-        return listarNoPeriodo(LocalDate.MIN, LocalDate.MAX);
+        return ausencias.values().stream().sorted(Comparator.comparing(Ausencia::dataInicio)).toList();
     }
 }

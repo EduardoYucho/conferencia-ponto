@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.view;
 
+import br.com.conferenciaponto.domain.model.GradeHoraria;
 import br.com.conferenciaponto.domain.model.MarcacaoApurada;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.model.StatusJornada;
@@ -25,7 +26,8 @@ public record RegistroJornadaView(
         List<MarcacaoApurada> marcacoes,
         int jornadaPrevistaSegundos,
         int segundosTrabalhados,
-        Integer saldoDiarioSegundos) {
+        Integer saldoDiarioSegundos,
+        List<GradeHoraria.Periodo> grade) {
 
     public static RegistroJornadaView de(RegistroJornada registro, MotorCalculoJornadaService motor) {
         return new RegistroJornadaView(
@@ -38,6 +40,7 @@ public record RegistroJornadaView(
                 registro.apurar(motor).marcacoes(),
                 registro.getJornadaPrevistaSegundos(),
                 registro.getSegundosTrabalhados(),
-                registro.getSaldoDiarioSegundos());
+                registro.getSaldoDiarioSegundos(),
+                registro.getTipoDia().isUtil() ? motor.grade().periodos() : List.of());
     }
 }

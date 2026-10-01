@@ -31,7 +31,7 @@ class ComparadorConciliacaoServiceTest {
     }
 
     private Optional<RegistroJornada> local(String... horarios) {
-        RegistroJornada r = RegistroJornada.novo(DIA, TipoDia.UTIL);
+        RegistroJornada r = RegistroJornada.novo(java.util.UUID.randomUUID(), DIA, TipoDia.UTIL);
         for (LocalTime t : h(horarios)) {
             r.incluirBatida(t, motor);
         }

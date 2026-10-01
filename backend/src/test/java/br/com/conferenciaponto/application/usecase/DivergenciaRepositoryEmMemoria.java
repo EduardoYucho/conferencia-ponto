@@ -18,7 +18,8 @@ class DivergenciaRepositoryEmMemoria implements DivergenciaRepository {
 
     @Override
     public void salvar(Divergencia d) {
-        boolean outraNaData = divergencias.values().stream().anyMatch(x -> x.data().equals(d.data()) && !x.id().equals(d.id()));
+        boolean outraNaData = divergencias.values().stream().anyMatch(x -> x.usuarioId().equals(d.usuarioId())
+                && x.data().equals(d.data()) && !x.id().equals(d.id()));
         if (outraNaData) {
             throw new IllegalStateException("uk_divergencia_data");
         }
@@ -31,8 +32,9 @@ class DivergenciaRepositoryEmMemoria implements DivergenciaRepository {
     }
 
     @Override
-    public List<Divergencia> listar(StatusDivergencia status, LocalDate inicio, LocalDate fim) {
+    public List<Divergencia> listar(UUID usuarioId, StatusDivergencia status, LocalDate inicio, LocalDate fim) {
         return divergencias.values().stream()
+                .filter(d -> d.usuarioId().equals(usuarioId))
                 .filter(d -> status == null || d.status() == status)
                 .filter(d -> inicio == null || !d.data().isBefore(inicio))
                 .filter(d -> fim == null || !d.data().isAfter(fim))

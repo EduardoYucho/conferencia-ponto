@@ -17,7 +17,9 @@ import java.time.LocalDate;
 import java.time.LocalTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -30,7 +32,7 @@ class GerenciarFeriadosUseCaseTest {
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
     private final List<Object> eventos = new ArrayList<>();
     private final GerenciarFeriadosUseCase useCase = new GerenciarFeriadosUseCase(calendario, registros,
-            new ClassificadorDiaService(calendario), motor, eventos::add);
+            Fixtures.regras(new ClassificadorDiaService(calendario)), eventos::add);
 
     @Test
     @DisplayName("Feriado num dia sem registro: entra no calendário e avisa a tela")
@@ -45,24 +47,30 @@ class GerenciarFeriadosUseCaseTest {
     }
 
     @Test
-    @DisplayName("Feriado num dia trabalhado: o débito vira crédito; removendo, volta a ser dia útil")
+    @DisplayName("Feriado num dia trabalhado (de todos os usuários): o débito vira crédito; removendo, volta a ser útil")
     void feriadoReclassificaODia() {
-        RegistroJornada r = RegistroJornada.novo(CORPUS_CHRISTI, TipoDia.UTIL);
-        r.incluirBatida(LocalTime.of(8, 0), motor);
-        r.incluirBatida(LocalTime.of(12, 0), motor);
-        registros.salvar(r);
-        assertThat(r.getSaldoDiarioSegundos()).isEqualTo(4 * 3600 - 31_680);
+        for (java.util.UUID usuario : List.of(USUARIO, Fixtures.OUTRO)) {
+            RegistroJornada r = RegistroJornada.novo(usuario, CORPUS_CHRISTI, TipoDia.UTIL);
+            r.incluirBatida(LocalTime.of(8, 0), motor);
+            r.incluirBatida(LocalTime.of(12, 0), motor);
+            registros.salvar(r);
+            assertThat(r.getSaldoDiarioSegundos()).isEqualTo(4 * 3600 - 31_680);
+        }
 
         useCase.cadastrar(CORPUS_CHRISTI, "Corpus Christi", null);
 
-        RegistroJornada feriado = registros.buscarPorData(CORPUS_CHRISTI).orElseThrow();
-        assertThat(feriado.getTipoDia()).isEqualTo(TipoDia.FERIADO);
-        assertThat(feriado.getSaldoDiarioSegundos()).isEqualTo(4 * 3600);
-        assertThat(eventos).hasSize(2).last().isInstanceOf(JornadaAtualizadaEvento.class);
+        for (java.util.UUID usuario : List.of(USUARIO, Fixtures.OUTRO)) {
+            RegistroJornada feriado = registros.buscarPorData(usuario, CORPUS_CHRISTI).orElseThrow();
+            assertThat(feriado.getTipoDia()).isEqualTo(TipoDia.FERIADO);
+            assertThat(feriado.getSaldoDiarioSegundos()).isEqualTo(4 * 3600);
+        }
+        assertThat(eventos).hasSize(3).last().isInstanceOf(JornadaAtualizadaEvento.class);
 
         useCase.excluir(CORPUS_CHRISTI);
 
-        assertThat(registros.buscarPorData(CORPUS_CHRISTI).orElseThrow().getTipoDia()).isEqualTo(TipoDia.UTIL);
+        assertThat(registros.buscarPorData(USUARIO, CORPUS_CHRISTI).orElseThrow().getTipoDia()).isEqualTo(TipoDia.UTIL);
+        assertThat(registros.buscarPorData(Fixtures.OUTRO, CORPUS_CHRISTI).orElseThrow().getTipoDia())
+                .isEqualTo(TipoDia.UTIL);
         assertThat(calendario.isFeriado(CORPUS_CHRISTI)).isFalse();
     }
 

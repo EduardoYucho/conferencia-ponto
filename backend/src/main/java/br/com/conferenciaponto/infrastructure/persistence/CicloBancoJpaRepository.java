@@ -8,7 +8,7 @@ import java.util.UUID;
 
 interface CicloBancoJpaRepository extends JpaRepository<CicloBancoEntity, UUID> {
 
-    Optional<CicloBancoEntity> findFirstByStatus(String status);
+    Optional<CicloBancoEntity> findFirstByUsuarioIdAndStatus(UUID usuarioId, String status);
 
-    List<CicloBancoEntity> findAllByOrderByDataInicioDesc();
+    List<CicloBancoEntity> findByUsuarioIdOrderByDataInicioDesc(UUID usuarioId);
 }

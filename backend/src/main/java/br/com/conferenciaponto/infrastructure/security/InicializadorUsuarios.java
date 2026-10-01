@@ -8,6 +8,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.ApplicationArguments;
 import org.springframework.boot.ApplicationRunner;
+import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -21,6 +22,7 @@ import java.util.EnumSet;
  * uma única vez no log (troque-a depois em PUT /api/v1/auth/senha).
  */
 @Component
+@Order(1)
 public class InicializadorUsuarios implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(InicializadorUsuarios.class);

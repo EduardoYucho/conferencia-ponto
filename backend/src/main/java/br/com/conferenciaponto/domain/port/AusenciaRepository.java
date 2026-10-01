@@ -16,5 +16,5 @@ public interface AusenciaRepository {
     Optional<Ausencia> buscarPorId(UUID id);
 
     /** Ausências que tocam o período (inclusive), por data de início. */
-    List<Ausencia> listarNoPeriodo(LocalDate inicio, LocalDate fim);
+    List<Ausencia> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim);
 }

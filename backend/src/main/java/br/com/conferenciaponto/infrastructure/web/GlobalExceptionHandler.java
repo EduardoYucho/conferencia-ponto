@@ -3,6 +3,7 @@ package br.com.conferenciaponto.infrastructure.web;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
 import org.springframework.web.multipart.MultipartException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
+import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.exception.ComprovanteCorrompidoException;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.CredenciaisInvalidasException;
@@ -57,6 +58,11 @@ public class GlobalExceptionHandler {
     public ResponseEntity<ApiResponse<Void>> comprovanteCorrompido(ComprovanteCorrompidoException ex) {
         log.error("Integridade do comprovante: {}", ex.getMessage());
         return resposta(HttpStatus.INTERNAL_SERVER_ERROR, ex);
+    }
+
+    @ExceptionHandler(AcessoNegadoException.class)
+    public ResponseEntity<ApiResponse<Void>> acessoNegado(AcessoNegadoException ex) {
+        return resposta(HttpStatus.FORBIDDEN, ex);
     }
 
     @ExceptionHandler(ConflitoException.class)

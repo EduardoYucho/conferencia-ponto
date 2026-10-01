@@ -17,6 +17,9 @@ public class LancamentoBancoEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "data", nullable = false)
     private LocalDate data;
 
@@ -68,5 +71,13 @@ public class LancamentoBancoEntity {
 
     public String getCriadoPor() {
         return criadoPor;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
     }
 }

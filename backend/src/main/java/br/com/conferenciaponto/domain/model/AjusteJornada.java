@@ -15,11 +15,12 @@ import java.util.UUID;
  * @param justificativa motivo informado (ex.: "Corrigido pelo RH: falha no relógio")
  * @param usuario       login de quem ajustou
  */
-public record AjusteJornada(UUID id, UUID registroJornadaId, LocalDate data, List<LocalTime> antes,
+public record AjusteJornada(UUID id, UUID usuarioId, UUID registroJornadaId, LocalDate data, List<LocalTime> antes,
                             List<LocalTime> depois, String justificativa, String usuario, Instant ajustadoEm) {
 
     public AjusteJornada {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(data, "data");
         antes = List.copyOf(antes);
         depois = List.copyOf(depois);
@@ -30,7 +31,7 @@ public record AjusteJornada(UUID id, UUID registroJornadaId, LocalDate data, Lis
 
     public static AjusteJornada novo(RegistroJornada registro, List<LocalTime> antes, String justificativa,
                                      String usuario, Instant agora) {
-        return new AjusteJornada(UUID.randomUUID(), registro.getId(), registro.getDataReferencia(), antes,
+        return new AjusteJornada(UUID.randomUUID(), registro.getUsuarioId(), registro.getId(), registro.getDataReferencia(), antes,
                 registro.getBatidas().horarios(), justificativa, usuario, agora);
     }
 }

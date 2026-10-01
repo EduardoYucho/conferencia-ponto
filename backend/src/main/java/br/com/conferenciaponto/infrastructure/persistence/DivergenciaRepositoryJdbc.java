@@ -33,10 +33,10 @@ class DivergenciaRepositoryJdbc implements DivergenciaRepository {
     @Override
     public void salvar(Divergencia d) {
         jdbc.sql("""
-                        INSERT INTO tb_divergencia (id, data, relatorio_id, tipo, descricao, aceitavel, motivo_nao_aceitavel,
+                        INSERT INTO tb_divergencia (id, usuario_id, data, relatorio_id, tipo, descricao, aceitavel, motivo_nao_aceitavel,
                             horarios_rh, horarios_local, ocorrencia_rh, tipo_dia_local, saldo_rh_segundos,
                             saldo_local_segundos, status, detectada_em, resolvida_em, resolvida_por, observacao)
-                        VALUES (:id, :data, :relatorio, :tipo, :descricao, :aceitavel, :motivo, :hrh, :hlocal, :ocorrencia,
+                        VALUES (:id, :usuario, :data, :relatorio, :tipo, :descricao, :aceitavel, :motivo, :hrh, :hlocal, :ocorrencia,
                             :tipoDia, :saldoRh, :saldoLocal, :status, :detectada, :resolvida, :por, :observacao)
                         ON CONFLICT (id) DO UPDATE SET
                             relatorio_id = EXCLUDED.relatorio_id, tipo = EXCLUDED.tipo, descricao = EXCLUDED.descricao,
@@ -48,7 +48,7 @@ class DivergenciaRepositoryJdbc implements DivergenciaRepository {
                             detectada_em = EXCLUDED.detectada_em, resolvida_em = EXCLUDED.resolvida_em,
                             resolvida_por = EXCLUDED.resolvida_por, observacao = EXCLUDED.observacao
                         """)
-                .param("id", d.id()).param("data", d.data()).param("relatorio", d.relatorioId())
+                .param("id", d.id()).param("usuario", d.usuarioId()).param("data", d.data()).param("relatorio", d.relatorioId())
                 .param("tipo", d.tipo().name()).param("descricao", limitar(d.descricao(), 500))
                 .param("aceitavel", d.aceitavel()).param("motivo", limitar(d.motivoNaoAceitavel(), 300))
                 .param("hrh", horariosTexto(d.horariosRh())).param("hlocal", horariosTexto(d.horariosLocal()))
@@ -68,14 +68,16 @@ class DivergenciaRepositoryJdbc implements DivergenciaRepository {
     }
 
     @Override
-    public List<Divergencia> listar(StatusDivergencia status, LocalDate inicio, LocalDate fim) {
+    public List<Divergencia> listar(UUID usuarioId, StatusDivergencia status, LocalDate inicio, LocalDate fim) {
         return jdbc.sql("""
                         SELECT * FROM tb_divergencia
-                         WHERE (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
+                         WHERE usuario_id = :usuario
+                           AND (CAST(:status AS VARCHAR) IS NULL OR status = CAST(:status AS VARCHAR))
                            AND (CAST(:inicio AS DATE) IS NULL OR data >= CAST(:inicio AS DATE))
                            AND (CAST(:fim AS DATE) IS NULL OR data <= CAST(:fim AS DATE))
                          ORDER BY data
                         """)
+                .param("usuario", usuarioId)
                 .param("status", status == null ? null : status.name())
                 .param("inicio", inicio).param("fim", fim)
                 .query(DivergenciaRepositoryJdbc::divergencia).list();
@@ -88,7 +90,8 @@ class DivergenciaRepositoryJdbc implements DivergenciaRepository {
 
     private static Divergencia divergencia(ResultSet rs, int linha) throws SQLException {
         String tipoDia = rs.getString("tipo_dia_local");
-        return new Divergencia(rs.getObject("id", UUID.class), rs.getObject("data", LocalDate.class),
+        return new Divergencia(rs.getObject("id", UUID.class), rs.getObject("usuario_id", UUID.class),
+                rs.getObject("data", LocalDate.class),
                 rs.getObject("relatorio_id", UUID.class), TipoDivergencia.valueOf(rs.getString("tipo")),
                 rs.getString("descricao"), rs.getBoolean("aceitavel"), rs.getString("motivo_nao_aceitavel"),
                 horarios(rs.getString("horarios_rh")), horarios(rs.getString("horarios_local")),

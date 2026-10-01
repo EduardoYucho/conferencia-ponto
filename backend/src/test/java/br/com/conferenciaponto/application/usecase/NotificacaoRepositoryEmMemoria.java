@@ -14,8 +14,8 @@ class NotificacaoRepositoryEmMemoria implements NotificacaoRepository {
     private final List<Notificacao> notificacoes = new ArrayList<>();
 
     @Override
-    public boolean existeChave(String chave) {
-        return notificacoes.stream().anyMatch(n -> n.chave().equals(chave));
+    public boolean existeChave(UUID usuarioId, String chave) {
+        return notificacoes.stream().anyMatch(n -> n.usuarioId().equals(usuarioId) && n.chave().equals(chave));
     }
 
     @Override
@@ -24,21 +24,21 @@ class NotificacaoRepositoryEmMemoria implements NotificacaoRepository {
     }
 
     @Override
-    public List<Notificacao> listarRecentes(int limite) {
-        return notificacoes.stream().sorted(Comparator.comparing(Notificacao::criadaEm).reversed()).limit(limite).toList();
+    public List<Notificacao> listarRecentes(UUID usuarioId, int limite) {
+        return notificacoes.stream().filter(n -> n.usuarioId().equals(usuarioId)).sorted(Comparator.comparing(Notificacao::criadaEm).reversed()).limit(limite).toList();
     }
 
     @Override
-    public int contarNaoLidas() {
-        return (int) notificacoes.stream().filter(n -> !n.isLida()).count();
+    public int contarNaoLidas(UUID usuarioId) {
+        return (int) notificacoes.stream().filter(n -> n.usuarioId().equals(usuarioId) && !n.isLida()).count();
     }
 
     @Override
-    public boolean marcarLida(UUID id, Instant quando) {
+    public boolean marcarLida(UUID usuarioId, UUID id, Instant quando) {
         for (int i = 0; i < notificacoes.size(); i++) {
             Notificacao n = notificacoes.get(i);
-            if (n.id().equals(id)) {
-                notificacoes.set(i, new Notificacao(n.id(), n.tipo(), n.chave(), n.titulo(), n.mensagem(), n.link(),
+            if (n.id().equals(id) && n.usuarioId().equals(usuarioId)) {
+                notificacoes.set(i, new Notificacao(n.id(), n.usuarioId(), n.tipo(), n.chave(), n.titulo(), n.mensagem(), n.link(),
                         n.criadaEm(), n.lidaEm() != null ? n.lidaEm() : quando));
                 return true;
             }
@@ -47,11 +47,11 @@ class NotificacaoRepositoryEmMemoria implements NotificacaoRepository {
     }
 
     @Override
-    public int marcarLidosAvisosDeCicloExceto(String sufixoChave, Instant quando) {
+    public int marcarLidosAvisosDeCicloExceto(UUID usuarioId, String sufixoChave, Instant quando) {
         int total = 0;
         for (Notificacao n : List.copyOf(notificacoes)) {
             if (!n.isLida() && n.tipo().name().startsWith("CICLO_") && !n.chave().endsWith(sufixoChave)
-                    && marcarLida(n.id(), quando)) {
+                    && marcarLida(usuarioId, n.id(), quando)) {
                 total++;
             }
         }
@@ -59,10 +59,10 @@ class NotificacaoRepositoryEmMemoria implements NotificacaoRepository {
     }
 
     @Override
-    public int marcarTodasLidas(Instant quando) {
+    public int marcarTodasLidas(UUID usuarioId, Instant quando) {
         int total = 0;
         for (Notificacao n : List.copyOf(notificacoes)) {
-            if (!n.isLida() && marcarLida(n.id(), quando)) {
+            if (!n.isLida() && marcarLida(usuarioId, n.id(), quando)) {
                 total++;
             }
         }

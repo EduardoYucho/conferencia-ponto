@@ -260,7 +260,8 @@ function Preparar-Config([string] $repositorio, [int] $porta) {
                 '#',
                 '# ponto:',
                 '#   importacao-pdf:',
-                '#     # Pasta dos comprovantes em PDF (local, ou de rede com barras normais)',
+                '#     # Pasta inicial dos comprovantes do administrador (depois cada usuario escolhe a sua',
+                '#     # em "Minha conta"; local, ou de rede com barras normais)',
                 '#     diretorio: //servidor/Ponto',
                 ''
             ) -join "`r`n"

@@ -37,13 +37,14 @@ class RelatorioRhRepositoryEmMemoria implements RelatorioRhRepository {
     }
 
     @Override
-    public Optional<RelatorioRh> buscarPorHash(String hash) {
-        return relatorios.values().stream().filter(r -> r.hashSha256().equals(hash)).findFirst();
+    public Optional<RelatorioRh> buscarPorHash(UUID usuarioId, String hash) {
+        return relatorios.values().stream()
+                .filter(r -> r.usuarioId().equals(usuarioId) && r.hashSha256().equals(hash)).findFirst();
     }
 
     @Override
-    public List<RelatorioRh> listar() {
-        return relatorios.values().stream().sorted(Comparator.comparing(RelatorioRh::emitidoEm).reversed()).toList();
+    public List<RelatorioRh> listar(UUID usuarioId) {
+        return relatorios.values().stream().filter(r -> r.usuarioId().equals(usuarioId)).sorted(Comparator.comparing(RelatorioRh::emitidoEm).reversed()).toList();
     }
 
     @Override
@@ -58,9 +59,9 @@ class RelatorioRhRepositoryEmMemoria implements RelatorioRhRepository {
     }
 
     @Override
-    public List<DiaVigente> vigentes(LocalDate inicio, LocalDate fim) {
+    public List<DiaVigente> vigentes(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         Map<LocalDate, DiaVigente> porData = new TreeMap<>();
-        List<RelatorioRh> doMaisAntigo = new ArrayList<>(listar());
+        List<RelatorioRh> doMaisAntigo = new ArrayList<>(listar(usuarioId));
         java.util.Collections.reverse(doMaisAntigo);
         for (RelatorioRh r : doMaisAntigo) { // do mais antigo para o mais recente: o recente sobrescreve
             if (r.status() == StatusRelatorioRh.ERRO) {
@@ -76,8 +77,10 @@ class RelatorioRhRepositoryEmMemoria implements RelatorioRhRepository {
     }
 
     @Override
-    public Optional<Abrangencia> abrangencia() {
-        List<LocalDate> todas = dias.values().stream().flatMap(List::stream).map(DiaRelatorioRh::data).sorted().toList();
+    public Optional<Abrangencia> abrangencia(UUID usuarioId) {
+        List<LocalDate> todas = dias.entrySet().stream()
+                .filter(e -> relatorios.get(e.getKey()).usuarioId().equals(usuarioId))
+                .flatMap(e -> e.getValue().stream()).map(DiaRelatorioRh::data).sorted().toList();
         return todas.isEmpty() ? Optional.empty()
                 : Optional.of(new Abrangencia(todas.get(0), todas.get(todas.size() - 1)));
     }

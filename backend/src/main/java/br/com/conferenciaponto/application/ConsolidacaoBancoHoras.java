@@ -13,6 +13,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.TreeSet;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -33,14 +34,15 @@ public class ConsolidacaoBancoHoras {
     }
 
     /** Meses do ano com jornada ou lançamento; acumulado desde janeiro. */
-    public List<SaldoMensal> ano(int ano) {
-        return mesclar(registros.consolidarAno(ano),
-                lancamentos.listarNoPeriodo(LocalDate.of(ano, 1, 1), LocalDate.of(ano, 12, 31)));
+    public List<SaldoMensal> ano(UUID usuarioId, int ano) {
+        return mesclar(registros.consolidarAno(usuarioId, ano),
+                lancamentos.listarNoPeriodo(usuarioId, LocalDate.of(ano, 1, 1), LocalDate.of(ano, 12, 31)));
     }
 
     /** Meses do período com jornada ou lançamento; acumulado desde o início do período. */
-    public List<SaldoMensal> periodo(LocalDate inicio, LocalDate fim) {
-        return mesclar(registros.consolidarPeriodo(inicio, fim), lancamentos.listarNoPeriodo(inicio, fim));
+    public List<SaldoMensal> periodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return mesclar(registros.consolidarPeriodo(usuarioId, inicio, fim),
+                lancamentos.listarNoPeriodo(usuarioId, inicio, fim));
     }
 
     static List<SaldoMensal> mesclar(List<SaldoMensal> jornadas, List<LancamentoBanco> avulsos) {

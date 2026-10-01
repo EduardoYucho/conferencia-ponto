@@ -10,11 +10,12 @@ import java.util.UUID;
  * @param chave identifica o aviso para não repeti-lo (ex.: {@code CICLO_30_DIAS:<id do ciclo>})
  * @param link  rota do front-end relacionada (opcional)
  */
-public record Notificacao(UUID id, TipoNotificacao tipo, String chave, String titulo, String mensagem, String link,
+public record Notificacao(UUID id, UUID usuarioId, TipoNotificacao tipo, String chave, String titulo, String mensagem, String link,
                           Instant criadaEm, Instant lidaEm) {
 
     public Notificacao {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(tipo, "tipo");
         Objects.requireNonNull(chave, "chave");
         Objects.requireNonNull(titulo, "titulo");
@@ -22,9 +23,9 @@ public record Notificacao(UUID id, TipoNotificacao tipo, String chave, String ti
         Objects.requireNonNull(criadaEm, "criadaEm");
     }
 
-    public static Notificacao nova(TipoNotificacao tipo, String chave, String titulo, String mensagem, String link,
+    public static Notificacao nova(UUID usuarioId, TipoNotificacao tipo, String chave, String titulo, String mensagem, String link,
                                    Instant agora) {
-        return new Notificacao(UUID.randomUUID(), tipo, chave, titulo, mensagem, link, agora, null);
+        return new Notificacao(UUID.randomUUID(), usuarioId, tipo, chave, titulo, mensagem, link, agora, null);
     }
 
     public boolean isLida() {

@@ -24,6 +24,7 @@ export function conectarEventos({
   onConciliacao = () => {},
   onCalendario = () => {},
   onBanco = () => {},
+  onUsuarios = () => {},
 } = {}) {
   const url = `${http.defaults.baseURL.replace(/\/$/, '')}/eventos`
   const controle = new AbortController()
@@ -66,6 +67,7 @@ export function conectarEventos({
       else if (mensagem.event === 'conciliacao-atualizada') lerJson(mensagem.data, onConciliacao)
       else if (mensagem.event === 'calendario-atualizado') lerJson(mensagem.data, onCalendario)
       else if (mensagem.event === 'banco-atualizado') lerJson(mensagem.data, onBanco)
+      else if (mensagem.event === 'usuarios-atualizados') lerJson(mensagem.data, onUsuarios)
     },
 
     onclose() {

@@ -44,8 +44,10 @@ ponto:
   # Importação automática dos comprovantes (PDF) baixados do Ponto Fácil
   importacao-pdf:
     habilitado: ${PONTO_PDF_HABILITADO:true}
-    # Pasta local ou de rede. Rede: use o caminho UNC com barras normais, ex.: //192.168.0.10/Ponto
-    diretorio: ${PONTO_PDF_DIR:${user.home}/Downloads/Ponto}
+    # Cada usuário escolhe a própria pasta em "Minha conta" (local ou de rede, ex.: //192.168.0.10/Ponto).
+    # Este valor só é usado uma vez: na atualização para vários usuários, se ninguém tiver pasta, ela passa
+    # a ser a pasta do primeiro administrador.
+    diretorio: ${PONTO_PDF_DIR:}
     processar-existentes: true      # ao iniciar, importa PDFs que já estavam na pasta (sem duplicar)
     varredura-periodica: 30s        # confere a pasta mesmo sem aviso do Windows (pasta de rede); 0 desliga
     intervalo-reconexao: 15s        # pasta inacessível (VPN caiu, outro PC desligado): tenta de novo

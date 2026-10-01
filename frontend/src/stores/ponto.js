@@ -4,7 +4,7 @@ import { pontoApi } from '@/api/pontoApi'
 import { conectarEventos } from '@/api/eventos'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificacoesStore } from '@/stores/notificacoes'
-import { dataISO, deISO, JORNADA_BASE_PADRAO } from '@/utils/tempo'
+import { cargaTipica, dataISO, deISO, ehFimDeSemana, JORNADA_BASE_PADRAO } from '@/utils/tempo'
 
 const proximoDia = (iso) => {
   const d = deISO(iso)
@@ -13,7 +13,7 @@ const proximoDia = (iso) => {
 }
 
 /**
- * Estado central do ponto: configuração da jornada, dias do mês em exibição,
+ * Estado central do ponto da pessoa em tela: horário de trabalho, dias do mês em exibição,
  * saldos consolidados (mensal e ciclo do banco de horas) e a conexão em tempo real (SSE)
  * que aplica na tela as batidas importadas dos PDFs. Durações em SEGUNDOS, como no RH.
  */
@@ -28,6 +28,8 @@ export const usePontoStore = defineStore('ponto', () => {
   const feriadosMes = ref([])
   /** Débitos/créditos avulsos no banco de horas com data no mês (segundos negativos = abatidos). */
   const lancamentosMes = ref([])
+  /** Expediente previsto de cada dia do mês pelo horário da pessoa: [{ data, previstoSegundos, periodos }]. */
+  const expedientesMes = ref(null)
   const resumo = ref(null)
   const saldos = ref(null)
   const dataSelecionada = ref(null)
@@ -44,6 +46,8 @@ export const usePontoStore = defineStore('ponto', () => {
   const ultimoEvento = ref(null)
   /** Último aviso de mudança na conciliação com o RH (a tela de conciliação recarrega). */
   const ultimaConciliacao = ref(null)
+  /** Cadastro de usuários mudou (a tela de usuários recarrega). */
+  const ultimaAlteracaoUsuarios = ref(null)
   let encerrarEventos = null
   let timerSaldos = null
   let timerMes = null
@@ -51,6 +55,12 @@ export const usePontoStore = defineStore('ponto', () => {
   // -------------------------------------------------------------- getters
   const hoje = computed(() => configuracao.value?.hoje ?? dataISO())
   const jornadaBaseSegundos = computed(() => configuracao.value?.jornadaBaseSegundos ?? JORNADA_BASE_PADRAO)
+  /** Horário semanal vigente: { vigenteDesde, toleranciaMinutos, dias: { SEG: '08:00-12:00 13:00-17:48', ... } }. */
+  const horario = computed(() => configuracao.value?.horario ?? null)
+  /** Carga do dia mais comum no horário (ex.: "folga compensada" = um dia inteiro). */
+  const cargaDiaInteiro = computed(() => cargaTipica(horario.value?.dias))
+  const expedientePorData = computed(() =>
+    Object.fromEntries((expedientesMes.value ?? []).map((e) => [e.data, e])))
 
   const diasPorData = computed(() => Object.fromEntries(dias.value.map((d) => [d.data, d])))
   const registroHoje = computed(() => diasPorData.value[hoje.value] ?? null)
@@ -83,6 +93,32 @@ export const usePontoStore = defineStore('ponto', () => {
     for (const l of lancamentosMes.value) (mapa[l.data] ??= []).push(l)
     return mapa
   })
+
+  /** O horário da pessoa prevê trabalho no dia (fora do mês carregado: segunda a sexta). */
+  function temExpediente(data) {
+    if (expedientesMes.value && data?.slice(0, 7) === mesCarregado()) return !!expedientePorData.value[data]
+    return !ehFimDeSemana(data)
+  }
+
+  /** Períodos da grade do dia ([{ entrada, saida }]): do registro, do expediente do mês ou do horário atual. */
+  function periodosDoDia(data) {
+    const registro = diasPorData.value[data]
+    if (registro?.grade?.length) return registro.grade
+    const expediente = expedientePorData.value[data]
+    if (expediente) return expediente.periodos
+    return data === hoje.value ? (configuracao.value?.periodos ?? []) : []
+  }
+
+  /** Carga prevista do dia pelo horário (0 = sem expediente). */
+  function cargaDoDia(data) {
+    const expediente = expedientePorData.value[data]
+    if (expediente) return expediente.previstoSegundos
+    return temExpediente(data) ? cargaDiaInteiro.value : 0
+  }
+
+  function mesCarregado() {
+    return ano.value ? `${ano.value}-${String(mes.value).padStart(2, '0')}` : null
+  }
 
   const ehMesAtual = computed(() => {
     const [a, m] = hoje.value.split('-').map(Number)
@@ -121,6 +157,7 @@ export const usePontoStore = defineStore('ponto', () => {
       ausenciasMes.value = dadosMes.ausencias ?? []
       feriadosMes.value = dadosMes.feriados ?? []
       lancamentosMes.value = dadosMes.lancamentos ?? []
+      expedientesMes.value = dadosMes.expedientes ?? null
       resumo.value = dadosMes.resumo
       saldos.value = dadosSaldos
 
@@ -240,32 +277,100 @@ export const usePontoStore = defineStore('ponto', () => {
   }
 
   // ------------------------------------------------------- tempo real (SSE)
-  /** Abre a assinatura do stream /api/v1/eventos (idempotente). */
+  /**
+   * Abre a assinatura do stream /api/v1/eventos (idempotente). Admin e coordenação recebem os eventos de
+   * todas as pessoas: só o que é da pessoa em tela (ou de todos, como um feriado) muda a tela.
+   */
   function conectarTempoReal() {
     if (encerrarEventos) return
+    const auth = useAuthStore()
+    /** O evento é da pessoa em tela (usuarioId nulo = vale para todos). */
+    const daTela = (payload) => !payload?.usuarioId || payload.usuarioId === auth.idEmTela
+    const meu = (payload) => !payload?.usuarioId || payload.usuarioId === auth.usuario?.id
     encerrarEventos = conectarEventos({
       onStatus: (status) => (tempoReal.value = status),
-      onConectado: (estado) => (monitoramento.value = estado),
-      onMonitor: (estado) => (monitoramento.value = estado), // pasta dos PDFs caiu/voltou
-      onJornadaAtualizada: aplicarAtualizacao,
+      onConectado: (estado) => {
+        if (auth.vendoOsProprios && auth.ehTitular) monitoramento.value = estado
+        else carregarMonitor()
+      },
+      onMonitor: (estado) => daTela(estado) && (monitoramento.value = estado), // pasta dos PDFs caiu/voltou
+      onJornadaAtualizada: (evento) => daTela(evento) && aplicarAtualizacao(evento),
       onComprovanteNaoImportado: (comprovante) => {
-        ultimoEvento.value = { tipo: 'comprovante-nao-importado', ...comprovante, recebidoEm: Date.now() }
+        if (daTela(comprovante)) {
+          ultimoEvento.value = { tipo: 'comprovante-nao-importado', ...comprovante, recebidoEm: Date.now() }
+        }
       },
-      onCiclo: () => {
+      onCiclo: (payload) => {
         // banco de horas fechado/corrigido: saldos novos e avisos de prazo do ciclo antigo arquivados
-        agendarSaldos()
-        useNotificacoesStore().carregar().catch(() => {})
+        if (daTela(payload)) agendarSaldos()
+        if (meu(payload)) useNotificacoesStore().carregar().catch(() => {})
       },
-      onNotificacao: (payload) => useNotificacoesStore().receber(payload),
+      onNotificacao: (payload) => meu(payload) && useNotificacoesStore().receber(payload),
       onConciliacao: (payload) => {
+        if (!daTela(payload)) return
         ultimaConciliacao.value = { ...payload, recebidoEm: Date.now() }
         agendarSaldos()
       },
-      // feriado/ausência ou lançamento no banco feito em outra aba (ou pela conciliação): recarrega o mês
-      onCalendario: ({ inicio, fim }) => afetaMesExibido(inicio, fim) && agendarRecargaMes(),
-      onBanco: ({ data }) => (afetaMesExibido(data, data) ? agendarRecargaMes() : agendarSaldos()),
+      // feriado/ausência/horário ou lançamento no banco feito em outra aba (ou pela conciliação): recarrega o mês
+      onCalendario: (payload) => {
+        if (!daTela(payload) || !afetaMesExibido(payload.inicio, payload.fim)) return
+        if (payload.usuarioId) recarregarConfiguracao() // pode ter sido o horário
+        agendarRecargaMes()
+      },
+      onBanco: (payload) => {
+        if (!daTela(payload)) return
+        if (afetaMesExibido(payload.data, payload.data)) agendarRecargaMes()
+        else agendarSaldos()
+      },
+      onUsuarios: ({ alterado }) => {
+        auth.carregarTitulares().catch(() => {})
+        if (alterado === auth.usuario?.id) auth.atualizarUsuario().catch(() => {})
+        if (alterado === auth.idEmTela) carregarMonitor()
+        ultimaAlteracaoUsuarios.value = Date.now()
+      },
       onNaoAutorizado: () => useAuthStore().logout(),
     })
+  }
+
+  /** Situação da pasta de comprovantes da pessoa em tela (o evento "conectado" traz só a do usuário logado). */
+  async function carregarMonitor() {
+    try {
+      const { recentes, ...estado } = await pontoApi.importacoes(1)
+      monitoramento.value = estado
+    } catch {
+      // a próxima conexão ou evento corrige
+    }
+  }
+
+  async function recarregarConfiguracao() {
+    try {
+      await fetchConfiguracao()
+    } catch {
+      // silencioso
+    }
+  }
+
+  /**
+   * Trocou a pessoa em tela (admin/coordenação): zera os dados da anterior. As telas são remontadas e
+   * carregam os dados da nova pessoa.
+   */
+  function trocarPessoa() {
+    configuracao.value = null
+    ano.value = null
+    mes.value = null
+    dias.value = []
+    ausenciasMes.value = []
+    feriadosMes.value = []
+    lancamentosMes.value = []
+    expedientesMes.value = null
+    resumo.value = null
+    saldos.value = null
+    dataSelecionada.value = null
+    monitoramento.value = null
+    ultimoEvento.value = null
+    ultimaConciliacao.value = null
+    erro.value = null
+    carregarMonitor()
   }
 
   function desconectarTempoReal() {
@@ -297,6 +402,7 @@ export const usePontoStore = defineStore('ponto', () => {
     ausenciasMes.value = []
     feriadosMes.value = []
     lancamentosMes.value = []
+    expedientesMes.value = null
     resumo.value = null
     saldos.value = null
     dataSelecionada.value = null
@@ -351,13 +457,15 @@ export const usePontoStore = defineStore('ponto', () => {
 
   return {
     // state
-    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, resumo, saldos, dataSelecionada,
-    carregando, salvando,
-    erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao,
+    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
+    dataSelecionada, carregando, salvando,
+    erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios,
     // getters
-    hoje, jornadaBaseSegundos, diasPorData, registroHoje, diaSelecionado,
+    hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
     saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual,
+    temExpediente, periodosDoDia, cargaDoDia,
     // actions
+    carregarMonitor, recarregarConfiguracao, trocarPessoa,
     fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,
     ajustarBatidas, excluirRegistro, selecionarDia, limparErro, recarregarMes, lancarNoBanco, excluirLancamentoBanco,
     marcarDias, removerMarcacao,

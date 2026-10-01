@@ -9,6 +9,7 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 class ComprovantePontoRepositoryEmMemoria implements ComprovantePontoRepository {
 
@@ -25,8 +26,8 @@ class ComprovantePontoRepositoryEmMemoria implements ComprovantePontoRepository 
     }
 
     @Override
-    public boolean existeImportado(LocalDateTime dataHoraBatida) {
-        return salvos.stream().anyMatch(c -> c.status() == StatusImportacao.IMPORTADO
+    public boolean existeImportado(UUID usuarioId, LocalDateTime dataHoraBatida) {
+        return salvos.stream().anyMatch(c -> c.usuarioId().equals(usuarioId) && c.status() == StatusImportacao.IMPORTADO
                 && dataHoraBatida.equals(c.dataHoraBatida()));
     }
 
@@ -36,8 +37,9 @@ class ComprovantePontoRepositoryEmMemoria implements ComprovantePontoRepository 
     }
 
     @Override
-    public List<ComprovanteImportado> recentes(int limite) {
+    public List<ComprovanteImportado> recentes(UUID usuarioId, int limite) {
         return salvos.stream()
+                .filter(c -> c.usuarioId().equals(usuarioId))
                 .sorted(Comparator.comparing(ComprovanteImportado::processadoEm).reversed())
                 .limit(limite)
                 .toList();

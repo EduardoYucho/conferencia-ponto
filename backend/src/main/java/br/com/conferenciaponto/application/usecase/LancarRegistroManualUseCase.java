@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
@@ -8,7 +9,6 @@ import br.com.conferenciaponto.domain.model.Batidas;
 import br.com.conferenciaponto.domain.model.Intervalo;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
-import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -17,6 +17,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Lançamento manual de intervalos em fim de semana/feriado (100% crédito).
@@ -27,23 +28,20 @@ import java.util.List;
 public class LancarRegistroManualUseCase {
 
     private final RegistroJornadaRepository repository;
-    private final ClassificadorDiaService classificador;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regras;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
-    public LancarRegistroManualUseCase(RegistroJornadaRepository repository, ClassificadorDiaService classificador,
-                                       MotorCalculoJornadaService motor, ApplicationEventPublisher eventos,
-                                       Clock clock) {
+    public LancarRegistroManualUseCase(RegistroJornadaRepository repository, RegrasJornada regras,
+                                       ApplicationEventPublisher eventos, Clock clock) {
         this.repository = repository;
-        this.classificador = classificador;
-        this.motor = motor;
+        this.regras = regras;
         this.eventos = eventos;
         this.clock = clock;
     }
 
     @Transactional
-    public RegistroJornadaView executar(LocalDate data, List<Intervalo> intervalos) {
+    public RegistroJornadaView executar(UUID usuarioId, LocalDate data, List<Intervalo> intervalos) {
         if (data == null) {
             throw new RegraNegocioException("DATA_OBRIGATORIA", "Informe a data do lançamento.");
         }
@@ -54,14 +52,15 @@ public class LancarRegistroManualUseCase {
 
         Batidas batidas = Batidas.deIntervalos(intervalos);
 
-        RegistroJornada registro = repository.buscarPorData(data)
-                .orElseGet(() -> RegistroJornada.novo(data, classificador.classificar(data)));
+        RegistroJornada registro = repository.buscarPorData(usuarioId, data)
+                .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regras.classificar(usuarioId, data)));
+        MotorCalculoJornadaService motor = regras.motor(usuarioId, data);
 
         // Regras (dia útil, não sobrescrever relógio) ficam no agregado
         registro.lancarManualmente(batidas, motor);
         repository.salvar(registro);
         RegistroJornadaView view = RegistroJornadaView.de(registro, motor);
-        eventos.publishEvent(new JornadaAtualizadaEvento(data, OrigemAtualizacao.MANUAL, view, null));
+        eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, data, OrigemAtualizacao.MANUAL, view, null));
         return view;
     }
 }

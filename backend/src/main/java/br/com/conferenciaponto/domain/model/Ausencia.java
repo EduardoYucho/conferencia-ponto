@@ -12,13 +12,14 @@ import java.util.UUID;
  * Período de férias, atestado, licença ou folga: os dias úteis do período têm jornada base zero
  * (não geram débito) e somem das pendências do painel.
  */
-public record Ausencia(UUID id, LocalDate dataInicio, LocalDate dataFim, TipoAusencia tipo, String descricao,
+public record Ausencia(UUID id, UUID usuarioId, LocalDate dataInicio, LocalDate dataFim, TipoAusencia tipo, String descricao,
                        Instant criadoEm, String criadoPor) {
 
     public static final int DURACAO_MAXIMA_DIAS = 366;
 
     public Ausencia {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(tipo, "tipo");
         Objects.requireNonNull(criadoEm, "criadoEm");
         if (dataInicio == null || dataFim == null) {
@@ -37,9 +38,9 @@ public record Ausencia(UUID id, LocalDate dataInicio, LocalDate dataFim, TipoAus
         }
     }
 
-    public static Ausencia nova(LocalDate inicio, LocalDate fim, TipoAusencia tipo, String descricao, String usuario,
+    public static Ausencia nova(UUID usuarioId, LocalDate inicio, LocalDate fim, TipoAusencia tipo, String descricao, String usuario,
                                 Instant agora) {
-        return new Ausencia(UUID.randomUUID(), inicio, fim, tipo, descricao, agora, usuario);
+        return new Ausencia(UUID.randomUUID(), usuarioId, inicio, fim, tipo, descricao, agora, usuario);
     }
 
     public boolean contem(LocalDate data) {
@@ -56,7 +57,7 @@ public record Ausencia(UUID id, LocalDate dataInicio, LocalDate dataFim, TipoAus
     }
 
     public Ausencia estendidaAte(LocalDate data) {
-        return new Ausencia(id, data.isBefore(dataInicio) ? data : dataInicio,
+        return new Ausencia(id, usuarioId, data.isBefore(dataInicio) ? data : dataInicio,
                 data.isAfter(dataFim) ? data : dataFim, tipo, descricao, criadoEm, criadoPor);
     }
 

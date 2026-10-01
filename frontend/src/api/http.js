@@ -32,9 +32,19 @@ export const http = axios.create({
 /**
  * Integração com a sessão, configurada no main.js (evita dependência circular com a store):
  * - obterToken: devolve o JWT atual (ou null)
+ * - obterUsuarioVisto: login de outro usuário cujos dados estão sendo consultados (admin/coordenação), ou null
  * - aoNaoAutenticado: chamado em 401 (sessão ausente/expirada)
+ * - aoPrecisarTrocarSenha: chamado em 403 TROCAR_SENHA (senha provisória)
  */
-let autenticacao = { obterToken: () => null, aoNaoAutenticado: () => {} }
+let autenticacao = {
+  obterToken: () => null,
+  obterUsuarioVisto: () => null,
+  aoNaoAutenticado: () => {},
+  aoPrecisarTrocarSenha: () => {},
+}
+
+/** Consultas que são sempre do próprio usuário (o sino, a sessão, o cadastro). */
+const SEMPRE_DO_PROPRIO = [/^\/auth\//, /^\/notificacoes/, /^\/usuarios/]
 
 export function configurarAutenticacao(config) {
   autenticacao = { ...autenticacao, ...config }
@@ -47,6 +57,12 @@ export function tokenAtual() {
 http.interceptors.request.use((config) => {
   const token = autenticacao.obterToken()
   if (token) config.headers.Authorization = `Bearer ${token}`
+  // Admin e coordenação consultando outra pessoa: as leituras levam ?usuario=login (as alterações, nunca)
+  const visto = autenticacao.obterUsuarioVisto()
+  const metodo = (config.method ?? 'get').toLowerCase()
+  if (visto && metodo === 'get' && !SEMPRE_DO_PROPRIO.some((r) => r.test(config.url ?? ''))) {
+    config.params = { usuario: visto, ...config.params }
+  }
   return config
 })
 
@@ -72,6 +88,9 @@ http.interceptors.response.use(
     const status = erro.response?.status ?? null
     if (status === 401 && !erro.config?.url?.endsWith('/auth/login')) {
       autenticacao.aoNaoAutenticado()
+    }
+    if (status === 403 && erros[0]?.codigo === 'TROCAR_SENHA') {
+      autenticacao.aoPrecisarTrocarSenha()
     }
     const mensagem =
       erros.map((e) => e.mensagem).join(' ') ||

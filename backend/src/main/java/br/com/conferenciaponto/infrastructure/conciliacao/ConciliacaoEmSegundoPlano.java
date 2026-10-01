@@ -2,7 +2,6 @@ package br.com.conferenciaponto.infrastructure.conciliacao;
 
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
-import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
 import br.com.conferenciaponto.application.evento.RelatorioRhRecebidoEvento;
 import br.com.conferenciaponto.application.usecase.ConferirConciliacaoUseCase;
 import br.com.conferenciaponto.infrastructure.config.AsyncConfig;
@@ -72,13 +71,20 @@ class ConciliacaoEmSegundoPlano {
             case COMPROVANTE_PDF -> "Igual ao RH após novo comprovante";
             default -> "Igual ao RH após alteração do dia";
         };
-        reconferir(() -> conferir.conferirDatas(Set.of(evento.data()), motivo));
+        reconferir(() -> conferir.conferirDatas(evento.usuarioId(), Set.of(evento.data()), motivo));
     }
 
     @Async(AsyncConfig.EXECUTOR_CONCILIACAO)
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAlterarCalendario(CalendarioAlteradoEvento evento) {
-        reconferir(() -> conferir.conferir(evento.inicio(), evento.fim(), "Igual ao RH após ajuste de feriado/ausência"));
+        String motivo = "Igual ao RH após ajuste de feriado, ausência ou horário";
+        reconferir(() -> {
+            if (evento.usuarioId() == null) { // feriado: vale para todos
+                conferir.conferirDeTodos(evento.inicio(), evento.fim(), motivo);
+            } else {
+                conferir.conferir(evento.usuarioId(), evento.inicio(), evento.fim(), motivo);
+            }
+        });
     }
 
     private void reconferir(Runnable acao) {

@@ -6,9 +6,10 @@ import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
 import br.com.conferenciaponto.application.usecase.LancarRegistroManualUseCase;
 import br.com.conferenciaponto.application.usecase.RegistrarBatidaUseCase;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.AjusteBatidasRequest;
-import br.com.conferenciaponto.infrastructure.web.dto.ContextoAjusteResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
+import br.com.conferenciaponto.infrastructure.web.dto.ContextoAjusteResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.MesJornadaResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.RegistrarBatidaRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.RegistroJornadaResponse;
@@ -27,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.net.URI;
-import java.security.Principal;
 import java.time.Clock;
 import java.time.LocalDate;
 
@@ -41,6 +41,7 @@ import java.time.LocalDate;
  * PUT    /api/v1/jornadas/{data}/batidas   ajuste manual (correção do RH)  {horarios[], justificativa}
  * GET    /api/v1/jornadas/{data}/ajustes   batidas com PDF (travadas) + histórico de ajustes do dia
  * </pre>
+ * Nos GET, {@code ?usuario=login} consulta outro titular (administrador e coordenação).
  */
 @RestController
 @RequestMapping("/api/v1/jornadas")
@@ -66,34 +67,36 @@ public class JornadaController {
 
     @GetMapping
     public ApiResponse<MesJornadaResponse> mes(@RequestParam(required = false) Integer ano,
-                                               @RequestParam(required = false) Integer mes) {
-        return ApiResponse.ok(MesJornadaResponse.de(consultar.mes(ReferenciaMes.resolver(ano, mes, clock))));
+                                               @RequestParam(required = false) Integer mes, Titular titular) {
+        return ApiResponse.ok(MesJornadaResponse.de(
+                consultar.mes(titular.id(), ReferenciaMes.resolver(ano, mes, clock))));
     }
 
     @GetMapping("/{data}")
     public ApiResponse<RegistroJornadaResponse> dia(
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data) {
-        return ApiResponse.ok(RegistroJornadaResponse.de(consultar.dia(data)));
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data, Titular titular) {
+        return ApiResponse.ok(RegistroJornadaResponse.de(consultar.dia(titular.id(), data)));
     }
 
     @PostMapping("/batidas")
     public ResponseEntity<ApiResponse<RegistroJornadaResponse>> registrarBatida(
-            @RequestBody(required = false) RegistrarBatidaRequest request) {
+            @RequestBody(required = false) RegistrarBatidaRequest request, Titular titular) {
         RegistroJornadaView view = request == null
-                ? registrarBatida.executar(null, null)
-                : registrarBatida.executar(request.data(), request.horario());
+                ? registrarBatida.executar(titular.id(), null, null)
+                : registrarBatida.executar(titular.id(), request.data(), request.horario());
         return criado(view);
     }
 
     @PostMapping("/manual")
     public ResponseEntity<ApiResponse<RegistroJornadaResponse>> lancarManual(
-            @Valid @RequestBody RegistroManualRequest request) {
-        return criado(lancarManual.executar(request.data(), request.intervalosDominio()));
+            @Valid @RequestBody RegistroManualRequest request, Titular titular) {
+        return criado(lancarManual.executar(titular.id(), request.data(), request.intervalosDominio()));
     }
 
     @DeleteMapping("/{data}")
-    public ApiResponse<Void> excluir(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data) {
-        excluir.executar(data);
+    public ApiResponse<Void> excluir(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data,
+                                     Titular titular) {
+        excluir.executar(titular.id(), data);
         return ApiResponse.ok(null);
     }
 
@@ -101,15 +104,15 @@ public class JornadaController {
     @PutMapping("/{data}/batidas")
     public ApiResponse<RegistroJornadaResponse> ajustar(
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data,
-            @Valid @RequestBody AjusteBatidasRequest request, Principal usuario) {
-        return ApiResponse.ok(RegistroJornadaResponse.de(
-                ajustar.executar(data, request.horarios(), request.justificativa(), usuario.getName())));
+            @Valid @RequestBody AjusteBatidasRequest request, Titular titular) {
+        return ApiResponse.ok(RegistroJornadaResponse.de(ajustar.executar(titular.id(), data, request.horarios(),
+                request.justificativa(), titular.quem())));
     }
 
     @GetMapping("/{data}/ajustes")
     public ApiResponse<ContextoAjusteResponse> ajustes(
-            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data) {
-        return ApiResponse.ok(ContextoAjusteResponse.de(ajustar.contexto(data)));
+            @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data, Titular titular) {
+        return ApiResponse.ok(ContextoAjusteResponse.de(ajustar.contexto(titular.id(), data)));
     }
 
     private static ResponseEntity<ApiResponse<RegistroJornadaResponse>> criado(RegistroJornadaView view) {

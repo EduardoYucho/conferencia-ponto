@@ -19,6 +19,9 @@ public class AjusteJornadaEntity implements Persistable<UUID> {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "registro_jornada_id", updatable = false)
     private UUID registroJornadaId;
 
@@ -93,5 +96,13 @@ public class AjusteJornadaEntity implements Persistable<UUID> {
 
     public OffsetDateTime getAjustadoEm() {
         return ajustadoEm;
+    }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
     }
 }

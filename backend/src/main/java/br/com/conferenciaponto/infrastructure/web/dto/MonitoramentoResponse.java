@@ -10,7 +10,7 @@ import java.util.List;
  *
  * @param habilitado      configuração {@code ponto.importacao-pdf.habilitado}
  * @param ativo           a pasta está sendo observada agora
- * @param situacao        INICIANDO, ATIVO, INDISPONIVEL, ENCERRADO ou DESABILITADO
+ * @param situacao        INICIANDO, ATIVO, INDISPONIVEL, ENCERRADO, SEM_PASTA ou DESABILITADO
  * @param mensagem        motivo quando a pasta está inacessível
  * @param ultimaVarredura última conferência completa da pasta
  */
@@ -25,5 +25,12 @@ public record MonitoramentoResponse(boolean habilitado, boolean ativo, String si
 
     public static MonitoramentoResponse desabilitado(String diretorio, List<ComprovanteResponse> recentes) {
         return new MonitoramentoResponse(false, false, "DESABILITADO", diretorio, null, null, recentes);
+    }
+
+    /** O usuário ainda não escolheu uma pasta (ou o monitor dela está começando). */
+    public static MonitoramentoResponse semMonitor(String diretorio, List<ComprovanteResponse> recentes) {
+        return diretorio == null
+                ? new MonitoramentoResponse(true, false, "SEM_PASTA", null, null, null, recentes)
+                : new MonitoramentoResponse(true, false, "INICIANDO", diretorio, null, null, recentes);
     }
 }

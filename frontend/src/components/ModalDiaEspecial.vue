@@ -1,5 +1,6 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
+import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { dataBR, dataCurta, diaSemanaCurto } from '@/utils/tempo'
 
@@ -18,8 +19,10 @@ const props = defineProps({
 const emit = defineEmits(['update:modelValue', 'salvo', 'compensar'])
 
 const store = usePontoStore()
+const auth = useAuthStore()
 
-const TIPOS = [
+/** Feriado vale para todos: só o administrador cadastra e remove. */
+const TODOS_TIPOS = [
   { valor: 'FERIADO', rotulo: 'Feriado' },
   { valor: 'FOLGA', rotulo: 'Folga' },
   { valor: 'FERIAS', rotulo: 'Férias' },
@@ -27,6 +30,7 @@ const TIPOS = [
   { valor: 'LICENCA', rotulo: 'Licença' },
   { valor: 'ABONO', rotulo: 'Outra justificativa' },
 ]
+const TIPOS = computed(() => TODOS_TIPOS.filter((t) => t.valor !== 'FERIADO' || auth.ehAdmin))
 const ABRANGENCIAS = [
   { valor: 'MUNICIPAL', rotulo: 'Municipal' },
   { valor: 'ESTADUAL', rotulo: 'Estadual' },
@@ -56,7 +60,7 @@ watch(
   () => props.modelValue,
   async (aberto) => {
     if (!aberto) return
-    tipo.value = 'FERIADO'
+    tipo.value = auth.ehAdmin ? 'FERIADO' : 'FOLGA'
     dataInicio.value = props.data ?? store.hoje
     dataFim.value = props.data ?? store.hoje
     descricao.value = ''
@@ -119,7 +123,7 @@ async function enviar() {
       descricao: descricao.value.trim(),
       abrangencia: ehFeriado.value ? abrangencia.value : undefined,
     })
-    const rotulo = TIPOS.find((t) => t.valor === tipo.value).rotulo
+    const rotulo = TODOS_TIPOS.find((t) => t.valor === tipo.value).rotulo
     emit('salvo', ehFeriado.value || dias.value === 1
       ? `${rotulo} em ${dataBR(dataInicio.value)}: o dia não gera débito`
       : `${rotulo} de ${dataBR(dataInicio.value)} a ${dataBR(dataFim.value)}: ${dias.value} dias sem débito`)
@@ -208,7 +212,10 @@ function compensar() {
               <p v-if="marcador.tipo === 'feriado'" class="text-sm text-tinta-suave">{{ marcador.feriado?.abrangenciaRotulo }}</p>
               <p v-else-if="periodoAtual" class="text-sm text-tinta-suave">Período: {{ periodoAtual }}</p>
             </div>
-            <p class="text-sm text-tinta-suave">
+            <p v-if="marcador.tipo === 'feriado' && !auth.ehAdmin" class="text-sm text-tinta-suave">
+              Feriados valem para todos: só o administrador remove.
+            </p>
+            <p v-else class="text-sm text-tinta-suave">
               Para trocar a marcação, remova esta primeiro{{ marcador.tipo === 'ausencia' && marcador.ausencia?.dataInicio !== marcador.ausencia?.dataFim ? ' (o período inteiro é removido)' : '' }}.
             </p>
             <p v-if="erroServidor" role="alert" class="rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo">
@@ -217,6 +224,7 @@ function compensar() {
             <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" class="botao-secundario" :disabled="store.salvando" @click="fechar">Fechar</button>
               <button
+                v-if="marcador.tipo !== 'feriado' || auth.ehAdmin"
                 type="button"
                 class="botao"
                 :class="confirmandoRemocao ? 'bg-carimbo text-cartao' : 'border border-carimbo/50 text-carimbo hover:bg-carimbo/10'"

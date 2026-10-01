@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.UUID;
 
 /** Últimos comprovantes processados (auditoria exibida no front-end). */
 @Service
@@ -20,7 +21,7 @@ public class ConsultarImportacoesUseCase {
         this.comprovantes = comprovantes;
     }
 
-    public List<ComprovanteImportado> recentes(int limite) {
-        return comprovantes.recentes(Math.max(1, Math.min(limite, LIMITE_MAXIMO)));
+    public List<ComprovanteImportado> recentes(UUID usuarioId, int limite) {
+        return comprovantes.recentes(usuarioId, Math.max(1, Math.min(limite, LIMITE_MAXIMO)));
     }
 }

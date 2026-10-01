@@ -33,6 +33,16 @@ class AutenticarUsuarioUseCaseTest {
         }
 
         @Override
+        public Optional<Usuario> buscarPorId(java.util.UUID id) {
+            return banco.values().stream().filter(u -> u.id().equals(id)).findFirst();
+        }
+
+        @Override
+        public java.util.List<Usuario> listar() {
+            return java.util.List.copyOf(banco.values());
+        }
+
+        @Override
         public void salvar(Usuario usuario) {
             banco.put(usuario.login(), usuario);
         }

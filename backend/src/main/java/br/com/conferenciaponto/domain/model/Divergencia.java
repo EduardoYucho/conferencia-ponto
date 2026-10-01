@@ -12,7 +12,7 @@ import java.util.UUID;
  * conferência atualiza a existente. Guarda a "fotografia" dos dois lados no momento em que foi
  * detectada; uma decisão ("manter dados locais") vale enquanto a fotografia não mudar.
  */
-public record Divergencia(UUID id, LocalDate data, UUID relatorioId, TipoDivergencia tipo, String descricao,
+public record Divergencia(UUID id, UUID usuarioId, LocalDate data, UUID relatorioId, TipoDivergencia tipo, String descricao,
                           boolean aceitavel, String motivoNaoAceitavel, List<LocalTime> horariosRh,
                           List<LocalTime> horariosLocal, String ocorrenciaRh, TipoDia tipoDiaLocal,
                           Integer saldoRhSegundos, Integer saldoLocalSegundos, StatusDivergencia status,
@@ -20,6 +20,7 @@ public record Divergencia(UUID id, LocalDate data, UUID relatorioId, TipoDiverge
 
     public Divergencia {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(data, "data");
         Objects.requireNonNull(relatorioId, "relatorioId");
         Objects.requireNonNull(tipo, "tipo");
@@ -41,8 +42,8 @@ public record Divergencia(UUID id, LocalDate data, UUID relatorioId, TipoDiverge
         }
     }
 
-    public static Divergencia nova(LocalDate data, UUID relatorioId, Achado a, Instant agora) {
-        return new Divergencia(UUID.randomUUID(), data, relatorioId, a.tipo(), a.descricao(), a.aceitavel(),
+    public static Divergencia nova(UUID usuarioId, LocalDate data, UUID relatorioId, Achado a, Instant agora) {
+        return new Divergencia(UUID.randomUUID(), usuarioId, data, relatorioId, a.tipo(), a.descricao(), a.aceitavel(),
                 a.motivoNaoAceitavel(), a.horariosRh(), a.horariosLocal(), a.ocorrenciaRh(), a.tipoDiaLocal(),
                 a.saldoRhSegundos(), a.saldoLocalSegundos(), StatusDivergencia.PENDENTE, agora, null, null, null);
     }
@@ -68,14 +69,14 @@ public record Divergencia(UUID id, LocalDate data, UUID relatorioId, TipoDiverge
                 || (status == StatusDivergencia.MANTIDO_LOCAL && mesmaSituacao(a));
         boolean mudou = !manterDecisao || !mesmaSituacao(a);
         StatusDivergencia novoStatus = manterDecisao ? status : StatusDivergencia.PENDENTE;
-        return new Divergencia(id, data, relatorio, a.tipo(), a.descricao(), a.aceitavel(), a.motivoNaoAceitavel(),
+        return new Divergencia(id, usuarioId, data, relatorio, a.tipo(), a.descricao(), a.aceitavel(), a.motivoNaoAceitavel(),
                 a.horariosRh(), a.horariosLocal(), a.ocorrenciaRh(), a.tipoDiaLocal(), a.saldoRhSegundos(),
                 a.saldoLocalSegundos(), novoStatus, mudou ? agora : detectadaEm, mudou ? null : resolvidaEm,
                 mudou ? null : resolvidaPor, mudou ? null : observacao);
     }
 
     public Divergencia resolvida(StatusDivergencia novoStatus, String usuario, String obs, Instant agora) {
-        return new Divergencia(id, data, relatorioId, tipo, descricao, aceitavel, motivoNaoAceitavel, horariosRh,
+        return new Divergencia(id, usuarioId, data, relatorioId, tipo, descricao, aceitavel, motivoNaoAceitavel, horariosRh,
                 horariosLocal, ocorrenciaRh, tipoDiaLocal, saldoRhSegundos, saldoLocalSegundos, novoStatus, detectadaEm,
                 agora, usuario, obs == null || obs.isBlank() ? null : obs.strip());
     }

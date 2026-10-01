@@ -15,7 +15,7 @@ public interface DivergenciaRepository {
     Optional<Divergencia> buscarPorId(UUID id);
 
     /** Por data; {@code status}, {@code inicio} ou {@code fim} nulos = sem filtro. */
-    List<Divergencia> listar(StatusDivergencia status, LocalDate inicio, LocalDate fim);
+    List<Divergencia> listar(UUID usuarioId, StatusDivergencia status, LocalDate inicio, LocalDate fim);
 
     void excluir(UUID id);
 }

@@ -8,5 +8,6 @@ import java.util.UUID;
 
 interface LancamentoBancoJpaRepository extends JpaRepository<LancamentoBancoEntity, UUID> {
 
-    List<LancamentoBancoEntity> findByDataBetweenOrderByDataAscCriadoEmAsc(LocalDate inicio, LocalDate fim);
+    List<LancamentoBancoEntity> findByUsuarioIdAndDataBetweenOrderByDataAscCriadoEmAsc(UUID usuarioId, LocalDate inicio,
+                                                                                      LocalDate fim);
 }

@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { useRelogio } from '@/composables/useRelogio'
 import BarraProgressoDiaria from '@/components/BarraProgressoDiaria.vue'
 import CartaoMensal from '@/components/CartaoMensal.vue'
+import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
 import GraficoSaldoAnual from '@/components/GraficoSaldoAnual.vue'
 import ModalAjusteBatidas from '@/components/ModalAjusteBatidas.vue'
 import ModalCicloBanco from '@/components/ModalCicloBanco.vue'
@@ -22,9 +23,9 @@ const store = usePontoStore()
 const auth = useAuthStore()
 const {
   configuracao, ano, mes, resumo, carregando, salvando, erro,
-  hoje, jornadaBaseSegundos, diasPorData, registroHoje, diaSelecionado, dataSelecionada,
-  saldoMensal, ciclo, marcadoresDoMes, lancamentosPorData, lancamentosMes, ehMesAtual,
-  tempoReal, monitoramento, ultimoEvento,
+  hoje, diasPorData, registroHoje, diaSelecionado, dataSelecionada,
+  saldoMensal, ciclo, marcadoresDoMes, lancamentosPorData, lancamentosMes, ehMesAtual, expedientePorData,
+  tempoReal, monitoramento, ultimoEvento, cargaDiaInteiro,
 } = storeToRefs(store)
 
 const agora = useRelogio(1000)
@@ -42,6 +43,10 @@ const preBanco = ref({ data: null, duracao: '', descricao: '' })
 const diaEspecialAberto = ref(false)
 const dataEspecial = ref(null)
 const confirmandoLancamento = ref(null)
+/** Envio dos comprovantes pela tela (botão ou arrastar PDFs para a página). */
+const envioAberto = ref(false)
+const envio = ref(null)
+const arrastandoArquivo = ref(false)
 let timerAviso = null
 let timerConfirmacao = null
 
@@ -63,6 +68,54 @@ watch(ultimoEvento, (evento) => {
   }
 })
 
+/** Carga prevista hoje pelo horário da pessoa (0 = sem expediente). */
+const cargaHoje = computed(() => (registroHoje.value ? registroHoje.value.jornadaPrevistaSegundos : store.cargaDoDia(hoje.value)))
+const rotuloJornada = computed(() => {
+  const quem = auth.vendoOsProprios ? '' : ` de ${auth.pessoaEmTela?.nome ?? ''}`
+  return `Banco de horas${quem} · jornada ${formatarDuracao(cargaDiaInteiro.value, { curto: true })}`
+})
+
+// ------------------------------------------------- envio dos comprovantes pela tela
+function abrirEnvio() {
+  envioAberto.value = true
+}
+
+function aoEnviarComprovantes({ total, importados }) {
+  mostrarAviso(importados
+    ? `${importados} de ${total} comprovante(s) importado(s)`
+    : `Nenhuma batida nova nos ${total} comprovante(s) enviados`, importados ? 'pdf' : 'info')
+}
+
+/** Arrastar PDFs para qualquer lugar do painel abre o envio já com os arquivos. */
+function temArquivos(evento) {
+  return auth.podeEscrever && [...(evento.dataTransfer?.types ?? [])].includes('Files')
+}
+function aoArrastarSobre(evento) {
+  if (!temArquivos(evento)) return
+  evento.preventDefault()
+  arrastandoArquivo.value = true
+}
+function aoSairArrastando(evento) {
+  if (!evento.relatedTarget) arrastandoArquivo.value = false
+}
+async function aoSoltarNaPagina(evento) {
+  arrastandoArquivo.value = false
+  if (!temArquivos(evento)) return
+  evento.preventDefault()
+  const arquivos = [...evento.dataTransfer.files]
+  envioAberto.value = true
+  await new Promise((r) => setTimeout(r, 0))
+  envio.value?.enviar(arquivos)
+}
+function fecharEnvio() {
+  envioAberto.value = false
+}
+function aoTeclarEnvio(evento) {
+  if (evento.key === 'Escape' && envioAberto.value) fecharEnvio()
+}
+onMounted(() => window.addEventListener('keydown', aoTeclarEnvio))
+onBeforeUnmount(() => window.removeEventListener('keydown', aoTeclarEnvio))
+
 const pastaMonitorada = computed(() => {
   const diretorio = monitoramento.value?.diretorio ?? ''
   if (/^(\\\\|\/\/)/.test(diretorio)) return diretorio.replaceAll('/', '\\').replace(/\\$/, '') // pasta de rede: caminho inteiro
@@ -80,6 +133,7 @@ const indicadorTempoReal = computed(() => {
     return { cor: 'bg-amber-500 animate-pulse', texto: 'Pasta dos PDFs inacessível · tentando reconectar' }
   }
   if (monitor?.situacao === 'INICIANDO') return { cor: 'bg-amber-500 animate-pulse', texto: 'Conectando à pasta dos PDFs…' }
+  if (monitor?.situacao === 'SEM_PASTA') return { cor: 'bg-credito', texto: 'Tempo real · sem pasta de PDFs (envio pela tela)' }
   return { cor: 'bg-tinta-apagada', texto: 'Tempo real · monitor de PDF inativo' }
 })
 
@@ -203,9 +257,10 @@ function abrirDiaEspecial(data) {
   diaEspecialAberto.value = true
 }
 
-/** "Folga compensando o banco": lança −08:48 no dia. */
+/** "Folga compensando o banco": lança um dia inteiro do horário da pessoa como débito. */
 function compensarDia(data) {
-  abrirBanco(data, { duracao: '08:48', descricao: 'Folga compensada' })
+  const carga = store.cargaDoDia(data) || cargaDiaInteiro.value
+  abrirBanco(data, { duracao: formatarDuracao(carga, { curto: true }), descricao: 'Folga compensada' })
 }
 
 function aoSalvarAjuste(registro) {
@@ -249,11 +304,16 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
 </script>
 
 <template>
-  <div class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
+  <div
+    class="mx-auto max-w-6xl px-4 pb-16 sm:px-6"
+    @dragover="aoArrastarSobre"
+    @dragleave="aoSairArrastando"
+    @drop="aoSoltarNaPagina"
+  >
     <!-- Cabeçalho -->
     <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <div>
-        <p class="rotulo">Banco de horas · jornada 08:48</p>
+        <p class="rotulo">{{ rotuloJornada }}</p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">
           Conferência de Ponto
         </h1>
@@ -283,6 +343,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         </button>
         <button type="button" class="botao-secundario" @click="abrirLancamento()">Lançamento manual</button>
         <button type="button" class="botao-secundario" title="Abater ou creditar horas no banco (compensação, horas pagas...)" @click="abrirBanco()">Lançar no banco</button>
+        <button type="button" class="botao-secundario" title="Enviar comprovantes em PDF (ou arraste os arquivos para a página)" @click="abrirEnvio">Enviar PDFs</button>
         </template>
       </div>
     </header>
@@ -337,9 +398,9 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         </div>
         <BarraProgressoDiaria
           :segundos="segundosHoje"
-          :jornada-base="registroHoje ? registroHoje.jornadaPrevistaSegundos : jornadaBaseSegundos"
+          :jornada-base="cargaHoje"
           :em-andamento="registroHoje?.status === 'EM_ANDAMENTO'"
-          :sem-jornada="registroHoje ? registroHoje.jornadaPrevistaSegundos === 0 : false"
+          :sem-jornada="cargaHoje === 0"
         />
         <p class="mt-1 text-sm text-tinta-suave">
           Saldo do dia
@@ -447,7 +508,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
       <TimelineDiaria
         v-if="diaSelecionado"
         :registro="diaSelecionado"
-        :grade="configuracao?.grade"
+        :periodos="store.periodosDoDia(diaSelecionado.data)"
         :tolerancia-minutos="configuracao?.toleranciaMinutos ?? 5"
         :hoje="hoje"
         :agora="agora"
@@ -479,6 +540,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         :somente-leitura="!auth.podeEscrever"
         :marcadores="marcadoresDoMes"
         :lancamentos="lancamentosPorData"
+        :expedientes="expedientePorData"
         @selecionar="store.selecionarDia"
         @lancar="abrirLancamento"
         @ajustar="abrirAjuste"
@@ -528,6 +590,40 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
       @salvo="(texto) => mostrarAviso(texto)"
       @compensar="compensarDia"
     />
+    <!-- Envio dos comprovantes pela tela -->
+    <Teleport to="body">
+      <div
+        v-if="arrastandoArquivo && !envioAberto"
+        class="pointer-events-none fixed inset-3 z-50 grid place-items-center rounded-[6px] border-4 border-dashed border-tinta bg-papel/85"
+      >
+        <p class="font-sans text-2xl font-bold">Solte os comprovantes em PDF</p>
+      </div>
+      <div
+        v-if="envioAberto"
+        class="fixed inset-0 z-50 flex items-end justify-center bg-tinta/45 p-0 backdrop-blur-[2px] sm:items-center sm:p-6"
+        @mousedown.self="fecharEnvio"
+      >
+        <section role="dialog" aria-modal="true" aria-labelledby="titulo-envio" class="cartao perfurado w-full max-w-lg animate-surgir rounded-b-none sm:rounded-[3px]">
+          <header class="flex items-start justify-between gap-4 border-b border-dashed border-linha px-5 pt-5 pb-4">
+            <div>
+              <p class="rotulo text-carimbo">Comprovantes de ponto</p>
+              <h2 id="titulo-envio" class="mt-1 font-sans text-xl font-extrabold tracking-tight [font-stretch:88%]">Enviar PDFs</h2>
+              <p class="mt-1 text-sm text-tinta-suave">
+                Cada comprovante vira a batida do dia. Para importar sozinho, configure a pasta em
+                <RouterLink :to="{ name: 'conta' }" class="font-semibold underline underline-offset-4">Minha conta</RouterLink>.
+              </p>
+            </div>
+            <button type="button" class="-mr-1 rounded-[3px] p-1.5 text-tinta-suave hover:bg-papel-escuro hover:text-tinta" aria-label="Fechar" @click="fecharEnvio">
+              <svg viewBox="0 0 20 20" class="size-5" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 5l10 10M15 5L5 15" /></svg>
+            </button>
+          </header>
+          <div class="px-5 py-5">
+            <EnvioComprovantes ref="envio" @enviados="aoEnviarComprovantes" />
+          </div>
+        </section>
+      </div>
+    </Teleport>
+
     <ModalAjusteBatidas
       v-if="auth.podeEscrever"
       v-model="ajusteAberto"

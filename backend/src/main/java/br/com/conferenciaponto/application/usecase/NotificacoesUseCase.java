@@ -14,7 +14,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
-/** Avisos do sino do painel (prazo do banco de horas, conciliação com o RH). */
+/** Avisos do sino do painel (prazo do banco de horas, conciliação com o RH), de cada usuário. */
 @Service
 public class NotificacoesUseCase {
 
@@ -34,38 +34,38 @@ public class NotificacoesUseCase {
     }
 
     @Transactional(readOnly = true)
-    public Caixa listar() {
-        return new Caixa(repository.listarRecentes(LIMITE_LISTAGEM), repository.contarNaoLidas());
+    public Caixa listar(UUID usuarioId) {
+        return new Caixa(repository.listarRecentes(usuarioId, LIMITE_LISTAGEM), repository.contarNaoLidas(usuarioId));
     }
 
     /** Cria o aviso se a chave ainda não foi usada. */
     @Transactional
-    public Optional<Notificacao> notificar(TipoNotificacao tipo, String chave, String titulo, String mensagem,
-                                           String link) {
-        if (repository.existeChave(chave)) {
+    public Optional<Notificacao> notificar(UUID usuarioId, TipoNotificacao tipo, String chave, String titulo,
+                                           String mensagem, String link) {
+        if (repository.existeChave(usuarioId, chave)) {
             return Optional.empty();
         }
-        Notificacao nova = Notificacao.nova(tipo, chave, titulo, mensagem, link, clock.instant());
+        Notificacao nova = Notificacao.nova(usuarioId, tipo, chave, titulo, mensagem, link, clock.instant());
         repository.salvar(nova);
-        eventos.publishEvent(new NotificacaoCriadaEvento(nova, repository.contarNaoLidas()));
+        eventos.publishEvent(new NotificacaoCriadaEvento(nova, repository.contarNaoLidas(usuarioId)));
         return Optional.of(nova);
     }
 
     @Transactional
-    public void marcarLida(UUID id) {
-        if (!repository.marcarLida(id, clock.instant())) {
+    public void marcarLida(UUID usuarioId, UUID id) {
+        if (!repository.marcarLida(usuarioId, id, clock.instant())) {
             throw new RecursoNaoEncontradoException("NOTIFICACAO_NAO_ENCONTRADA", "Notificação não encontrada.");
         }
     }
 
     /** Avisos de prazo de um ciclo já fechado (ou de uma previsão corrigida) deixam de ser pendência. */
     @Transactional
-    public int arquivarAvisosDeCicloExceto(String sufixoChave) {
-        return repository.marcarLidosAvisosDeCicloExceto(sufixoChave, clock.instant());
+    public int arquivarAvisosDeCicloExceto(UUID usuarioId, String sufixoChave) {
+        return repository.marcarLidosAvisosDeCicloExceto(usuarioId, sufixoChave, clock.instant());
     }
 
     @Transactional
-    public int marcarTodasLidas() {
-        return repository.marcarTodasLidas(clock.instant());
+    public int marcarTodasLidas(UUID usuarioId) {
+        return repository.marcarTodasLidas(usuarioId, clock.instant());
     }
 }

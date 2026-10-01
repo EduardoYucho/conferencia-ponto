@@ -6,6 +6,7 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.ComprovanteArquivado;
 import br.com.conferenciaponto.domain.port.ArmazenamentoComprovantes;
 import br.com.conferenciaponto.domain.port.ComprovanteArquivadoRepository;
+import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -20,14 +21,21 @@ public class BaixarComprovanteUseCase {
 
     private final ComprovanteArquivadoRepository arquivos;
     private final ArmazenamentoComprovantes armazenamento;
+    private final RegistroJornadaRepository registros;
 
-    public BaixarComprovanteUseCase(ComprovanteArquivadoRepository arquivos, ArmazenamentoComprovantes armazenamento) {
+    public BaixarComprovanteUseCase(ComprovanteArquivadoRepository arquivos, ArmazenamentoComprovantes armazenamento,
+                                    RegistroJornadaRepository registros) {
         this.arquivos = arquivos;
         this.armazenamento = armazenamento;
+        this.registros = registros;
     }
 
-    public ArquivoComprovanteView executar(UUID id) {
+    /** @param usuarioId titular dos dados consultados: o comprovante precisa ser de um dia dele */
+    public ArquivoComprovanteView executar(UUID usuarioId, UUID id) {
         ComprovanteArquivado comprovante = arquivos.buscarPorId(id)
+                .filter(c -> registros.buscarPorId(c.registroJornadaId())
+                        .map(r -> r.getUsuarioId().equals(usuarioId))
+                        .orElse(false))
                 .orElseThrow(() -> new RecursoNaoEncontradoException("COMPROVANTE_NAO_ENCONTRADO",
                         "Comprovante %s não encontrado.".formatted(id)));
         byte[] conteudo;

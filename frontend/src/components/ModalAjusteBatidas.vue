@@ -125,10 +125,13 @@ function remover(linha) {
   linhas.value = linhas.value.filter((l) => l.id !== linha.id)
 }
 
+/** Grade do dia pelo horário da pessoa. */
+const periodosDoDia = computed(() => (props.data ? store.periodosDoDia(props.data) : []))
+
 function preencherComGrade() {
-  const g = store.configuracao?.grade
-  if (!g) return
-  linhas.value = [g.entrada1, g.saida1, g.entrada2, g.saida2].map((h) => novaLinha(comSegundos(h)))
+  const horarios = periodosDoDia.value.flatMap((p) => [p.entrada, p.saida])
+  if (!horarios.length) return
+  linhas.value = horarios.map((h) => novaLinha(comSegundos(h.slice(0, 5))))
 }
 
 /** Horário no formato do servidor (o campo do navegador omite ":00" nos segundos). */
@@ -303,7 +306,7 @@ const listaHoras = (horarios) => (horarios.length ? horarios.join(' · ') : 'sem
                   @click="incluir"
                 >+ Incluir batida esquecida</button>
                 <button
-                  v-if="!linhas.length && store.configuracao?.grade"
+                  v-if="!linhas.length && periodosDoDia.length"
                   type="button"
                   class="text-sm text-tinta-suave underline underline-offset-4 hover:text-tinta"
                   @click="preencherComGrade"

@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.UUID;
 
 @Repository
 class AjusteJornadaRepositoryAdapter implements AjusteJornadaRepository {
@@ -19,27 +20,29 @@ class AjusteJornadaRepositoryAdapter implements AjusteJornadaRepository {
 
     @Override
     public void salvar(AjusteJornada ajuste) {
-        jpa.save(new AjusteJornadaEntity(ajuste.id(), ajuste.registroJornadaId(), ajuste.data(),
+        AjusteJornadaEntity e = new AjusteJornadaEntity(ajuste.id(), ajuste.registroJornadaId(), ajuste.data(),
                 HorariosTexto.escrever(ajuste.antes()), HorariosTexto.escrever(ajuste.depois()),
-                ajuste.justificativa(), ajuste.usuario(), ajuste.ajustadoEm().atOffset(ZoneOffset.UTC)));
+                ajuste.justificativa(), ajuste.usuario(), ajuste.ajustadoEm().atOffset(ZoneOffset.UTC));
+        e.setUsuarioId(ajuste.usuarioId());
+        jpa.save(e);
     }
 
     @Override
-    public List<AjusteJornada> listarPorData(LocalDate data) {
-        return jpa.findByDataReferenciaOrderByAjustadoEmDesc(data).stream()
+    public List<AjusteJornada> listarPorData(UUID usuarioId, LocalDate data) {
+        return jpa.findByUsuarioIdAndDataReferenciaOrderByAjustadoEmDesc(usuarioId, data).stream()
                 .map(AjusteJornadaRepositoryAdapter::paraDominio)
                 .toList();
     }
 
     @Override
-    public List<AjusteJornada> listarPorPeriodo(LocalDate inicio, LocalDate fim) {
-        return jpa.findByDataReferenciaBetweenOrderByAjustadoEmDesc(inicio, fim).stream()
+    public List<AjusteJornada> listarPorPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return jpa.findByUsuarioIdAndDataReferenciaBetweenOrderByAjustadoEmDesc(usuarioId, inicio, fim).stream()
                 .map(AjusteJornadaRepositoryAdapter::paraDominio)
                 .toList();
     }
 
     private static AjusteJornada paraDominio(AjusteJornadaEntity e) {
-        return new AjusteJornada(e.getId(), e.getRegistroJornadaId(), e.getDataReferencia(),
+        return new AjusteJornada(e.getId(), e.getUsuarioId(), e.getRegistroJornadaId(), e.getDataReferencia(),
                 HorariosTexto.ler(e.getBatidasAntes()), HorariosTexto.ler(e.getBatidasDepois()),
                 e.getJustificativa(), e.getUsuarioLogin(), e.getAjustadoEm().toInstant());
     }

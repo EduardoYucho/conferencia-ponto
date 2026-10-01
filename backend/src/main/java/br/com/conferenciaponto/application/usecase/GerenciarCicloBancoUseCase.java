@@ -25,13 +25,14 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
 /**
  * Ciclo (semestral) do banco de horas: o saldo do painel é o do ciclo aberto. O botão "Fechar banco de
  * horas" congela o saldo exato do ciclo e recomeça a contagem do zero no dia seguinte ao último dia
- * incluído.
+ * incluído. Cada usuário tem os próprios ciclos.
  */
 @Service
 public class GerenciarCicloBancoUseCase {
@@ -57,27 +58,41 @@ public class GerenciarCicloBancoUseCase {
     public record Fechamento(CicloBancoView fechado, CicloBancoView novo) {
     }
 
-    /** Na subida: garante que existe um ciclo aberto (o primeiro começa em {@code inicioPrimeiroCiclo}). */
+    /**
+     * Garante que o usuário tem um ciclo aberto (na subida e ao cadastrar o usuário). O primeiro ciclo segue o
+     * calendário da empresa: começa em {@code inicioPrimeiroCiclo} e avança de {@code duracaoMeses} em
+     * {@code duracaoMeses} até o ciclo que contém hoje.
+     */
     @Transactional
-    public CicloBanco garantirCicloAberto() {
-        Optional<CicloBanco> aberto = ciclos.buscarAberto();
+    public CicloBanco garantirCicloAberto(UUID usuarioId) {
+        Optional<CicloBanco> aberto = ciclos.buscarAberto(usuarioId);
         if (aberto.isPresent()) {
             return aberto.get();
         }
-        LocalDate inicio = ultimoFechado().map(c -> c.dataFim().plusDays(1)).orElse(parametros.inicioPrimeiroCiclo());
-        CicloBanco novo = CicloBanco.abrir(inicio, parametros.duracaoMeses(), clock.instant());
+        LocalDate inicio = ultimoFechado(usuarioId).map(c -> c.dataFim().plusDays(1))
+                .orElseGet(this::inicioDoCicloAtualDaEmpresa);
+        CicloBanco novo = CicloBanco.abrir(usuarioId, inicio, parametros.duracaoMeses(), clock.instant());
         ciclos.salvar(novo);
         return novo;
     }
 
-    @Transactional(readOnly = true)
-    public CicloBancoView atual() {
-        return visao(aberto());
+    private LocalDate inicioDoCicloAtualDaEmpresa() {
+        LocalDate hoje = LocalDate.now(clock);
+        LocalDate inicio = parametros.inicioPrimeiroCiclo();
+        while (!inicio.plusMonths(parametros.duracaoMeses()).isAfter(hoje)) {
+            inicio = inicio.plusMonths(parametros.duracaoMeses());
+        }
+        return inicio;
+    }
+
+    @Transactional
+    public CicloBancoView atual(UUID usuarioId) {
+        return visao(garantirCicloAberto(usuarioId));
     }
 
     @Transactional(readOnly = true)
-    public List<CicloBancoView> listar() {
-        return ciclos.listar().stream().map(this::visao).toList();
+    public List<CicloBancoView> listar(UUID usuarioId) {
+        return ciclos.listar(usuarioId).stream().map(this::visao).toList();
     }
 
     /**
@@ -86,8 +101,8 @@ public class GerenciarCicloBancoUseCase {
      * @param ultimoDia último dia incluído no saldo final; {@code null} = sugestão ({@link #sugerirUltimoDia})
      */
     @Transactional
-    public Fechamento fechar(LocalDate ultimoDia, String observacao, String usuario) {
-        CicloBanco aberto = aberto();
+    public Fechamento fechar(UUID usuarioId, LocalDate ultimoDia, String observacao, String usuario) {
+        CicloBanco aberto = aberto(usuarioId);
         LocalDate hoje = LocalDate.now(clock);
         if (ultimoDia == null && !aberto.dataInicio().isBefore(hoje)) {
             // protege contra clique duplo: o ciclo recém-aberto só fecha com a data informada
@@ -100,23 +115,23 @@ public class GerenciarCicloBancoUseCase {
                     "O ciclo atual começou em %s: o fechamento não pode ser antes disso."
                             .formatted(DATA.format(aberto.dataInicio())));
         }
-        int saldo = apurar(aberto.dataInicio(), dia).saldo();
+        int saldo = apurar(usuarioId, aberto.dataInicio(), dia).saldo();
         CicloBanco fechado = aberto.fechar(dia, saldo, usuario, observacao, hoje, clock.instant());
         ciclos.salvar(fechado);
-        CicloBanco novo = CicloBanco.abrir(dia.plusDays(1), parametros.duracaoMeses(), clock.instant());
+        CicloBanco novo = CicloBanco.abrir(usuarioId, dia.plusDays(1), parametros.duracaoMeses(), clock.instant());
         ciclos.salvar(novo);
 
         CicloBancoView novoView = visao(novo);
-        eventos.publishEvent(new CicloAtualizadoEvento(novoView, "Banco de horas fechado em %s com saldo %s"
+        eventos.publishEvent(new CicloAtualizadoEvento(usuarioId, novoView, "Banco de horas fechado em %s com saldo %s"
                 .formatted(DATA.format(dia), TextoDuracao.saldo(saldo))));
         return new Fechamento(visao(fechado), novoView);
     }
 
     /** Desfaz o último fechamento (clicou por engano): o ciclo anterior volta a ser o aberto. */
     @Transactional
-    public CicloBancoView desfazerUltimoFechamento() {
-        CicloBanco aberto = aberto();
-        CicloBanco anterior = ultimoFechado()
+    public CicloBancoView desfazerUltimoFechamento(UUID usuarioId) {
+        CicloBanco aberto = aberto(usuarioId);
+        CicloBanco anterior = ultimoFechado(usuarioId)
                 .filter(c -> c.dataFim().plusDays(1).equals(aberto.dataInicio()))
                 .orElseThrow(() -> new ConflitoException("SEM_FECHAMENTO_PARA_DESFAZER",
                         "Não há fechamento imediatamente anterior ao ciclo atual para desfazer."));
@@ -124,16 +139,16 @@ public class GerenciarCicloBancoUseCase {
         CicloBanco reaberto = anterior.reaberto();
         ciclos.salvar(reaberto);
         CicloBancoView view = visao(reaberto);
-        eventos.publishEvent(new CicloAtualizadoEvento(view, "Fechamento de %s desfeito"
+        eventos.publishEvent(new CicloAtualizadoEvento(usuarioId, view, "Fechamento de %s desfeito"
                 .formatted(DATA.format(anterior.dataFim()))));
         return view;
     }
 
     /** Corrige o início (e a previsão de término) do ciclo aberto. */
     @Transactional
-    public CicloBancoView corrigirPeriodo(LocalDate inicio, LocalDate fimPrevisto) {
-        CicloBanco aberto = aberto();
-        Optional<CicloBanco> anterior = ultimoFechado();
+    public CicloBancoView corrigirPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fimPrevisto) {
+        CicloBanco aberto = aberto(usuarioId);
+        Optional<CicloBanco> anterior = ultimoFechado(usuarioId);
         if (anterior.isPresent() && !inicio.isAfter(anterior.get().dataFim())) {
             throw new RegraNegocioException("CICLO_SOBREPOE_ANTERIOR",
                     "O ciclo anterior foi fechado em %s: o atual deve começar a partir de %s."
@@ -144,7 +159,7 @@ public class GerenciarCicloBancoUseCase {
         CicloBanco corrigido = aberto.comPeriodo(inicio, fim);
         ciclos.salvar(corrigido);
         CicloBancoView view = visao(corrigido);
-        eventos.publishEvent(new CicloAtualizadoEvento(view, "Período do ciclo corrigido: %s a %s"
+        eventos.publishEvent(new CicloAtualizadoEvento(usuarioId, view, "Período do ciclo corrigido: %s a %s"
                 .formatted(DATA.format(inicio), DATA.format(fim))));
         return view;
     }
@@ -161,13 +176,13 @@ public class GerenciarCicloBancoUseCase {
         return ontem.isBefore(ciclo.dataInicio()) ? hoje : ontem;
     }
 
-    private CicloBanco aberto() {
-        return ciclos.buscarAberto().orElseThrow(() -> new RecursoNaoEncontradoException("CICLO_NAO_ENCONTRADO",
+    private CicloBanco aberto(UUID usuarioId) {
+        return ciclos.buscarAberto(usuarioId).orElseThrow(() -> new RecursoNaoEncontradoException("CICLO_NAO_ENCONTRADO",
                 "Não há ciclo do banco de horas aberto."));
     }
 
-    private Optional<CicloBanco> ultimoFechado() {
-        return ciclos.listar().stream()
+    private Optional<CicloBanco> ultimoFechado(UUID usuarioId) {
+        return ciclos.listar(usuarioId).stream()
                 .filter(c -> c.status() == StatusCiclo.FECHADO)
                 .max(Comparator.comparing(CicloBanco::dataFim));
     }
@@ -175,8 +190,8 @@ public class GerenciarCicloBancoUseCase {
     private record Apuracao(int saldo, int diasRegistrados, int diasEmAberto, List<SaldoMensal> meses) {
     }
 
-    private Apuracao apurar(LocalDate inicio, LocalDate fim) {
-        List<SaldoMensal> meses = consolidacao.periodo(inicio, fim);
+    private Apuracao apurar(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        List<SaldoMensal> meses = consolidacao.periodo(usuarioId, inicio, fim);
         int saldo = meses.stream().mapToInt(SaldoMensal::saldoMensalSegundos).sum();
         int registrados = meses.stream().mapToInt(SaldoMensal::diasRegistrados).sum();
         int emAberto = meses.stream().mapToInt(SaldoMensal::diasEmAberto).sum();
@@ -185,7 +200,7 @@ public class GerenciarCicloBancoUseCase {
 
     private CicloBancoView visao(CicloBanco ciclo) {
         LocalDate hoje = LocalDate.now(clock);
-        Apuracao a = apurar(ciclo.dataInicio(), ciclo.ultimoDiaDoSaldo());
+        Apuracao a = apurar(ciclo.usuarioId(), ciclo.dataInicio(), ciclo.ultimoDiaDoSaldo());
         int saldo = ciclo.isAberto() ? a.saldo() : ciclo.saldoFinalSegundos();
         LocalDate ultimoMes = ciclo.isAberto()
                 ? (hoje.isAfter(ciclo.dataFimPrevista()) ? hoje : ciclo.dataFimPrevista())

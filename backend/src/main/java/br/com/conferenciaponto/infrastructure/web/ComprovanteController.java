@@ -2,6 +2,7 @@ package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.BaixarComprovanteUseCase;
 import br.com.conferenciaponto.application.view.ArquivoComprovanteView;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -30,8 +31,8 @@ public class ComprovanteController {
     }
 
     @GetMapping({"/api/comprovantes/{id}/download", "/api/v1/comprovantes/{id}/download"})
-    public ResponseEntity<Resource> download(@PathVariable UUID id) {
-        ArquivoComprovanteView arquivo = baixar.executar(id);
+    public ResponseEntity<Resource> download(@PathVariable UUID id, Titular titular) {
+        ArquivoComprovanteView arquivo = baixar.executar(titular.id(), id);
         // nome sempre ASCII (comprovante_<data>_<tipo>_<hhmmss>.pdf): dispensa a codificação RFC 2047/5987
         ContentDisposition anexo = ContentDisposition.attachment()
                 .filename(arquivo.comprovante().nomeDownload())

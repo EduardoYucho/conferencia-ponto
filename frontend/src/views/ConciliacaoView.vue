@@ -267,6 +267,7 @@ function alternarLote(tipo) {
       <div>
         <p class="rotulo">Auditoria cruzada · relatório de banco de horas do RH</p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Conciliação com o RH</h1>
+        <p v-if="!auth.vendoOsProprios" class="mt-1 font-sans text-lg font-semibold">{{ auth.pessoaEmTela?.nome }}</p>
         <p class="mt-2 max-w-2xl text-sm text-tinta-suave">
           Envie o PDF do relatório do RH: cada dia é comparado com a conferência (batidas com segundos, tipo do dia e saldo).
           Nada é alterado sem a sua decisão.

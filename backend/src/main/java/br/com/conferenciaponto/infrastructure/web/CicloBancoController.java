@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.CicloBancoResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.CorrigirCicloRequest;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.security.Principal;
 import java.util.List;
 
 /**
@@ -37,30 +37,31 @@ public class CicloBancoController {
     }
 
     @GetMapping("/api/v1/ciclos")
-    public ApiResponse<List<CicloBancoResponse>> listar() {
-        return ApiResponse.ok(ciclos.listar().stream().map(CicloBancoResponse::de).toList());
+    public ApiResponse<List<CicloBancoResponse>> listar(Titular titular) {
+        return ApiResponse.ok(ciclos.listar(titular.id()).stream().map(CicloBancoResponse::de).toList());
     }
 
     @GetMapping("/api/v1/ciclos/atual")
-    public ApiResponse<CicloBancoResponse> atual() {
-        return ApiResponse.ok(CicloBancoResponse.de(ciclos.atual()));
+    public ApiResponse<CicloBancoResponse> atual(Titular titular) {
+        return ApiResponse.ok(CicloBancoResponse.de(ciclos.atual(titular.id())));
     }
 
     @PutMapping("/api/v1/ciclos/atual")
-    public ApiResponse<CicloBancoResponse> corrigir(@Valid @RequestBody CorrigirCicloRequest r) {
-        return ApiResponse.ok(CicloBancoResponse.de(ciclos.corrigirPeriodo(r.dataInicio(), r.dataFimPrevista())));
+    public ApiResponse<CicloBancoResponse> corrigir(@Valid @RequestBody CorrigirCicloRequest r, Titular titular) {
+        return ApiResponse.ok(CicloBancoResponse.de(
+                ciclos.corrigirPeriodo(titular.id(), r.dataInicio(), r.dataFimPrevista())));
     }
 
     @PostMapping({"/api/v1/ciclos/fechar", "/api/ciclos/fechar"})
     public ApiResponse<FechamentoCicloResponse> fechar(@Valid @RequestBody(required = false) FecharCicloRequest r,
-                                                       Principal usuario) {
+                                                       Titular titular) {
         FecharCicloRequest pedido = r != null ? r : new FecharCicloRequest(null, null);
         return ApiResponse.ok(FechamentoCicloResponse.de(
-                ciclos.fechar(pedido.ultimoDia(), pedido.observacao(), usuario.getName())));
+                ciclos.fechar(titular.id(), pedido.ultimoDia(), pedido.observacao(), titular.quem())));
     }
 
     @PostMapping("/api/v1/ciclos/desfazer-fechamento")
-    public ApiResponse<CicloBancoResponse> desfazer() {
-        return ApiResponse.ok(CicloBancoResponse.de(ciclos.desfazerUltimoFechamento()));
+    public ApiResponse<CicloBancoResponse> desfazer(Titular titular) {
+        return ApiResponse.ok(CicloBancoResponse.de(ciclos.desfazerUltimoFechamento(titular.id())));
     }
 }

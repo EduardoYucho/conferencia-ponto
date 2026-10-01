@@ -15,6 +15,7 @@ import java.time.LocalDateTime;
 import java.time.LocalTime;
 import java.util.UUID;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -27,7 +28,7 @@ class ExcluirRegistroUseCaseTest {
     private final ExcluirRegistroUseCase useCase = new ExcluirRegistroUseCase(registros, arquivos, e -> { });
 
     private RegistroJornada criarDia() {
-        RegistroJornada registro = RegistroJornada.novo(DIA, TipoDia.UTIL);
+        RegistroJornada registro = RegistroJornada.novo(USUARIO, DIA, TipoDia.UTIL);
         registro.registrarBatida(LocalTime.of(8, 2, 31), new MotorCalculoJornadaService());
         registros.salvar(registro);
         return registro;
@@ -37,8 +38,8 @@ class ExcluirRegistroUseCaseTest {
     @DisplayName("Dia sem comprovante arquivado pode ser excluído")
     void excluiSemComprovante() {
         criarDia();
-        useCase.executar(DIA);
-        assertThat(registros.buscarPorData(DIA)).isEmpty();
+        useCase.executar(USUARIO, DIA);
+        assertThat(registros.buscarPorData(USUARIO, DIA)).isEmpty();
     }
 
     @Test
@@ -49,9 +50,9 @@ class ExcluirRegistroUseCaseTest {
                 TipoBatida.ENTRADA_1, Instant.now(), LocalDateTime.of(DIA, LocalTime.of(8, 2, 31)),
                 "comprovanteponto.pdf", "abc", 10));
 
-        assertThatThrownBy(() -> useCase.executar(DIA))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, DIA))
                 .isInstanceOf(ConflitoException.class)
                 .extracting("codigo").isEqualTo("REGISTRO_COM_COMPROVANTES");
-        assertThat(registros.buscarPorData(DIA)).isPresent();
+        assertThat(registros.buscarPorData(USUARIO, DIA)).isPresent();
     }
 }

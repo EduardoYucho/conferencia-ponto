@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.NotificacoesUseCase;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.NotificacoesResponse;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,19 +30,19 @@ public class NotificacaoController {
     }
 
     @GetMapping
-    public ApiResponse<NotificacoesResponse> listar() {
-        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar()));
+    public ApiResponse<NotificacoesResponse> listar(Titular titular) {
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.id())));
     }
 
     @PostMapping("/{id}/lida")
-    public ApiResponse<NotificacoesResponse> marcarLida(@PathVariable UUID id) {
-        notificacoes.marcarLida(id);
-        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar()));
+    public ApiResponse<NotificacoesResponse> marcarLida(@PathVariable UUID id, Titular titular) {
+        notificacoes.marcarLida(titular.id(), id);
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.id())));
     }
 
     @PostMapping("/lidas")
-    public ApiResponse<NotificacoesResponse> marcarTodas() {
-        notificacoes.marcarTodasLidas();
-        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar()));
+    public ApiResponse<NotificacoesResponse> marcarTodas(Titular titular) {
+        notificacoes.marcarTodasLidas(titular.id());
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.id())));
     }
 }

@@ -9,6 +9,7 @@ import org.springframework.stereotype.Repository;
 import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 @Repository
 class ComprovantePontoRepositoryAdapter implements ComprovantePontoRepository {
@@ -30,8 +31,8 @@ class ComprovantePontoRepositoryAdapter implements ComprovantePontoRepository {
     }
 
     @Override
-    public boolean existeImportado(LocalDateTime dataHoraBatida) {
-        return jpa.existsByDataHoraBatidaAndStatus(dataHoraBatida, StatusImportacao.IMPORTADO);
+    public boolean existeImportado(UUID usuarioId, LocalDateTime dataHoraBatida) {
+        return jpa.existsByUsuarioIdAndDataHoraBatidaAndStatus(usuarioId, dataHoraBatida, StatusImportacao.IMPORTADO);
     }
 
     @Override
@@ -40,8 +41,8 @@ class ComprovantePontoRepositoryAdapter implements ComprovantePontoRepository {
     }
 
     @Override
-    public List<ComprovanteImportado> recentes(int limite) {
-        return jpa.findAllByOrderByProcessadoEmDesc(PageRequest.of(0, limite)).stream()
+    public List<ComprovanteImportado> recentes(UUID usuarioId, int limite) {
+        return jpa.findByUsuarioIdOrderByProcessadoEmDesc(usuarioId, PageRequest.of(0, limite)).stream()
                 .map(ComprovantePontoEntity::paraDominio)
                 .toList();
     }

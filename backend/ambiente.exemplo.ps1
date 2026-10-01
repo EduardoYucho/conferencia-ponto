@@ -12,8 +12,8 @@ $env:PONTO_JWT_SEGREDO = '<gerado-na-primeira-execucao>'
 # $env:PONTO_ADMIN_SENHA  = ''
 # $env:PONTO_VIEWER_SENHA = ''
 
-# Pasta monitorada dos comprovantes: prefira definir em backend\config\application.yml, que vale
-# também para o Eclipse (e tem prioridade sobre esta variável).
+# Pasta dos comprovantes: cada usuário escolhe a sua em "Minha conta". Esta variável só vale na primeira
+# subida da versão com vários usuários (vira a pasta do administrador, se ninguém tiver pasta).
 # $env:PONTO_PDF_DIR = "$HOME\Downloads\Ponto"
 
 # Onde os PDFs ficam arquivados (padrão: .conferencia-ponto\comprovantes na pasta do usuário)

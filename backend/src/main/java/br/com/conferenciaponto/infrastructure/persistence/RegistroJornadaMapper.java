@@ -16,6 +16,7 @@ final class RegistroJornadaMapper {
                 entity.getEntrada2(), entity.getSaida2(), entity.getEntrada3(), entity.getSaida3());
         return RegistroJornada.restaurar(
                 entity.getId(),
+                entity.getUsuarioId(),
                 entity.getDataReferencia(),
                 entity.getTipoDia(),
                 batidas,

@@ -34,8 +34,18 @@ export const pontoApi = {
   /** PDF arquivado (resposta completa: blob + headers). */
   baixarComprovante: (id) => http.get(`/comprovantes/${id}/download`, { responseType: 'blob', timeout: 60000 }),
 
-  /** Varre de novo a pasta monitorada (ADMIN/USER). */
+  /** Varre de novo a pasta monitorada do usuário. */
   reprocessarPasta: () => http.post('/importacoes/reprocessar'),
+
+  /**
+   * Comprovantes PDF enviados pela tela (mesmas regras da pasta monitorada).
+   * @returns {Promise<{ nomeArquivo, status: 'IMPORTADO'|'DUPLICADO'|'REJEITADO'|'INVALIDO'|'JA_PROCESSADO', mensagem }[]>}
+   */
+  enviarComprovantes: (arquivos) => {
+    const formulario = new FormData()
+    for (const arquivo of arquivos) formulario.append('arquivos', arquivo)
+    return http.post('/importacoes/enviar', formulario, { headers: { 'Content-Type': 'multipart/form-data' }, timeout: 120000 })
+  },
 
   /** Estado do monitor de PDFs + últimos comprovantes processados. */
   importacoes: (limite = 20) => http.get('/importacoes', { params: { limite } }),
@@ -75,6 +85,27 @@ export const pontoApi = {
   /** @param {{ data: string, duracao: string, sentido: 'DEBITO'|'CREDITO', descricao: string }} lancamento */
   lancarNoBanco: (lancamento) => http.post('/lancamentos-banco', lancamento),
   excluirLancamentoBanco: (id) => http.delete(`/lancamentos-banco/${id}`),
+
+  // ------------------------------------------------ horário de trabalho
+  /** Vigências do horário (da mais antiga para a mais recente). */
+  horarios: () => http.get('/horarios'),
+  /**
+   * Novo horário a partir de uma data. `usuario` (login): o admin alterando o horário de outra pessoa.
+   * @param {{ vigenteDesde: string, toleranciaMinutos: number, dias: Record<string, string> }} horario
+   */
+  salvarHorario: (horario, usuario = null) => http.post('/horarios', horario, { params: usuario ? { usuario } : {} }),
+  excluirHorario: (id, usuario = null) => http.delete(`/horarios/${id}`, { params: usuario ? { usuario } : {} }),
+
+  // ------------------------------------------------ minha conta e usuários
+  salvarMinhaPasta: (pasta) => http.put('/conta/pasta', { pasta }, { timeout: 30000 }),
+  verificarPasta: (pasta) => http.post('/conta/pasta/verificar', { pasta }, { timeout: 30000 }),
+  titulares: () => http.get('/usuarios/titulares'),
+  usuarios: () => http.get('/usuarios'),
+  /** @param {{ login, nome, perfil: 'ROLE_ADMIN'|'ROLE_USER'|'ROLE_VIEWER', senhaProvisoria, pastaComprovantes? }} usuario */
+  criarUsuario: (usuario) => http.post('/usuarios', usuario),
+  atualizarUsuario: (id, { nome, perfil, ativo }) => http.put(`/usuarios/${id}`, { nome, perfil, ativo }),
+  redefinirSenha: (id, senhaProvisoria) => http.put(`/usuarios/${id}/senha`, { senhaProvisoria }),
+  definirPastaDe: (id, pasta) => http.put(`/usuarios/${id}/pasta`, { pasta }, { timeout: 30000 }),
 
   // ------------------------------------------- conciliação com o RH
   /** Envia o PDF do relatório de banco de horas (processado em segundo plano). */

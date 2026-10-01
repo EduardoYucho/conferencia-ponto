@@ -12,24 +12,27 @@ import java.util.UUID;
 
 interface NotificacaoJpaRepository extends JpaRepository<NotificacaoEntity, UUID> {
 
-    boolean existsByChave(String chave);
+    boolean existsByUsuarioIdAndChave(UUID usuarioId, String chave);
 
-    List<NotificacaoEntity> findAllByOrderByCriadaEmDesc(Pageable pagina);
+    boolean existsByIdAndUsuarioId(UUID id, UUID usuarioId);
 
-    long countByLidaEmIsNull();
+    List<NotificacaoEntity> findByUsuarioIdOrderByCriadaEmDesc(UUID usuarioId, Pageable pagina);
+
+    long countByUsuarioIdAndLidaEmIsNull(UUID usuarioId);
 
     @Modifying
     @Query("UPDATE NotificacaoEntity n SET n.lidaEm = :quando WHERE n.id = :id AND n.lidaEm IS NULL")
     int marcarLida(@Param("id") UUID id, @Param("quando") OffsetDateTime quando);
 
     @Modifying
-    @Query("UPDATE NotificacaoEntity n SET n.lidaEm = :quando WHERE n.lidaEm IS NULL")
-    int marcarTodasLidas(@Param("quando") OffsetDateTime quando);
+    @Query("UPDATE NotificacaoEntity n SET n.lidaEm = :quando WHERE n.usuarioId = :usuarioId AND n.lidaEm IS NULL")
+    int marcarTodasLidas(@Param("usuarioId") UUID usuarioId, @Param("quando") OffsetDateTime quando);
 
     @Modifying
     @Query("""
             UPDATE NotificacaoEntity n SET n.lidaEm = :quando
-             WHERE n.lidaEm IS NULL AND n.tipo IN ('CICLO_30_DIAS', 'CICLO_15_DIAS', 'CICLO_VENCIDO') AND n.chave NOT LIKE :padrao
+             WHERE n.usuarioId = :usuarioId AND n.lidaEm IS NULL AND n.tipo IN ('CICLO_30_DIAS', 'CICLO_15_DIAS', 'CICLO_VENCIDO') AND n.chave NOT LIKE :padrao
             """)
-    int marcarLidosAvisosDeCicloExceto(@Param("padrao") String padrao, @Param("quando") OffsetDateTime quando);
+    int marcarLidosAvisosDeCicloExceto(@Param("usuarioId") UUID usuarioId, @Param("padrao") String padrao,
+                                       @Param("quando") OffsetDateTime quando);
 }

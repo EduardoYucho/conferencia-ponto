@@ -38,13 +38,17 @@ import java.security.NoSuchAlgorithmException;
  * Rota                                   ADMIN  USER  VIEWER  anônimo
  * POST /api/v1/auth/login                  ✓     ✓      ✓       ✓
  * PUT  /api/v1/auth/senha                  ✓     ✓      ✓       –
+ * GET  /api/v1/usuarios/titulares          ✓     ✓      ✓       –
+ * /api/v1/usuarios/** (cadastro)           ✓     –      –       –
+ * POST/DELETE /api/v1/feriados/**          ✓     –      –       –   (feriado vale para todos)
  * GET  /api/**  (leitura, SSE, download)   ✓     ✓      ✓       –
  * POST/PUT/PATCH/DELETE /api/**            ✓     ✓      –       –
  * GET  fora de /api (front-end: HTML/JS)   ✓     ✓      ✓       ✓
  * qualquer outra rota                      negada
  * </pre>
  *
- * <p>O front-end é público porque só tem código (os dados vêm da API, que exige o token).
+ * <p>O front-end é público porque só tem código (os dados vêm da API, que exige o token). Quem vê os dados de
+ * quem (cada um os seus; administrador e coordenação os de todos) é decidido em AcessoUsuarios.
  */
 @Configuration
 @EnableWebSecurity
@@ -72,6 +76,11 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
                         .requestMatchers(HttpMethod.PUT, "/api/v1/auth/senha").authenticated()
+                        // cadastro de usuários e feriados (valem para todos): só o administrador
+                        .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/titulares").hasAnyRole(LEITURA)
+                        .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasRole("ADMIN")
                         // leitura: todos os perfis
                         .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(LEITURA)
                         // escrita: registros manuais, batidas, exclusões e processamento de arquivos

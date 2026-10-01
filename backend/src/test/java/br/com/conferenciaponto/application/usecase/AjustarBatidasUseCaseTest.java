@@ -26,6 +26,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -44,7 +45,7 @@ class AjustarBatidasUseCaseTest {
     private final Clock clock = Clock.fixed(ZonedDateTime.of(HOJE, LocalTime.of(11, 0), SP).toInstant(), SP);
 
     private final AjustarBatidasUseCase useCase = new AjustarBatidasUseCase(registros, arquivos, ajustes,
-            new ClassificadorDiaService(data -> false), motor, eventos::add, clock);
+            Fixtures.regras(new ClassificadorDiaService(data -> false)), eventos::add, clock);
 
     private static LocalTime t(String horario) {
         return LocalTime.parse(horario);
@@ -52,7 +53,7 @@ class AjustarBatidasUseCaseTest {
 
     /** 26/06 como ficou após importar os PDFs: faltou a volta do almoço. */
     private RegistroJornada diaImportadoComFalha() {
-        RegistroJornada registro = RegistroJornada.novo(DIA_26_06, TipoDia.UTIL);
+        RegistroJornada registro = RegistroJornada.novo(USUARIO, DIA_26_06, TipoDia.UTIL);
         List<String> horarios = List.of("08:01:11", "12:00:03", "17:42:57");
         for (String h : horarios) {
             registro.incluirBatida(t(h), motor);
@@ -72,7 +73,7 @@ class AjustarBatidasUseCaseTest {
     void ajustaDiaComPdfs() {
         RegistroJornada registro = diaImportadoComFalha();
 
-        RegistroJornadaView v = useCase.executar(DIA_26_06,
+        RegistroJornadaView v = useCase.executar(USUARIO, DIA_26_06,
                 List.of(t("08:01:11"), t("12:00:03"), t("13:00"), t("17:42:57")), MOTIVO, "eduardo");
 
         assertThat(v.status()).isEqualTo(StatusJornada.FECHADA);
@@ -93,14 +94,14 @@ class AjustarBatidasUseCaseTest {
         JornadaAtualizadaEvento evento = (JornadaAtualizadaEvento) eventos.get(0);
         assertThat(evento.origem()).isEqualTo(OrigemAtualizacao.AJUSTE);
         assertThat(evento.mensagem()).contains("26/06", "eduardo", "08:01:11 12:00:03 17:42:57 → 08:01:11 12:00:03 13:00:00 17:42:57");
-        assertThat(useCase.historico(DIA_26_06)).hasSize(1);
+        assertThat(useCase.historico(USUARIO, DIA_26_06)).hasSize(1);
     }
 
     @Test
     @DisplayName("Dia sem nenhum registro (relógio fora do ar o dia todo): cria o dia com as 4 batidas ajustadas")
     void diaInteiroSemRegistro() {
         LocalDate dia = LocalDate.of(2026, 7, 1);
-        RegistroJornadaView v = useCase.executar(dia,
+        RegistroJornadaView v = useCase.executar(USUARIO, dia,
                 List.of(t("08:00"), t("12:00"), t("13:00"), t("17:48")), MOTIVO, "eduardo");
 
         assertThat(v.saldoDiarioSegundos()).isZero();
@@ -113,7 +114,7 @@ class AjustarBatidasUseCaseTest {
     void naoAlteraComprovada() {
         diaImportadoComFalha();
 
-        assertThatThrownBy(() -> useCase.executar(DIA_26_06,
+        assertThatThrownBy(() -> useCase.executar(USUARIO, DIA_26_06,
                 List.of(t("08:00"), t("12:00:03"), t("13:00"), t("17:42:57")), MOTIVO, "eduardo"))
                 .isInstanceOf(RegraNegocioException.class)
                 .extracting("codigo").isEqualTo("AJUSTE_ALTERA_BATIDA_COMPROVADA");
@@ -126,11 +127,11 @@ class AjustarBatidasUseCaseTest {
     void validacoes() {
         List<LocalTime> dia = List.of(t("08:00"), t("12:00"));
 
-        assertThatThrownBy(() -> useCase.executar(LocalDate.of(2026, 7, 1), dia, "  ok ", "eduardo"))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, LocalDate.of(2026, 7, 1), dia, "  ok ", "eduardo"))
                 .extracting("codigo").isEqualTo("AJUSTE_SEM_JUSTIFICATIVA");
-        assertThatThrownBy(() -> useCase.executar(HOJE.plusDays(1), dia, MOTIVO, "eduardo"))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, HOJE.plusDays(1), dia, MOTIVO, "eduardo"))
                 .extracting("codigo").isEqualTo("AJUSTE_DATA_FUTURA");
-        assertThatThrownBy(() -> useCase.executar(HOJE, List.of(t("08:00"), t("12:00")), MOTIVO, "eduardo"))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, HOJE, List.of(t("08:00"), t("12:00")), MOTIVO, "eduardo"))
                 .extracting("codigo").isEqualTo("AJUSTE_HORARIO_FUTURO"); // agora são 11:00
         assertThat(ajustes.salvos).isEmpty();
     }
@@ -140,12 +141,12 @@ class AjustarBatidasUseCaseTest {
     void conformeRhAlinhaSegundos() {
         diaImportadoComFalha(); // PDFs 08:01:11, 12:00:03, 17:42:57
 
-        RegistroJornadaView v = useCase.conformeRh(DIA_26_06,
+        RegistroJornadaView v = useCase.conformeRh(USUARIO, DIA_26_06,
                 List.of(t("08:01:10"), t("12:00:02"), t("12:58:04"), t("17:42:56")), "Conforme relatório do RH", "eduardo");
 
         assertThat(v.saldoDiarioSegundos()).isEqualTo(-304); // igual ao RH (-00:05:04)
         assertThat(v.horariosAjustados()).containsExactly(t("12:58:04"));
-        assertThat(arquivos.listarPorRegistro(registros.buscarPorData(DIA_26_06).orElseThrow().getId()))
+        assertThat(arquivos.listarPorRegistro(registros.buscarPorData(USUARIO, DIA_26_06).orElseThrow().getId()))
                 .extracting(ComprovanteArquivado::tipoBatida)
                 .containsExactlyInAnyOrder(TipoBatida.ENTRADA_1, TipoBatida.SAIDA_1, TipoBatida.SAIDA_2);
         assertThat(eventos).last().isInstanceOfSatisfying(JornadaAtualizadaEvento.class,
@@ -157,7 +158,7 @@ class AjustarBatidasUseCaseTest {
     void conformeRhNaoRemoveComprovada() {
         diaImportadoComFalha();
 
-        assertThatThrownBy(() -> useCase.conformeRh(DIA_26_06,
+        assertThatThrownBy(() -> useCase.conformeRh(USUARIO, DIA_26_06,
                 List.of(t("08:01:11"), t("12:02:00"), t("13:00"), t("17:42:57")), "Conforme relatório do RH", "eduardo"))
                 .isInstanceOf(RegraNegocioException.class)
                 .hasMessageContaining("12:00:03");
@@ -168,12 +169,12 @@ class AjustarBatidasUseCaseTest {
     void conformeRhDiaNovo() {
         LocalDate dia2912 = LocalDate.of(2025, 12, 29);
 
-        RegistroJornadaView v = useCase.conformeRh(dia2912, List.of(t("07:59:12"), t("12:01:05"), t("12:53:44"),
+        RegistroJornadaView v = useCase.conformeRh(USUARIO, dia2912, List.of(t("07:59:12"), t("12:01:05"), t("12:53:44"),
                 t("13:06:28"), t("13:06:42"), t("17:53:06")), "Conforme relatório do RH", "eduardo");
 
         assertThat(v.saldoDiarioSegundos()).isEqualTo(668); // +00:11:08, como no RH
         assertThat(v.horariosAjustados()).isEmpty();
-        assertThat(ajustes.listarPorData(dia2912)).singleElement()
+        assertThat(ajustes.listarPorData(USUARIO, dia2912)).singleElement()
                 .satisfies(a -> assertThat(a.antes()).isEmpty());
     }
 }

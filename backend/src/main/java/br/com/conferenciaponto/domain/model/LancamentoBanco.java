@@ -12,7 +12,7 @@ import java.util.UUID;
  * Ex.: compensar as horas a mais com uma folga ou uma saída antecipada, horas pagas pela empresa,
  * correção feita pelo RH. Não altera a jornada do dia: soma no saldo do mês e do ciclo.
  */
-public record LancamentoBanco(UUID id, LocalDate data, int segundos, String descricao, Instant criadoEm,
+public record LancamentoBanco(UUID id, UUID usuarioId, LocalDate data, int segundos, String descricao, Instant criadoEm,
                               String criadoPor) {
 
     /** 300 horas para mais ou para menos. */
@@ -21,6 +21,7 @@ public record LancamentoBanco(UUID id, LocalDate data, int segundos, String desc
 
     public LancamentoBanco {
         Objects.requireNonNull(id, "id");
+        Objects.requireNonNull(usuarioId, "usuarioId");
         Objects.requireNonNull(criadoEm, "criadoEm");
         if (data == null) {
             throw new RegraNegocioException("LANCAMENTO_SEM_DATA", "Informe a data do lançamento.");
@@ -41,8 +42,8 @@ public record LancamentoBanco(UUID id, LocalDate data, int segundos, String desc
         }
     }
 
-    public static LancamentoBanco novo(LocalDate data, int segundos, String descricao, String usuario, Instant agora) {
-        return new LancamentoBanco(UUID.randomUUID(), data, segundos, descricao, agora, usuario);
+    public static LancamentoBanco novo(UUID usuarioId, LocalDate data, int segundos, String descricao, String usuario, Instant agora) {
+        return new LancamentoBanco(UUID.randomUUID(), usuarioId, data, segundos, descricao, agora, usuario);
     }
 
     public boolean isDebito() {

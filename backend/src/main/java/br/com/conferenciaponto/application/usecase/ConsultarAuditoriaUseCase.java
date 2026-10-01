@@ -37,8 +37,8 @@ public class ConsultarAuditoriaUseCase {
         this.ajustes = ajustes;
     }
 
-    public AuditoriaMesView mes(YearMonth referencia) {
-        MesJornadaView mes = consultarJornada.mes(referencia);
+    public AuditoriaMesView mes(UUID usuarioId, YearMonth referencia) {
+        MesJornadaView mes = consultarJornada.mes(usuarioId, referencia);
         List<UUID> ids = mes.dias().stream().map(RegistroJornadaView::id).toList();
 
         Map<UUID, List<ComprovanteArquivoView>> porRegistro = arquivos.listarPorRegistros(ids).stream()
@@ -47,7 +47,7 @@ public class ConsultarAuditoriaUseCase {
                                 Collectors.toList())));
 
         Map<LocalDate, List<AjusteJornada>> ajustesPorData = ajustes
-                .listarPorPeriodo(referencia.atDay(1), referencia.atEndOfMonth()).stream()
+                .listarPorPeriodo(usuarioId, referencia.atDay(1), referencia.atEndOfMonth()).stream()
                 .collect(Collectors.groupingBy(AjusteJornada::data));
         List<AuditoriaMesView.Dia> dias = mes.dias().stream()
                 .map(d -> new AuditoriaMesView.Dia(d, porRegistro.getOrDefault(d.id(), List.of()),

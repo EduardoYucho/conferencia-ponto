@@ -15,6 +15,7 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -29,16 +30,16 @@ class RegistrarBatidaUseCaseTest {
 
     private RegistrarBatidaUseCase useCaseEm(String horaAtual) {
         Clock clock = Clock.fixed(ZonedDateTime.of(DIA, LocalTime.parse(horaAtual), SP).toInstant(), SP);
-        return new RegistrarBatidaUseCase(repository, classificador, motor, evento -> { }, clock);
+        return new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock);
     }
 
     @Test
     @DisplayName("Fluxo real de 28/09/2026: três batidas, jornada em andamento, depois fechamento pelo relógio")
     void fluxoCompleto28Setembro() {
         RegistrarBatidaUseCase useCase = useCaseEm("13:30:00");
-        useCase.executar(DIA, LocalTime.parse("08:02:31"));
-        useCase.executar(DIA, LocalTime.parse("12:00:15"));
-        RegistroJornadaView emAndamento = useCase.executar(DIA, LocalTime.parse("12:59:59"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("08:02:31"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("12:00:15"));
+        RegistroJornadaView emAndamento = useCase.executar(USUARIO, DIA, LocalTime.parse("12:59:59"));
 
         assertThat(emAndamento.status()).isEqualTo(StatusJornada.EM_ANDAMENTO);
         assertThat(emAndamento.segundosTrabalhados()).isEqualTo(14_264); // 08:02:31 → 12:00:15, bruto
@@ -47,7 +48,7 @@ class RegistrarBatidaUseCaseTest {
                 .isEqualTo(LocalTime.of(13, 0));
 
         // Sem horário informado: usa o relógio do servidor (17:50:10 -> 17:48 pela tolerância)
-        RegistroJornadaView fechada = useCaseEm("17:50:10").executar(null, null);
+        RegistroJornadaView fechada = useCaseEm("17:50:10").executar(USUARIO, null, null);
 
         assertThat(fechada.data()).isEqualTo(DIA);
         assertThat(fechada.status()).isEqualTo(StatusJornada.FECHADA);
@@ -59,7 +60,7 @@ class RegistrarBatidaUseCaseTest {
     @Test
     @DisplayName("Rejeita batida no futuro")
     void rejeitaFuturo() {
-        assertThatThrownBy(() -> useCaseEm("13:30:00").executar(DIA, LocalTime.of(23, 0)))
+        assertThatThrownBy(() -> useCaseEm("13:30:00").executar(USUARIO, DIA, LocalTime.of(23, 0)))
                 .isInstanceOf(RegraNegocioException.class)
                 .extracting("codigo").isEqualTo("BATIDA_NO_FUTURO");
     }
@@ -68,14 +69,14 @@ class RegistrarBatidaUseCaseTest {
     @DisplayName("Aceita até 6 batidas (3 intervalos) e rejeita a 7ª")
     void rejeitaSetimaBatida() {
         RegistrarBatidaUseCase useCase = useCaseEm("20:00:00");
-        useCase.executar(DIA, LocalTime.parse("08:00"));
-        useCase.executar(DIA, LocalTime.parse("12:00"));
-        useCase.executar(DIA, LocalTime.parse("13:00"));
-        useCase.executar(DIA, LocalTime.parse("17:48"));
-        useCase.executar(DIA, LocalTime.parse("18:30"));
-        useCase.executar(DIA, LocalTime.parse("19:00"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("08:00"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("12:00"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("13:00"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("17:48"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("18:30"));
+        useCase.executar(USUARIO, DIA, LocalTime.parse("19:00"));
 
-        assertThatThrownBy(() -> useCase.executar(DIA, LocalTime.parse("19:30")))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, DIA, LocalTime.parse("19:30")))
                 .extracting("codigo").isEqualTo("JORNADA_COMPLETA");
     }
 }

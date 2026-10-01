@@ -12,6 +12,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.util.UUID;
 
 /**
  * Remove o registro de uma data (correção de lançamentos). Dias com comprovante PDF
@@ -32,8 +33,8 @@ public class ExcluirRegistroUseCase {
     }
 
     @Transactional
-    public void executar(LocalDate data) {
-        RegistroJornada registro = repository.buscarPorData(data)
+    public void executar(UUID usuarioId, LocalDate data) {
+        RegistroJornada registro = repository.buscarPorData(usuarioId, data)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("REGISTRO_NAO_ENCONTRADO",
                         "Não há registro de jornada em %s.".formatted(data)));
         long comprovantes = arquivos.contarPorRegistro(registro.getId());
@@ -43,6 +44,6 @@ public class ExcluirRegistroUseCase {
                             .formatted(data, comprovantes));
         }
         repository.excluir(registro);
-        eventos.publishEvent(new JornadaAtualizadaEvento(data, OrigemAtualizacao.EXCLUSAO, null, null));
+        eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, data, OrigemAtualizacao.EXCLUSAO, null, null));
     }
 }

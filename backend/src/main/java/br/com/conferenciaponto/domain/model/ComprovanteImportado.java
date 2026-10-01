@@ -12,6 +12,7 @@ import java.util.UUID;
  */
 public record ComprovanteImportado(
         UUID id,
+        UUID usuarioId,
         String nomeArquivo,
         String hashSha256,
         LocalDateTime dataHoraBatida,
@@ -19,9 +20,9 @@ public record ComprovanteImportado(
         String mensagem,
         Instant processadoEm) {
 
-    public static ComprovanteImportado novo(String nomeArquivo, String hashSha256, LocalDateTime dataHoraBatida,
+    public static ComprovanteImportado novo(UUID usuarioId, String nomeArquivo, String hashSha256, LocalDateTime dataHoraBatida,
                                             StatusImportacao status, String mensagem) {
-        return new ComprovanteImportado(UUID.randomUUID(), nomeArquivo, hashSha256, dataHoraBatida,
+        return new ComprovanteImportado(UUID.randomUUID(), usuarioId, nomeArquivo, hashSha256, dataHoraBatida,
                 status, mensagem, Instant.now());
     }
 }

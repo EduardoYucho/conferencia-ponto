@@ -42,40 +42,42 @@ public class GerenciarLancamentosBancoUseCase {
     }
 
     @Transactional(readOnly = true)
-    public List<LancamentoBanco> listar(LocalDate inicio, LocalDate fim) {
-        return lancamentos.listarNoPeriodo(inicio, fim);
+    public List<LancamentoBanco> listar(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return lancamentos.listarNoPeriodo(usuarioId, inicio, fim);
     }
 
     /**
      * @param segundos negativo abate do banco; positivo credita
      */
     @Transactional
-    public LancamentoBanco lancar(LocalDate data, int segundos, String descricao, String usuario) {
-        LancamentoBanco novo = LancamentoBanco.novo(data, segundos, descricao, usuario, clock.instant());
-        exigirCicloAberto(data);
+    public LancamentoBanco lancar(UUID usuarioId, LocalDate data, int segundos, String descricao, String usuario) {
+        LancamentoBanco novo = LancamentoBanco.novo(usuarioId, data, segundos, descricao, usuario, clock.instant());
+        exigirCicloAberto(usuarioId, data);
         LocalDate limite = LocalDate.now(clock).plusYears(1);
         if (data.isAfter(limite)) {
             throw new RegraNegocioException("LANCAMENTO_DISTANTE", "A data do lançamento pode ser no máximo um ano à frente.");
         }
         lancamentos.salvar(novo);
-        eventos.publishEvent(new LancamentoBancoAlteradoEvento(data, "%s %s no banco em %s · %s".formatted(
+        eventos.publishEvent(new LancamentoBancoAlteradoEvento(usuarioId, data, "%s %s no banco em %s · %s".formatted(
                 novo.isDebito() ? "Abatido" : "Creditado", TextoDuracao.duracao(segundos), DATA.format(data),
                 novo.descricao())));
         return novo;
     }
 
     @Transactional
-    public void excluir(UUID id) {
-        LancamentoBanco lancamento = lancamentos.buscarPorId(id).orElseThrow(() -> new RecursoNaoEncontradoException(
-                "LANCAMENTO_NAO_ENCONTRADO", "Lançamento no banco de horas não encontrado."));
-        exigirCicloAberto(lancamento.data());
+    public void excluir(UUID usuarioId, UUID id) {
+        LancamentoBanco lancamento = lancamentos.buscarPorId(id)
+                .filter(l -> l.usuarioId().equals(usuarioId))
+                .orElseThrow(() -> new RecursoNaoEncontradoException("LANCAMENTO_NAO_ENCONTRADO",
+                        "Lançamento no banco de horas não encontrado."));
+        exigirCicloAberto(usuarioId, lancamento.data());
         lancamentos.excluir(id);
-        eventos.publishEvent(new LancamentoBancoAlteradoEvento(lancamento.data(), "Lançamento de %s removido (%s)"
+        eventos.publishEvent(new LancamentoBancoAlteradoEvento(usuarioId, lancamento.data(), "Lançamento de %s removido (%s)"
                 .formatted(DATA.format(lancamento.data()), TextoDuracao.saldo(lancamento.segundos()))));
     }
 
-    private void exigirCicloAberto(LocalDate data) {
-        CicloBanco aberto = ciclos.buscarAberto().orElse(null);
+    private void exigirCicloAberto(UUID usuarioId, LocalDate data) {
+        CicloBanco aberto = ciclos.buscarAberto(usuarioId).orElse(null);
         if (aberto != null && data.isBefore(aberto.dataInicio())) {
             throw new RegraNegocioException("LANCAMENTO_EM_CICLO_FECHADO",
                     "O banco de horas foi fechado e o ciclo atual começou em %s: lance a partir dessa data."

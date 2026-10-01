@@ -16,6 +16,9 @@ public class NotificacaoEntity {
     @Column(name = "id", nullable = false, updatable = false)
     private UUID id;
 
+    @Column(name = "usuario_id", nullable = false, updatable = false)
+    private UUID usuarioId;
+
     @Column(name = "tipo", nullable = false, length = 30)
     private String tipo;
 
@@ -61,4 +64,12 @@ public class NotificacaoEntity {
     public String getLink() { return link; }
     public OffsetDateTime getCriadaEm() { return criadaEm; }
     public OffsetDateTime getLidaEm() { return lidaEm; }
+
+    public UUID getUsuarioId() {
+        return usuarioId;
+    }
+
+    void setUsuarioId(UUID usuarioId) {
+        this.usuarioId = usuarioId;
+    }
 }

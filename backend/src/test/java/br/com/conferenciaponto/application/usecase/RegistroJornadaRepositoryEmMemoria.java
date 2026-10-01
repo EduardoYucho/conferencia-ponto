@@ -7,49 +7,73 @@ import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
 import java.time.LocalDate;
 import java.time.YearMonth;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.TreeMap;
+import java.util.UUID;
 
 /** Fake da porta de persistência para testes de casos de uso sem banco. */
 class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
 
-    private final Map<LocalDate, RegistroJornada> registros = new TreeMap<>();
+    /** Chave: usuário + data (um registro por dia de cada usuário). */
+    private record Chave(UUID usuarioId, LocalDate data) {
+    }
+
+    private final Map<Chave, RegistroJornada> registros = new LinkedHashMap<>();
     private final List<SaldoMensal> consolidacao = new ArrayList<>();
 
     @Override
-    public Optional<RegistroJornada> buscarPorData(LocalDate data) {
-        return Optional.ofNullable(registros.get(data));
+    public Optional<RegistroJornada> buscarPorData(UUID usuarioId, LocalDate data) {
+        return Optional.ofNullable(registros.get(new Chave(usuarioId, data)));
     }
 
     @Override
-    public List<RegistroJornada> listarPorPeriodo(LocalDate inicio, LocalDate fim) {
+    public Optional<RegistroJornada> buscarPorId(UUID id) {
+        return registros.values().stream().filter(r -> r.getId().equals(id)).findFirst();
+    }
+
+    @Override
+    public List<RegistroJornada> listarPorPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         return registros.values().stream()
+                .filter(r -> r.getUsuarioId().equals(usuarioId))
                 .filter(r -> !r.getDataReferencia().isBefore(inicio) && !r.getDataReferencia().isAfter(fim))
+                .sorted(Comparator.comparing(RegistroJornada::getDataReferencia))
                 .toList();
     }
 
     @Override
+    public List<RegistroJornada> listarPorData(LocalDate data) {
+        return registros.values().stream().filter(r -> r.getDataReferencia().equals(data)).toList();
+    }
+
+    @Override
+    public List<UUID> usuariosComRegistros() {
+        return registros.keySet().stream().map(Chave::usuarioId).distinct().toList();
+    }
+
+    @Override
     public RegistroJornada salvar(RegistroJornada registro) {
-        registros.put(registro.getDataReferencia(), registro);
+        registros.put(new Chave(registro.getUsuarioId(), registro.getDataReferencia()), registro);
         return registro;
     }
 
     @Override
     public void excluir(RegistroJornada registro) {
-        registros.remove(registro.getDataReferencia());
+        registros.remove(new Chave(registro.getUsuarioId(), registro.getDataReferencia()));
     }
 
     @Override
-    public List<SaldoMensal> consolidarAno(int ano) {
+    public List<SaldoMensal> consolidarAno(UUID usuarioId, int ano) {
         return consolidacao.stream().filter(s -> s.ano() == ano).toList();
     }
 
     @Override
-    public List<SaldoMensal> consolidarPeriodo(LocalDate inicio, LocalDate fim) {
+    public List<SaldoMensal> consolidarPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         Map<YearMonth, List<RegistroJornada>> porMes = new TreeMap<>();
-        listarPorPeriodo(inicio, fim).forEach(r ->
+        listarPorPeriodo(usuarioId, inicio, fim).forEach(r ->
                 porMes.computeIfAbsent(YearMonth.from(r.getDataReferencia()), m -> new ArrayList<>()).add(r));
         List<SaldoMensal> meses = new ArrayList<>();
         int acumulado = 0;

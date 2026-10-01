@@ -17,6 +17,8 @@ const props = defineProps({
   marcadores: { type: Object, default: () => ({}) },
   /** data -> lançamentos avulsos no banco de horas daquele dia. */
   lancamentos: { type: Object, default: () => ({}) },
+  /** data -> expediente previsto pelo horário da pessoa (dia ausente = sem expediente); null = seg–sex. */
+  expedientes: { type: Object, default: null },
 })
 const emit = defineEmits(['selecionar', 'lancar', 'ajustar', 'marcar'])
 
@@ -38,7 +40,9 @@ const linhas = computed(() =>
       data,
       registro,
       marcador,
-      fds: registro ? registro.tipoDia !== 'UTIL' : ehFimDeSemana(data) || !!marcador,
+      fds: registro
+        ? registro.tipoDia !== 'UTIL'
+        : (props.expedientes ? !props.expedientes[data] : ehFimDeSemana(data)) || !!marcador,
       futuro: data > props.hoje,
       hoje: data === props.hoje,
       /** Dia que já passou com entrada sem saída: faltou batida (não está "em andamento"). */

@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
 import br.com.conferenciaponto.application.usecase.ImportarComprovanteUseCase;
+import br.com.conferenciaponto.domain.model.StatusImportacao;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
@@ -11,6 +12,8 @@ import java.nio.file.NoSuchFileException;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDateTime;
+import java.util.UUID;
 
 /**
  * Orquestra a importação de um PDF: espera o download terminar (tamanho estável e
@@ -18,7 +21,7 @@ import java.time.Instant;
  * data/hora ao caso de uso, que aloca a batida e notifica o front-end.
  */
 @Component
-public class ProcessadorComprovantePdf implements ProcessadorDeComprovantes {
+public class ProcessadorComprovantePdf {
 
     private static final Logger log = LoggerFactory.getLogger(ProcessadorComprovantePdf.class);
 
@@ -39,17 +42,45 @@ public class ProcessadorComprovantePdf implements ProcessadorDeComprovantes {
         this.properties = properties;
     }
 
+    /** Processador da pasta de um usuário (usado pelo monitor dele). */
+    public ProcessadorDeComprovantes doUsuario(UUID usuarioId) {
+        return arquivo -> processar(usuarioId, arquivo);
+    }
+
+    /** Resultado de um PDF enviado pela tela. {@code JA_PROCESSADO}: o mesmo arquivo já tinha sido lido. */
+    public record ResultadoEnvio(String nomeArquivo, String status, String mensagem, LocalDateTime dataHoraBatida) {
+    }
+
+    /** PDF enviado pela tela ("Enviar comprovantes"): mesmas regras da pasta monitorada. */
+    public ResultadoEnvio enviar(UUID usuarioId, String nomeArquivo, byte[] conteudo) {
+        String nome = nomeArquivo == null || nomeArquivo.isBlank() ? "comprovante.pdf" : Path.of(nomeArquivo)
+                .getFileName().toString();
+        PdfParserService.ComprovanteLido lido;
+        try {
+            lido = parser.lerConteudo(nome, conteudo);
+        } catch (IOException e) {
+            return new ResultadoEnvio(nome, StatusImportacao.INVALIDO.name(), "Não foi possível ler o PDF: " + e.getMessage(),
+                    null);
+        }
+        synchronized (this) {
+            return importar.executar(usuarioId, new ImportarComprovanteUseCase.Comprovante(
+                            lido.nomeArquivo(), lido.hashSha256(), lido.dataHora(), lido.conteudo()))
+                    .map(r -> new ResultadoEnvio(nome, r.status().name(), r.mensagem(), lido.dataHora().orElse(null)))
+                    .orElseGet(() -> new ResultadoEnvio(nome, "JA_PROCESSADO",
+                            "Este comprovante já tinha sido processado.", lido.dataHora().orElse(null)));
+        }
+    }
+
     /**
-     * {@code synchronized}: o monitor e o reprocessamento manual (API) podem disparar ao mesmo
-     * tempo; processar um arquivo por vez evita duas transações alterando o mesmo dia.
+     * {@code synchronized}: os monitores (um por usuário), o envio pela tela e o reprocessamento manual
+     * podem disparar ao mesmo tempo; processar um arquivo por vez evita duas transações alterando o mesmo dia.
      */
-    @Override
-    public synchronized boolean processar(Path arquivo) {
+    public synchronized boolean processar(UUID usuarioId, Path arquivo) {
         for (int tentativa = 1; ; tentativa++) {
             try {
                 aguardarTamanhoEstavel(arquivo);
                 PdfParserService.ComprovanteLido lido = parser.ler(arquivo);
-                importar.executar(new ImportarComprovanteUseCase.Comprovante(
+                importar.executar(usuarioId, new ImportarComprovanteUseCase.Comprovante(
                                 lido.nomeArquivo(), lido.hashSha256(), lido.dataHora(), lido.conteudo()))
                         .ifPresentOrElse(
                                 r -> log.info("[{}] {}: {}", r.status(), lido.nomeArquivo(), r.mensagem()),

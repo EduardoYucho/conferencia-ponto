@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.ConsultarAuditoriaUseCase;
+import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.AuditoriaMesResponse;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -25,7 +26,8 @@ public class AuditoriaController {
 
     @GetMapping
     public ApiResponse<AuditoriaMesResponse> mes(@RequestParam(required = false) Integer ano,
-                                                 @RequestParam(required = false) Integer mes) {
-        return ApiResponse.ok(AuditoriaMesResponse.de(consultar.mes(ReferenciaMes.resolver(ano, mes, clock))));
+                                                 @RequestParam(required = false) Integer mes, Titular titular) {
+        return ApiResponse.ok(AuditoriaMesResponse.de(
+                consultar.mes(titular.id(), ReferenciaMes.resolver(ano, mes, clock))));
     }
 }

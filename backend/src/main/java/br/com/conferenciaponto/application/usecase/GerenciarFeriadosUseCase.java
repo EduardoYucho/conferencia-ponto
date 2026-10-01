@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
@@ -11,7 +12,6 @@ import br.com.conferenciaponto.domain.model.Feriado;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.port.CalendarioFeriados;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
-import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -20,10 +20,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.UUID;
 
 /**
  * Feriados cadastrados à mão (municipais, estaduais, pontos facultativos da empresa — ex.: Corpus Christi).
- * O dia passa a ter jornada base zero: um registro que já existia é recalculado (o trabalho vira crédito).
+ * Valem para todos os usuários. O dia passa a ter jornada base zero: os registros que já existiam são
+ * recalculados (o trabalho vira crédito).
  */
 @Service
 public class GerenciarFeriadosUseCase {
@@ -32,17 +34,14 @@ public class GerenciarFeriadosUseCase {
 
     private final CalendarioFeriados feriados;
     private final RegistroJornadaRepository registros;
-    private final ClassificadorDiaService classificador;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regras;
     private final ApplicationEventPublisher eventos;
 
     public GerenciarFeriadosUseCase(CalendarioFeriados feriados, RegistroJornadaRepository registros,
-                                    ClassificadorDiaService classificador, MotorCalculoJornadaService motor,
-                                    ApplicationEventPublisher eventos) {
+                                    RegrasJornada regras, ApplicationEventPublisher eventos) {
         this.feriados = feriados;
         this.registros = registros;
-        this.classificador = classificador;
-        this.motor = motor;
+        this.regras = regras;
         this.eventos = eventos;
     }
 
@@ -72,13 +71,15 @@ public class GerenciarFeriadosUseCase {
     }
 
     private void reclassificar(LocalDate data, String motivo) {
-        eventos.publishEvent(new CalendarioAlteradoEvento(data, data));
-        registros.buscarPorData(data).ifPresent(registro -> {
-            if (registro.reclassificar(classificador.classificar(data), motor)) {
+        eventos.publishEvent(new CalendarioAlteradoEvento(null, data, data));
+        for (RegistroJornada registro : registros.listarPorData(data)) {
+            UUID usuarioId = registro.getUsuarioId();
+            MotorCalculoJornadaService motor = regras.motor(usuarioId, data);
+            if (registro.reclassificar(regras.classificar(usuarioId, data), motor)) {
                 registros.salvar(registro);
-                eventos.publishEvent(new JornadaAtualizadaEvento(data, OrigemAtualizacao.AUSENCIA,
+                eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, data, OrigemAtualizacao.AUSENCIA,
                         RegistroJornadaView.de(registro, motor), motivo));
             }
-        });
+        }
     }
 }

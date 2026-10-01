@@ -28,6 +28,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class ImportarComprovanteUseCaseTest {
@@ -45,7 +46,7 @@ class ImportarComprovanteUseCaseTest {
     private final Clock clock = Clock.fixed(ZonedDateTime.of(DIA, LocalTime.of(18, 0), SP).toInstant(), SP);
 
     private final ImportarComprovanteUseCase useCase = new ImportarComprovanteUseCase(
-            registros, comprovantes, arquivos, armazenamento, classificador, motor, eventos::add, clock);
+            registros, comprovantes, arquivos, armazenamento, Fixtures.regras(classificador), eventos::add, clock);
 
     private int sequencia;
 
@@ -63,11 +64,11 @@ class ImportarComprovanteUseCaseTest {
         Optional<LocalDateTime> dataHora = horario == null
                 ? Optional.empty()
                 : Optional.of(LocalDateTime.of(DIA, LocalTime.parse(horario)));
-        return useCase.executar(new Comprovante("Comprovante " + sequencia + ".pdf", HashSha256.de(pdf), dataHora, pdf));
+        return useCase.executar(USUARIO, new Comprovante("Comprovante " + sequencia + ".pdf", HashSha256.de(pdf), dataHora, pdf));
     }
 
     private Batidas batidasDoDia() {
-        return registros.buscarPorData(DIA).orElseThrow().getBatidas();
+        return registros.buscarPorData(USUARIO, DIA).orElseThrow().getBatidas();
     }
 
     @Test
@@ -129,11 +130,26 @@ class ImportarComprovanteUseCaseTest {
     @Test
     @DisplayName("Batida a menos de 1 min de uma já registrada (ex.: botão 'bater ponto') é DUPLICADO")
     void janelaDeDuplicidade() {
-        new RegistrarBatidaUseCase(registros, classificador, motor, e -> { }, clock)
-                .executar(DIA, LocalTime.of(8, 2, 50));
+        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), e -> { }, clock)
+                .executar(USUARIO, DIA, LocalTime.of(8, 2, 50));
 
         assertThat(importar("08:02:31")).map(Resultado::status).contains(StatusImportacao.DUPLICADO);
         assertThat(batidasDoDia().quantidade()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("Cada usuário tem os próprios comprovantes: a mesma data/hora de outra pessoa não é duplicidade")
+    void comprovantesPorUsuario() {
+        importar("08:00:00");
+        byte[] pdfDoOutro = "%PDF-1.4 outro usuario".getBytes();
+        Resultado doOutro = useCase.executar(Fixtures.OUTRO, new Comprovante("outro.pdf", HashSha256.de(pdfDoOutro),
+                Optional.of(LocalDateTime.of(DIA, LocalTime.of(8, 0))), pdfDoOutro)).orElseThrow();
+
+        assertThat(doOutro.status()).isEqualTo(StatusImportacao.IMPORTADO);
+        assertThat(batidasDoDia().quantidade()).isEqualTo(1);
+        assertThat(registros.buscarPorData(Fixtures.OUTRO, DIA).orElseThrow().getBatidas().quantidade()).isEqualTo(1);
+        assertThat(comprovantes.recentes(USUARIO, 10)).hasSize(1);
+        assertThat(comprovantes.recentes(Fixtures.OUTRO, 10)).hasSize(1);
     }
 
     @Test
@@ -141,7 +157,7 @@ class ImportarComprovanteUseCaseTest {
     void naoImportados() {
         assertThat(importar(null)).map(Resultado::status).contains(StatusImportacao.INVALIDO);
 
-        Resultado futuro = useCase.executar(new Comprovante("futuro.pdf", "f",
+        Resultado futuro = useCase.executar(USUARIO, new Comprovante("futuro.pdf", "f",
                 Optional.of(LocalDateTime.of(DIA, LocalTime.of(18, 30))), new byte[]{1})).orElseThrow();
         assertThat(futuro.status()).isEqualTo(StatusImportacao.REJEITADO);
 
@@ -170,7 +186,7 @@ class ImportarComprovanteUseCaseTest {
 
         assertThat(arquivos.salvos).hasSize(1);
         ComprovanteArquivado arquivo = arquivos.salvos.values().iterator().next();
-        assertThat(arquivo.registroJornadaId()).isEqualTo(registros.buscarPorData(DIA).orElseThrow().getId());
+        assertThat(arquivo.registroJornadaId()).isEqualTo(registros.buscarPorData(USUARIO, DIA).orElseThrow().getId());
         assertThat(arquivo.tipoBatida()).isEqualTo(TipoBatida.ENTRADA_1);
         assertThat(arquivo.caminhoArquivo()).isEqualTo("2026/09/comprovante_" + arquivo.id() + ".pdf");
         assertThat(arquivo.integro(armazenamento.arquivos.get(arquivo.caminhoArquivo()))).isTrue();
@@ -192,8 +208,8 @@ class ImportarComprovanteUseCaseTest {
     @Test
     @DisplayName("Batida já registrada pelo botão: o PDF não cria batida, mas é arquivado como prova dela")
     void arquivaPdfDeBatidaExistente() {
-        new RegistrarBatidaUseCase(registros, classificador, motor, e -> { }, clock)
-                .executar(DIA, LocalTime.of(8, 2, 50));
+        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), e -> { }, clock)
+                .executar(USUARIO, DIA, LocalTime.of(8, 2, 50));
 
         Resultado r = importar("08:02:31").orElseThrow();
 

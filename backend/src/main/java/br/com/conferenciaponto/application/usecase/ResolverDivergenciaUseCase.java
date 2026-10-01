@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.ConciliacaoAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
@@ -12,6 +13,7 @@ import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.DiaRelatorioRh;
 import br.com.conferenciaponto.domain.model.Divergencia;
 import br.com.conferenciaponto.domain.model.OcorrenciaRh;
+import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.model.RelatorioRh;
 import br.com.conferenciaponto.domain.model.StatusDivergencia;
 import br.com.conferenciaponto.domain.model.TipoAusencia;
@@ -19,9 +21,8 @@ import br.com.conferenciaponto.domain.model.TipoDivergencia;
 import br.com.conferenciaponto.domain.port.CalendarioFeriados;
 import br.com.conferenciaponto.domain.port.DivergenciaRepository;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
-import br.com.conferenciaponto.domain.port.RelatorioRhRepository;
 import br.com.conferenciaponto.domain.port.RelatorioRhRepository.DiaVigente;
-import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
+import br.com.conferenciaponto.domain.port.RelatorioRhRepository;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -58,8 +59,7 @@ public class ResolverDivergenciaUseCase {
     private final AjustarBatidasUseCase ajustar;
     private final GerenciarAusenciasUseCase ausencias;
     private final CalendarioFeriados feriados;
-    private final ClassificadorDiaService classificador;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regras;
     private final ConferirConciliacaoUseCase conferir;
     private final ApplicationEventPublisher eventos;
     private final TransactionTemplate transacao;
@@ -68,8 +68,7 @@ public class ResolverDivergenciaUseCase {
     public ResolverDivergenciaUseCase(DivergenciaRepository divergencias, RelatorioRhRepository relatorios,
                                       RegistroJornadaRepository registros, AjustarBatidasUseCase ajustar,
                                       GerenciarAusenciasUseCase ausencias, CalendarioFeriados feriados,
-                                      ClassificadorDiaService classificador, MotorCalculoJornadaService motor,
-                                      ConferirConciliacaoUseCase conferir, ApplicationEventPublisher eventos,
+                                      RegrasJornada regras, ConferirConciliacaoUseCase conferir, ApplicationEventPublisher eventos,
                                       PlatformTransactionManager transacoes, Clock clock) {
         this.divergencias = divergencias;
         this.relatorios = relatorios;
@@ -77,8 +76,7 @@ public class ResolverDivergenciaUseCase {
         this.ajustar = ajustar;
         this.ausencias = ausencias;
         this.feriados = feriados;
-        this.classificador = classificador;
-        this.motor = motor;
+        this.regras = regras;
         this.conferir = conferir;
         this.eventos = eventos;
         this.transacao = transacoes == null ? null : new TransactionTemplate(transacoes);
@@ -97,9 +95,9 @@ public class ResolverDivergenciaUseCase {
      * @return a divergência depois do aceite (ACEITO_RH, ou pendente de outro tipo se sobrou diferença)
      */
     @Transactional
-    public Divergencia aceitarRh(UUID id, String usuario) {
-        Divergencia d = pendente(id);
-        DiaVigente vigente = relatorios.vigentes(d.data(), d.data()).stream().findFirst()
+    public Divergencia aceitarRh(UUID usuarioId, UUID id, String usuario) {
+        Divergencia d = pendente(usuarioId, id);
+        DiaVigente vigente = relatorios.vigentes(usuarioId, d.data(), d.data()).stream().findFirst()
                 .orElseThrow(() -> new ConflitoException("DIVERGENCIA_SEM_RELATORIO",
                         "O relatório do RH deste dia não está mais disponível. Use \"Reconferir\"."));
         RelatorioRh relatorio = relatorios.buscarPorId(vigente.relatorioId()).orElseThrow();
@@ -121,7 +119,7 @@ public class ResolverDivergenciaUseCase {
                             .formatted(vigente.dia().ocorrencia())));
                     List<LocalDate> periodo = periodoDaOcorrencia(vigente, ocorrencia);
                     for (LocalDate dia : periodo) {
-                        ausencias.registrarDia(dia, tipo, "Conforme RH", usuario);
+                        ausencias.registrarDia(usuarioId, dia, tipo, "Conforme RH", usuario);
                     }
                     de = periodo.get(0);
                     ate = periodo.get(periodo.size() - 1);
@@ -132,7 +130,7 @@ public class ResolverDivergenciaUseCase {
                 if (vigente.dia().horarios().isEmpty()) {
                     throw new RegraNegocioException("DIVERGENCIA_NAO_ACEITAVEL", "O RH não tem batidas neste dia.");
                 }
-                ajustar.conformeRh(d.data(), vigente.dia().horarios(), justificativa, usuario);
+                ajustar.conformeRh(usuarioId, d.data(), vigente.dia().horarios(), justificativa, usuario);
             }
             case SOMENTE_LOCAL, SALDO -> {
                 exigirAceitavel(d);
@@ -141,37 +139,37 @@ public class ResolverDivergenciaUseCase {
         }
         divergencias.salvar(d.resolvida(StatusDivergencia.ACEITO_RH, usuario, null, clock.instant()));
         String motivo = "Aceito junto com %s (dados do RH)".formatted(DATA.format(d.data()));
-        conferir.conferir(de, ate, motivo);
+        conferir.conferir(usuarioId, de, ate, motivo);
         return divergencias.buscarPorId(id).orElseThrow();
     }
 
     /** "Manter dados locais": a conferência fica como está e a diferença deixa de ser pendência. */
     @Transactional
-    public Divergencia manterLocal(UUID id, String observacao, String usuario) {
-        Divergencia d = pendente(id);
+    public Divergencia manterLocal(UUID usuarioId, UUID id, String observacao, String usuario) {
+        Divergencia d = pendente(usuarioId, id);
         if (observacao != null && observacao.strip().length() > 300) {
             throw new RegraNegocioException("OBSERVACAO_LONGA", "A observação pode ter no máximo 300 caracteres.");
         }
         Divergencia mantida = d.resolvida(StatusDivergencia.MANTIDO_LOCAL, usuario, observacao, clock.instant());
         divergencias.salvar(mantida);
-        publicar("Divergência de %s mantida".formatted(DATA.format(d.data())));
+        publicar(usuarioId, "Divergência de %s mantida".formatted(DATA.format(d.data())));
         return mantida;
     }
 
     /** Volta uma decisão ("manter" ou "resolvida") para pendente. */
     @Transactional
-    public Divergencia reabrir(UUID id) {
-        Divergencia d = divergencias.buscarPorId(id).orElseThrow(this::naoEncontrada);
+    public Divergencia reabrir(UUID usuarioId, UUID id) {
+        Divergencia d = doUsuario(usuarioId, id);
         if (d.isPendente()) {
             return d;
         }
-        Divergencia reaberta = new Divergencia(d.id(), d.data(), d.relatorioId(), d.tipo(), d.descricao(), d.aceitavel(),
+        Divergencia reaberta = new Divergencia(d.id(), d.usuarioId(), d.data(), d.relatorioId(), d.tipo(), d.descricao(), d.aceitavel(),
                 d.motivoNaoAceitavel(), d.horariosRh(), d.horariosLocal(), d.ocorrenciaRh(), d.tipoDiaLocal(),
                 d.saldoRhSegundos(), d.saldoLocalSegundos(), StatusDivergencia.PENDENTE, d.detectadaEm(), null, null,
                 null);
         divergencias.salvar(reaberta);
-        conferir.conferir(d.data(), d.data(), "Igual ao RH");
-        publicar("Divergência de %s reaberta".formatted(DATA.format(d.data())));
+        conferir.conferir(usuarioId, d.data(), d.data(), "Igual ao RH");
+        publicar(usuarioId, "Divergência de %s reaberta".formatted(DATA.format(d.data())));
         return divergencias.buscarPorId(id).orElseThrow();
     }
 
@@ -179,8 +177,9 @@ public class ResolverDivergenciaUseCase {
      * Aceita os dados do RH em todas as divergências pendentes dos tipos informados (cada dia na sua
      * transação: um dia que não puder ser aceito não impede os demais).
      */
-    public ResultadoLote aceitarEmLote(Set<TipoDivergencia> tipos, LocalDate inicio, LocalDate fim, String usuario) {
-        List<Divergencia> alvo = divergencias.listar(StatusDivergencia.PENDENTE, inicio, fim).stream()
+    public ResultadoLote aceitarEmLote(UUID usuarioId, Set<TipoDivergencia> tipos, LocalDate inicio, LocalDate fim,
+                                       String usuario) {
+        List<Divergencia> alvo = divergencias.listar(usuarioId, StatusDivergencia.PENDENTE, inicio, fim).stream()
                 .filter(d -> tipos.contains(d.tipo()) && d.aceitavel())
                 .sorted(Comparator.comparing(Divergencia::data))
                 .toList();
@@ -191,7 +190,7 @@ public class ResolverDivergenciaUseCase {
                 Boolean aceita = transacao.execute(status -> {
                     boolean aindaPendente = divergencias.buscarPorId(d.id()).map(Divergencia::isPendente).orElse(false);
                     if (aindaPendente) { // pode ter sido resolvida junto com outro dia (ex.: período de férias)
-                        aceitarRh(d.id(), usuario);
+                        aceitarRh(usuarioId, d.id(), usuario);
                     }
                     return aindaPendente;
                 });
@@ -204,20 +203,23 @@ public class ResolverDivergenciaUseCase {
                 falhas.add(new ResultadoLote.Falha(d.data(), d.tipo(), "Erro inesperado: " + e.getMessage()));
             }
         }
-        publicar("%d divergência(s) aceita(s) em lote".formatted(aceitas));
+        publicar(usuarioId, "%d divergência(s) aceita(s) em lote".formatted(aceitas));
         return new ResultadoLote(aceitas, falhas);
     }
 
+    /** Feriados valem para todos: os dias de todos os usuários nessa data são reclassificados. */
     private void aceitarFeriado(LocalDate data, DiaRelatorioRh dia) {
         feriados.cadastrar(data, "Feriado (conforme RH)");
-        registros.buscarPorData(data).ifPresent(registro -> {
-            if (registro.reclassificar(classificador.classificar(data), motor)) {
+        for (RegistroJornada registro : registros.listarPorData(data)) {
+            UUID dono = registro.getUsuarioId();
+            MotorCalculoJornadaService motor = regras.motor(dono, data);
+            if (registro.reclassificar(regras.classificar(dono, data), motor)) {
                 registros.salvar(registro);
-                eventos.publishEvent(new JornadaAtualizadaEvento(data, OrigemAtualizacao.CONCILIACAO,
+                eventos.publishEvent(new JornadaAtualizadaEvento(dono, data, OrigemAtualizacao.CONCILIACAO,
                         RegistroJornadaView.de(registro, motor), "Feriado de %s conforme RH".formatted(DATA.format(data))));
             }
-        });
-        eventos.publishEvent(new CalendarioAlteradoEvento(data, data));
+        }
+        eventos.publishEvent(new CalendarioAlteradoEvento(null, data, data));
     }
 
     /**
@@ -242,8 +244,13 @@ public class ResolverDivergenciaUseCase {
         return dia != null && dia.tipoOcorrencia().filter(o -> o == ocorrencia).isPresent();
     }
 
-    private Divergencia pendente(UUID id) {
-        Divergencia d = divergencias.buscarPorId(id).orElseThrow(this::naoEncontrada);
+    private Divergencia doUsuario(UUID usuarioId, UUID id) {
+        return divergencias.buscarPorId(id).filter(d -> d.usuarioId().equals(usuarioId))
+                .orElseThrow(this::naoEncontrada);
+    }
+
+    private Divergencia pendente(UUID usuarioId, UUID id) {
+        Divergencia d = doUsuario(usuarioId, id);
         if (!d.isPendente()) {
             throw new ConflitoException("DIVERGENCIA_JA_RESOLVIDA", "Esta divergência já foi resolvida.");
         }
@@ -261,8 +268,8 @@ public class ResolverDivergenciaUseCase {
         return new RecursoNaoEncontradoException("DIVERGENCIA_NAO_ENCONTRADA", "Divergência não encontrada.");
     }
 
-    private void publicar(String descricao) {
-        eventos.publishEvent(new ConciliacaoAtualizadaEvento(descricao,
-                divergencias.listar(StatusDivergencia.PENDENTE, null, null).size()));
+    private void publicar(UUID usuarioId, String descricao) {
+        eventos.publishEvent(new ConciliacaoAtualizadaEvento(usuarioId, descricao,
+                divergencias.listar(usuarioId, StatusDivergencia.PENDENTE, null, null).size()));
     }
 }

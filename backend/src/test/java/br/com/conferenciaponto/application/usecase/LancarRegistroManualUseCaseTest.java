@@ -17,6 +17,7 @@ import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.List;
 
+import static br.com.conferenciaponto.application.usecase.Fixtures.USUARIO;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
@@ -32,7 +33,7 @@ class LancarRegistroManualUseCaseTest {
     private final Clock clock = Clock.fixed(ZonedDateTime.of(SEGUNDA, LocalTime.of(18, 0), SP).toInstant(), SP);
 
     private final LancarRegistroManualUseCase useCase =
-            new LancarRegistroManualUseCase(repository, classificador, motor, evento -> { }, clock);
+            new LancarRegistroManualUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock);
 
     private static Intervalo intervalo(String entrada, String saida) {
         return new Intervalo(LocalTime.parse(entrada), LocalTime.parse(saida));
@@ -41,7 +42,7 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Sábado: 100% das horas viram crédito e o registro é marcado como manual")
     void sabadoTudoCredito() {
-        RegistroJornadaView v = useCase.executar(SABADO, List.of(intervalo("09:00", "12:30")));
+        RegistroJornadaView v = useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:30")));
 
         assertThat(v.tipoDia()).isEqualTo(TipoDia.FIM_DE_SEMANA);
         assertThat(v.registroManual()).isTrue();
@@ -52,8 +53,8 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Relançar a mesma data substitui o lançamento manual anterior")
     void relancamentoSubstitui() {
-        useCase.executar(SABADO, List.of(intervalo("09:00", "12:30")));
-        RegistroJornadaView v = useCase.executar(SABADO,
+        useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:30")));
+        RegistroJornadaView v = useCase.executar(USUARIO, SABADO,
                 List.of(intervalo("08:00", "12:00"), intervalo("13:00", "14:00")));
 
         assertThat(v.saldoDiarioSegundos()).isEqualTo(300 * 60);
@@ -63,7 +64,7 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Dia útil não aceita lançamento manual")
     void rejeitaDiaUtil() {
-        assertThatThrownBy(() -> useCase.executar(SEGUNDA, List.of(intervalo("08:00", "12:00"))))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SEGUNDA, List.of(intervalo("08:00", "12:00"))))
                 .isInstanceOf(RegraNegocioException.class)
                 .extracting("codigo").isEqualTo("LANCAMENTO_MANUAL_DIA_UTIL");
     }
@@ -71,20 +72,20 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Não sobrescreve batidas de relógio já existentes")
     void naoSobrescreveRelogio() {
-        new RegistrarBatidaUseCase(repository, classificador, motor, evento -> { }, clock)
-                .executar(SABADO, LocalTime.of(9, 0));
+        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock)
+                .executar(USUARIO, SABADO, LocalTime.of(9, 0));
 
-        assertThatThrownBy(() -> useCase.executar(SABADO, List.of(intervalo("09:00", "12:00"))))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:00"))))
                 .isInstanceOf(ConflitoException.class);
     }
 
     @Test
     @DisplayName("Dia útil já batido: a regra de dia útil prevalece sobre o conflito")
     void diaUtilComBatidasRetornaErroDeDiaUtil() {
-        new RegistrarBatidaUseCase(repository, classificador, motor, evento -> { }, clock)
-                .executar(SEGUNDA, LocalTime.of(8, 0));
+        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock)
+                .executar(USUARIO, SEGUNDA, LocalTime.of(8, 0));
 
-        assertThatThrownBy(() -> useCase.executar(SEGUNDA, List.of(intervalo("09:00", "11:00"))))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SEGUNDA, List.of(intervalo("09:00", "11:00"))))
                 .isInstanceOf(RegraNegocioException.class)
                 .extracting("codigo").isEqualTo("LANCAMENTO_MANUAL_DIA_UTIL");
     }
@@ -92,7 +93,7 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Rejeita data futura")
     void rejeitaFuturo() {
-        assertThatThrownBy(() -> useCase.executar(LocalDate.of(2026, 10, 3), List.of(intervalo("09:00", "12:00"))))
+        assertThatThrownBy(() -> useCase.executar(USUARIO, LocalDate.of(2026, 10, 3), List.of(intervalo("09:00", "12:00"))))
                 .extracting("codigo").isEqualTo("LANCAMENTO_NO_FUTURO");
     }
 }

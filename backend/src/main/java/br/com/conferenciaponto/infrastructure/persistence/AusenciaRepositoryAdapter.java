@@ -23,7 +23,11 @@ class AusenciaRepositoryAdapter implements AusenciaRepository, CalendarioAusenci
 
     @Override
     public void salvar(Ausencia a) {
-        AusenciaEntity e = jpa.findById(a.id()).orElseGet(() -> new AusenciaEntity(a.id()));
+        AusenciaEntity e = jpa.findById(a.id()).orElseGet(() -> {
+            AusenciaEntity nova = new AusenciaEntity(a.id());
+            nova.setUsuarioId(a.usuarioId());
+            return nova;
+        });
         e.setDataInicio(a.dataInicio());
         e.setDataFim(a.dataFim());
         e.setTipo(a.tipo().name());
@@ -44,17 +48,17 @@ class AusenciaRepositoryAdapter implements AusenciaRepository, CalendarioAusenci
     }
 
     @Override
-    public List<Ausencia> listarNoPeriodo(LocalDate inicio, LocalDate fim) {
-        return jpa.noPeriodo(inicio, fim).stream().map(AusenciaRepositoryAdapter::paraDominio).toList();
+    public List<Ausencia> listarNoPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return jpa.noPeriodo(usuarioId, inicio, fim).stream().map(AusenciaRepositoryAdapter::paraDominio).toList();
     }
 
     @Override
-    public boolean isAusencia(LocalDate data) {
-        return jpa.existsByDataInicioLessThanEqualAndDataFimGreaterThanEqual(data, data);
+    public boolean isAusencia(UUID usuarioId, LocalDate data) {
+        return jpa.existsByUsuarioIdAndDataInicioLessThanEqualAndDataFimGreaterThanEqual(usuarioId, data, data);
     }
 
     private static Ausencia paraDominio(AusenciaEntity e) {
-        return new Ausencia(e.getId(), e.getDataInicio(), e.getDataFim(), TipoAusencia.valueOf(e.getTipo()),
+        return new Ausencia(e.getId(), e.getUsuarioId(), e.getDataInicio(), e.getDataFim(), TipoAusencia.valueOf(e.getTipo()),
                 e.getDescricao(), e.getCriadoEm().toInstant(), e.getCriadoPor());
     }
 }

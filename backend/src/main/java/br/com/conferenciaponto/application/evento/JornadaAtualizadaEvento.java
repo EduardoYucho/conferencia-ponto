@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.application.evento;
 
+import java.util.UUID;
+
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
 
 import java.time.LocalDate;
@@ -11,6 +13,7 @@ import java.time.LocalDate;
  * @param registro estado atual do dia; null quando {@link OrigemAtualizacao#EXCLUSAO}
  */
 public record JornadaAtualizadaEvento(
+        UUID usuarioId,
         LocalDate data,
         OrigemAtualizacao origem,
         RegistroJornadaView registro,

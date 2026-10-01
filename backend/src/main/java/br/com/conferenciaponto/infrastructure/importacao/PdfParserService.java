@@ -86,6 +86,23 @@ public class PdfParserService {
         return new ComprovanteLido(lido.nomeArquivo(), lido.hashSha256(), dataHora, lido.conteudo());
     }
 
+    /** PDF recebido pela tela (upload): mesmo tratamento do lido da pasta. */
+    public ComprovanteLido lerConteudo(String nomeArquivo, byte[] conteudo) throws IOException {
+        if (conteudo == null || conteudo.length == 0) {
+            throw new IOException("arquivo vazio");
+        }
+        if (conteudo.length > tamanhoMaximoBytes) {
+            throw new IOException("o arquivo passa do tamanho máximo de %d MB".formatted(tamanhoMaximoBytes / 1024 / 1024));
+        }
+        Optional<LocalDateTime> dataHora;
+        try {
+            dataHora = extrairDataHora(extrairTexto(conteudo));
+        } catch (IOException pdfInvalido) {
+            dataHora = Optional.empty();
+        }
+        return new ComprovanteLido(nomeArquivo, HashSha256.de(conteudo), dataHora, conteudo);
+    }
+
     /**
      * Lê o arquivo inteiro sob uma trava compartilhada: enquanto a leitura acontece,
      * nenhum outro processo consegue alterar o conteúdo. Se outro processo detém uma

@@ -27,6 +27,7 @@ import java.util.List;
  * POST   /api/v1/feriados                {data, descricao, abrangencia: NACIONAL|ESTADUAL|MUNICIPAL|EMPRESA}
  * DELETE /api/v1/feriados/{data}         remove (o dia volta a ser útil)
  * </pre>
+ * Feriados valem para todos os usuários: só o administrador cadastra e remove (ver SecurityConfig).
  */
 @RestController
 @RequestMapping("/api/v1/feriados")

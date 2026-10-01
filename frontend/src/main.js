@@ -18,6 +18,13 @@ app.use(pinia)
 const auth = useAuthStore(pinia)
 configurarAutenticacao({
   obterToken: () => auth.token,
+  obterUsuarioVisto: () => auth.loginConsultado(),
+  // senha provisória (o admin redefiniu): troca antes de qualquer outra coisa
+  aoPrecisarTrocarSenha: () => {
+    if (!auth.usuario || auth.usuario.trocarSenha) return
+    auth.usuario = { ...auth.usuario, trocarSenha: true }
+    router.replace({ name: 'trocar-senha' })
+  },
   // 401: sessão expirada/ inválida -> volta ao login preservando a rota atual
   aoNaoAutenticado: () => {
     if (!auth.token) return

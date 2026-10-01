@@ -1,16 +1,17 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.AjusteJornada;
+import br.com.conferenciaponto.domain.model.Batidas;
 import br.com.conferenciaponto.domain.model.ComprovanteArquivado;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.port.AjusteJornadaRepository;
 import br.com.conferenciaponto.domain.port.ComprovanteArquivadoRepository;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
-import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
@@ -26,6 +27,7 @@ import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.UUID;
 import java.util.stream.Collectors;
 
 /**
@@ -48,19 +50,17 @@ public class AjustarBatidasUseCase {
     private final RegistroJornadaRepository registros;
     private final ComprovanteArquivadoRepository arquivos;
     private final AjusteJornadaRepository ajustes;
-    private final ClassificadorDiaService classificador;
-    private final MotorCalculoJornadaService motor;
+    private final RegrasJornada regrasJornada;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public AjustarBatidasUseCase(RegistroJornadaRepository registros, ComprovanteArquivadoRepository arquivos,
-                                 AjusteJornadaRepository ajustes, ClassificadorDiaService classificador,
-                                 MotorCalculoJornadaService motor, ApplicationEventPublisher eventos, Clock clock) {
+                                 AjusteJornadaRepository ajustes, RegrasJornada regrasJornada,
+                                 ApplicationEventPublisher eventos, Clock clock) {
         this.registros = registros;
         this.arquivos = arquivos;
         this.ajustes = ajustes;
-        this.classificador = classificador;
-        this.motor = motor;
+        this.regrasJornada = regrasJornada;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -71,8 +71,8 @@ public class AjustarBatidasUseCase {
      * @param usuario       login de quem está ajustando
      */
     @Transactional
-    public RegistroJornadaView executar(LocalDate data, List<LocalTime> horarios, String justificativa,
-                                        String usuario) {
+    public RegistroJornadaView executar(UUID usuarioId, LocalDate data, List<LocalTime> horarios,
+                                        String justificativa, String usuario) {
         if (data == null) {
             throw new RegraNegocioException("DATA_OBRIGATORIA", "Informe a data do ajuste.");
         }
@@ -86,7 +86,7 @@ public class AjustarBatidasUseCase {
                     "A justificativa pode ter no máximo %d caracteres.".formatted(JUSTIFICATIVA_MAXIMA));
         }
         validarFuturo(data, horarios);
-        return aplicar(data, horarios, motivo, usuario, OrigemAtualizacao.AJUSTE);
+        return aplicar(usuarioId, data, horarios, motivo, usuario, OrigemAtualizacao.AJUSTE);
     }
 
     /**
@@ -95,16 +95,17 @@ public class AjustarBatidasUseCase {
      * é criado sem a marca de ajuste (é o registro oficial do RH).
      */
     @Transactional
-    public RegistroJornadaView conformeRh(LocalDate data, List<LocalTime> horarios, String justificativa,
-                                          String usuario) {
-        return aplicar(data, horarios, justificativa, usuario, OrigemAtualizacao.CONCILIACAO);
+    public RegistroJornadaView conformeRh(UUID usuarioId, LocalDate data, List<LocalTime> horarios,
+                                          String justificativa, String usuario) {
+        return aplicar(usuarioId, data, horarios, justificativa, usuario, OrigemAtualizacao.CONCILIACAO);
     }
 
-    private RegistroJornadaView aplicar(LocalDate data, List<LocalTime> horarios, String motivo, String usuario,
-                                        OrigemAtualizacao origem) {
-        Optional<RegistroJornada> existente = registros.buscarPorData(data);
+    private RegistroJornadaView aplicar(UUID usuarioId, LocalDate data, List<LocalTime> horarios, String motivo,
+                                        String usuario, OrigemAtualizacao origem) {
+        Optional<RegistroJornada> existente = registros.buscarPorData(usuarioId, data);
         RegistroJornada registro = existente
-                .orElseGet(() -> RegistroJornada.novo(data, classificador.classificar(data)));
+                .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regrasJornada.classificar(usuarioId, data)));
+        MotorCalculoJornadaService motor = regrasJornada.motor(usuarioId, data);
         List<ComprovanteArquivado> pdfs = existente.isPresent()
                 ? arquivos.listarPorRegistro(registro.getId())
                 : List.of();
@@ -126,7 +127,7 @@ public class AjustarBatidasUseCase {
                 ? "Batidas de %s alinhadas ao RH por %s: %s → %s."
                 : "Batidas de %s ajustadas por %s: %s → %s.")
                 .formatted(DIA.format(data), usuario, texto(ajuste.antes()), texto(ajuste.depois()));
-        eventos.publishEvent(new JornadaAtualizadaEvento(data, origem, view, mensagem));
+        eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, data, origem, view, mensagem));
         return view;
     }
 
@@ -140,17 +141,17 @@ public class AjustarBatidasUseCase {
     }
 
     @Transactional(readOnly = true)
-    public Contexto contexto(LocalDate data) {
-        List<LocalTime> comprovadas = registros.buscarPorData(data)
+    public Contexto contexto(UUID usuarioId, LocalDate data) {
+        List<LocalTime> comprovadas = registros.buscarPorData(usuarioId, data)
                 .map(r -> List.copyOf(VinculoComprovantes.horariosComprovados(r, arquivos.listarPorRegistro(r.getId()))))
                 .orElse(List.of());
-        return new Contexto(comprovadas, historico(data));
+        return new Contexto(comprovadas, historico(usuarioId, data));
     }
 
     /** Histórico de ajustes do dia, do mais recente para o mais antigo. */
     @Transactional(readOnly = true)
-    public List<AjusteJornada> historico(LocalDate data) {
-        return ajustes.listarPorData(data);
+    public List<AjusteJornada> historico(UUID usuarioId, LocalDate data) {
+        return ajustes.listarPorData(usuarioId, data);
     }
 
     private void validarFuturo(LocalDate data, List<LocalTime> horarios) {

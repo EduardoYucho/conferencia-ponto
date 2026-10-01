@@ -67,6 +67,10 @@ public class AutenticarUsuarioUseCase {
             throw new RegraNegocioException("SENHA_FRACA",
                     "A nova senha precisa ter pelo menos %d caracteres.".formatted(TAMANHO_MINIMO_SENHA));
         }
+        GerenciarUsuariosUseCase.validarSenha(novaSenha);
+        if (codificador.confere(novaSenha, usuario.senhaHash())) {
+            throw new RegraNegocioException("SENHA_REPETIDA", "A nova senha precisa ser diferente da atual.");
+        }
         usuarios.salvar(usuario.comSenha(codificador.codificar(novaSenha)));
     }
 }
