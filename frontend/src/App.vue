@@ -18,6 +18,8 @@ watch(
   (ativo) => {
     if (ativo) {
       ponto.conectarTempoReal()
+      // relê o usuário (uma sessão salva por uma versão anterior não tem id, titular, pasta...)
+      auth.atualizarUsuario().catch(() => {})
       auth.carregarTitulares().catch(() => {})
     } else {
       ponto.desconectarTempoReal()
