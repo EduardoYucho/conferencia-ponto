@@ -1,7 +1,9 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.domain.port.CalendarioFeriados;
 import br.com.conferenciaponto.domain.port.AusenciaRepository;
+import br.com.conferenciaponto.domain.port.LancamentoBancoRepository;
 import br.com.conferenciaponto.application.view.MesJornadaView;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
 import br.com.conferenciaponto.application.view.ResumoSaldosView;
@@ -20,7 +22,10 @@ import java.util.Map;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
-/** Consultas: dia, mês e saldos consolidados (diário, mensal e anual acumulado). */
+/**
+ * Consultas: dia, mês e saldos consolidados (diário, mensal e anual acumulado). Os saldos do mês incluem os
+ * lançamentos avulsos no banco de horas.
+ */
 @Service
 @Transactional(readOnly = true)
 public class ConsultarJornadaUseCase {
@@ -29,13 +34,18 @@ public class ConsultarJornadaUseCase {
     private final MotorCalculoJornadaService motor;
     private final AusenciaRepository ausencias;
     private final CalendarioFeriados feriados;
+    private final LancamentoBancoRepository lancamentos;
+    private final ConsolidacaoBancoHoras consolidacao;
 
     public ConsultarJornadaUseCase(RegistroJornadaRepository repository, MotorCalculoJornadaService motor,
-                                   AusenciaRepository ausencias, CalendarioFeriados feriados) {
+                                   AusenciaRepository ausencias, CalendarioFeriados feriados,
+                                   LancamentoBancoRepository lancamentos, ConsolidacaoBancoHoras consolidacao) {
         this.repository = repository;
         this.motor = motor;
         this.ausencias = ausencias;
         this.feriados = feriados;
+        this.lancamentos = lancamentos;
+        this.consolidacao = consolidacao;
     }
 
     public RegistroJornadaView dia(LocalDate data) {
@@ -52,9 +62,10 @@ public class ConsultarJornadaUseCase {
                 .map(registro -> RegistroJornadaView.de(registro, motor))
                 .toList();
         SaldoMensal resumo = consolidarAnoCompleto(referencia.getYear()).get(referencia.getMonthValue() - 1);
-        return new MesJornadaView(referencia, dias, resumo,
-                ausencias.listarNoPeriodo(referencia.atDay(1), referencia.atEndOfMonth()),
-                feriados.listar(referencia.atDay(1), referencia.atEndOfMonth()));
+        LocalDate inicio = referencia.atDay(1);
+        LocalDate fim = referencia.atEndOfMonth();
+        return new MesJornadaView(referencia, dias, resumo, ausencias.listarNoPeriodo(inicio, fim),
+                feriados.listar(inicio, fim), lancamentos.listarNoPeriodo(inicio, fim));
     }
 
     public ResumoSaldosView saldos(YearMonth referencia) {
@@ -66,7 +77,7 @@ public class ConsultarJornadaUseCase {
 
     /** Devolve os 12 meses; meses sem registro herdam o acumulado do mês anterior. */
     private List<SaldoMensal> consolidarAnoCompleto(int ano) {
-        Map<Integer, SaldoMensal> porMes = repository.consolidarAno(ano).stream()
+        Map<Integer, SaldoMensal> porMes = consolidacao.ano(ano).stream()
                 .collect(Collectors.toMap(SaldoMensal::mes, Function.identity()));
         List<SaldoMensal> meses = new ArrayList<>(12);
         int acumulado = 0;

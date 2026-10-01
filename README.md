@@ -3,7 +3,8 @@
 Controle de jornada e banco de horas: **Spring Boot 3 + PostgreSQL + Vue 3**.
 Jornada base de **08:48:00**, cálculo **igual ao do sistema de ponto do RH** (com segundos, tolerância
 de 5:00 por horário da grade, até 6 batidas), lançamento manual de fins de semana/feriados (100% crédito),
-**banco de horas semestral** com botão de fechamento e avisos de prazo, **férias/folgas/atestados**,
+**banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
+creditar horas), **feriados, férias, folgas, atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
 PDFs**, **acesso por perfil (JWT)** com auditoria para a coordenação e **conciliação com o relatório de
 banco de horas do RH** (tela dividida conferência × RH).
@@ -54,7 +55,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 161 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação)
+.\iniciar.ps1 -Testes    # 176 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -187,7 +188,9 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | POST | `/ciclos/fechar` | `{ultimoDia?, observacao?}` congela o saldo e recomeça do zero (também em `/api/ciclos/fechar`) |
 | POST | `/ciclos/desfazer-fechamento` | O ciclo anterior volta a ser o aberto |
 | GET | `/notificacoes` | Avisos (prazo do banco, conciliação) + não lidos · `POST /notificacoes/{id}/lida` · `POST /notificacoes/lidas` |
-| GET/POST/DELETE | `/ausencias` | Férias, atestados, licenças e folgas `{dataInicio, dataFim, tipo, descricao}` |
+| GET/POST/DELETE | `/ausencias` | Férias, atestados, licenças, folgas e abonos `{dataInicio, dataFim, tipo, descricao}` (`ABONO` exige a justificativa) |
+| GET/POST/DELETE | `/feriados` · `/feriados/{data}` | Feriados `{data, descricao, abrangencia: NACIONAL\|ESTADUAL\|MUNICIPAL\|EMPRESA}` |
+| GET/POST/DELETE | `/lancamentos-banco` · `/{id}` | Lançamentos avulsos no banco `{data, duracao: "04:00", sentido: DEBITO\|CREDITO, descricao}` |
 | POST | `/conciliacoes` | Envia o PDF do relatório do RH (multipart, campo `arquivo`) → `202`, confere em segundo plano |
 | GET | `/conciliacoes/resumo` | Relatórios enviados com comparativo de saldo + pendências por tipo |
 | GET | `/conciliacoes/divergencias?status=` | `PENDENTE` (padrão), `ACEITO_RH`, `MANTIDO_LOCAL`, `RESOLVIDA` ou `TODAS`, com os dois lados |
@@ -246,6 +249,8 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V8` — `tb_ausencia` (férias/atestado/licença/folga, sem sobreposição) e tipo de dia `AUSENCIA`
 - `V9` — `tb_ciclo_banco` (no máximo um `ABERTO`, sem sobreposição) e `tb_notificacao`
 - `V10` — `tb_relatorio_rh`, `tb_relatorio_rh_dia` e `tb_divergencia` (uma por data, com a decisão)
+- `V11` — `tb_lancamento_banco` (débitos/créditos avulsos, até 300 h, com justificativa), ausência `ABONO` e os
+  feriados nacionais de 2027
 
 ## Banco de horas semestral (ciclo)
 
@@ -261,11 +266,24 @@ atual", com o gráfico mês a mês do ciclo):
   prazo e cria avisos no sino a **30** e **15 dias** da previsão e quando ela passa. Cada aviso sai uma vez; os do
   ciclo anterior são arquivados ao fechar.
 
-## Férias, atestados, licenças e folgas
+## Lançamentos no banco de horas (abater ou creditar)
 
-Tela **Férias e folgas** (`/ausencias`): nos dias úteis do período a jornada base é **zero** — não há débito e o dia
-não aparece como "sem registro" (o cartão mostra o rótulo). Dias já registrados são reclassificados e, se houver
-trabalho num dia de férias, o tempo vira crédito. Feriado e fim de semana mantêm a própria classificação.
+Botão **Lançar no banco** no Painel: abate horas do banco (ex.: as horas a mais compensadas com uma folga ou uma
+saída antecipada, horas pagas pela empresa) ou credita uma correção, numa data e com motivo obrigatório. As batidas
+do dia **não mudam**: o lançamento entra no saldo do mês e do ciclo (`ConsolidacaoBancoHoras` soma as jornadas
+consolidadas no banco de dados com os lançamentos). No cartão o dia ganha o selo `banco −04:00`, e a lista do mês
+fica abaixo do cartão (com "Remover"). Regras: até 300 h por lançamento, só a partir do início do ciclo aberto (o
+saldo de um ciclo fechado já foi congelado) e no máximo 1 ano à frente. A conciliação com o RH continua comparando
+só as jornadas. Folga que deve **descontar** do banco = lançamento de −08:48 no dia (atalho "dia inteiro").
+
+## Feriados, férias, atestados, licenças, folgas e abonos
+
+Tela **Folgas e feriados** (`/ausencias`), ou direto pelo dia no Painel (ícone de calendário, ou clique num dia útil
+sem registro): **feriado** (municipal, estadual, nacional ou da empresa/ponto facultativo — ex.: Corpus Christi),
+**férias**, **atestado**, **licença**, **folga** ou **outra justificativa** (abono, com o motivo obrigatório). Nesses dias
+a jornada base é **zero** — não há débito e o dia não aparece como "sem registro" (o cartão mostra o rótulo). Dias já
+registrados são reclassificados e, se houver trabalho num desses dias, o tempo vira crédito. Clicando num dia
+marcado, dá para ver e remover a marcação. Os feriados nacionais de 2026 e 2027 vêm cadastrados.
 
 ## Conciliação com o relatório do RH
 
@@ -408,6 +426,8 @@ sem recompilar.
 | `ciclo-atualizado` | banco de horas fechado, fechamento desfeito ou período corrigido | ciclo aberto |
 | `notificacao` | novo aviso no sino | `{notificacao, naoLidas}` |
 | `conciliacao-atualizada` | relatório do RH conferido ou divergência resolvida | `{descricao, pendentes}` |
+| `calendario-atualizado` | feriado ou ausência cadastrado/removido | `{inicio, fim}` |
+| `banco-atualizado` | lançamento no banco de horas criado ou removido | `{data, descricao}` |
 
 No front-end, `usePontoStore().conectarTempoReal()` abre o stream assim que há sessão, substitui o dia
 afetado direto no estado (sem recarregar a página) e recarrega só os saldos — uma vez só depois de uma

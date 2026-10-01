@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
 import br.com.conferenciaponto.application.TextoDuracao;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
@@ -11,7 +12,6 @@ import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.domain.model.SaldoMensal;
 import br.com.conferenciaponto.domain.model.StatusCiclo;
 import br.com.conferenciaponto.domain.port.CicloBancoRepository;
-import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,15 +39,15 @@ public class GerenciarCicloBancoUseCase {
     private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final CicloBancoRepository ciclos;
-    private final RegistroJornadaRepository registros;
+    private final ConsolidacaoBancoHoras consolidacao;
     private final ParametrosBancoHoras parametros;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
-    public GerenciarCicloBancoUseCase(CicloBancoRepository ciclos, RegistroJornadaRepository registros,
+    public GerenciarCicloBancoUseCase(CicloBancoRepository ciclos, ConsolidacaoBancoHoras consolidacao,
                                       ParametrosBancoHoras parametros, ApplicationEventPublisher eventos, Clock clock) {
         this.ciclos = ciclos;
-        this.registros = registros;
+        this.consolidacao = consolidacao;
         this.parametros = parametros;
         this.eventos = eventos;
         this.clock = clock;
@@ -176,7 +176,7 @@ public class GerenciarCicloBancoUseCase {
     }
 
     private Apuracao apurar(LocalDate inicio, LocalDate fim) {
-        List<SaldoMensal> meses = registros.consolidarPeriodo(inicio, fim);
+        List<SaldoMensal> meses = consolidacao.periodo(inicio, fim);
         int saldo = meses.stream().mapToInt(SaldoMensal::saldoMensalSegundos).sum();
         int registrados = meses.stream().mapToInt(SaldoMensal::diasRegistrados).sum();
         int emAberto = meses.stream().mapToInt(SaldoMensal::diasEmAberto).sum();
@@ -207,7 +207,7 @@ public class GerenciarCicloBancoUseCase {
             acumulado += s == null ? 0 : s.saldoMensalSegundos();
             meses.add(s == null ? SaldoMensal.vazio(m.getYear(), m.getMonthValue(), acumulado)
                     : new SaldoMensal(s.ano(), s.mes(), s.diasRegistrados(), s.diasEmAberto(), s.segundosTrabalhados(),
-                    s.segundosPrevistos(), s.saldoMensalSegundos(), acumulado));
+                    s.segundosPrevistos(), s.saldoMensalSegundos(), acumulado, s.segundosLancados()));
         }
         return meses;
     }

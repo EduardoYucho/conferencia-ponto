@@ -6,7 +6,9 @@ public enum TipoAusencia {
     ATESTADO("Atestado"),
     LICENCA("Licença"),
     /** Folga concedida pela empresa (ex.: folga de aniversário). */
-    FOLGA("Folga");
+    FOLGA("Folga"),
+    /** Outra falta justificada/abonada (ex.: doação de sangue, declaração de comparecimento). */
+    ABONO("Abono");
 
     private final String rotulo;
 

@@ -59,10 +59,22 @@ export const pontoApi = {
   marcarNotificacaoLida: (id) => http.post(`/notificacoes/${id}/lida`),
   marcarNotificacoesLidas: () => http.post('/notificacoes/lidas'),
 
-  // ------------------------------------------- férias, atestados, folgas
+  // ------------------------------------------- férias, atestados, folgas, abonos
   ausencias: (inicio, fim) => http.get('/ausencias', { params: { inicio, fim } }),
   cadastrarAusencia: (ausencia) => http.post('/ausencias', ausencia),
   excluirAusencia: (id) => http.delete(`/ausencias/${id}`),
+
+  // ------------------------------------------------------------ feriados
+  feriados: (inicio, fim) => http.get('/feriados', { params: { inicio, fim } }),
+  /** @param {{ data: string, descricao: string, abrangencia?: 'NACIONAL'|'ESTADUAL'|'MUNICIPAL'|'EMPRESA' }} feriado */
+  cadastrarFeriado: (feriado) => http.post('/feriados', feriado),
+  excluirFeriado: (data) => http.delete(`/feriados/${data}`),
+
+  // ------------------------------------- lançamentos avulsos no banco de horas
+  lancamentosBanco: (inicio, fim) => http.get('/lancamentos-banco', { params: { inicio, fim } }),
+  /** @param {{ data: string, duracao: string, sentido: 'DEBITO'|'CREDITO', descricao: string }} lancamento */
+  lancarNoBanco: (lancamento) => http.post('/lancamentos-banco', lancamento),
+  excluirLancamentoBanco: (id) => http.delete(`/lancamentos-banco/${id}`),
 
   // ------------------------------------------- conciliação com o RH
   /** Envia o PDF do relatório de banco de horas (processado em segundo plano). */

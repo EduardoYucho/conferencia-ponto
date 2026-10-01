@@ -5,7 +5,9 @@ import br.com.conferenciaponto.application.evento.ConciliacaoAtualizadaEvento;
 import br.com.conferenciaponto.infrastructure.web.dto.NotificacaoEventoResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.CicloBancoResponse;
 import br.com.conferenciaponto.application.evento.NotificacaoCriadaEvento;
+import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
+import br.com.conferenciaponto.application.evento.LancamentoBancoAlteradoEvento;
 import br.com.conferenciaponto.application.evento.ComprovanteNaoImportadoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.infrastructure.importacao.EstadoMonitor;
@@ -43,7 +45,9 @@ import java.util.function.Supplier;
  *   <li>{@code monitor-atualizado} – a pasta dos PDFs ficou inacessível ou voltou;</li>
  *   <li>{@code ciclo-atualizado} – banco de horas fechado, fechamento desfeito ou período corrigido;</li>
  *   <li>{@code notificacao} – novo aviso no sino (prazo do banco, conciliação com o RH);</li>
- *   <li>{@code conciliacao-atualizada} – relatório do RH conferido ou divergência resolvida.</li>
+ *   <li>{@code conciliacao-atualizada} – relatório do RH conferido ou divergência resolvida;</li>
+ *   <li>{@code calendario-atualizado} – feriado, férias, folga ou abono cadastrado/removido no período;</li>
+ *   <li>{@code banco-atualizado} – lançamento avulso no banco de horas criado ou removido.</li>
  * </ul>
  * Um comentário {@code :ping} a cada 25 s mantém a conexão viva em proxies e
  * detecta clientes desconectados.
@@ -58,6 +62,8 @@ public class EmissorEventosSse {
     public static final String EVENTO_CICLO = "ciclo-atualizado";
     public static final String EVENTO_NOTIFICACAO = "notificacao";
     public static final String EVENTO_CONCILIACAO = "conciliacao-atualizada";
+    public static final String EVENTO_CALENDARIO = "calendario-atualizado";
+    public static final String EVENTO_BANCO = "banco-atualizado";
 
     private static final Logger log = LoggerFactory.getLogger(EmissorEventosSse.class);
     private static final long TIMEOUT_MS = Duration.ofMinutes(30).toMillis();
@@ -108,6 +114,24 @@ public class EmissorEventosSse {
     public void aoAtualizarConciliacao(ConciliacaoAtualizadaEvento evento) {
         ConciliacaoEventoResponse payload = new ConciliacaoEventoResponse(evento.descricao(), evento.pendentes());
         difundir(() -> evento(EVENTO_CONCILIACAO, payload));
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void aoAlterarCalendario(CalendarioAlteradoEvento evento) {
+        CalendarioEvento payload = new CalendarioEvento(evento.inicio().toString(), evento.fim().toString());
+        difundir(() -> evento(EVENTO_CALENDARIO, payload));
+    }
+
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void aoAlterarBanco(LancamentoBancoAlteradoEvento evento) {
+        BancoEvento payload = new BancoEvento(evento.data().toString(), evento.descricao());
+        difundir(() -> evento(EVENTO_BANCO, payload));
+    }
+
+    record CalendarioEvento(String inicio, String fim) {
+    }
+
+    record BancoEvento(String data, String descricao) {
     }
 
     /** Mudança de situação do monitor de PDFs (não é transacional: publicado pela thread do monitor). */

@@ -169,7 +169,12 @@ const totais = computed(() => {
 const indicadores = computed(() => {
   const r = dados.value?.resumo
   return [
-    { rotulo: `Saldo de ${nomeMes(mes.value).toLowerCase()}`, valor: formatarSaldo(r?.saldoMensalSegundos ?? 0), saldo: r?.saldoMensalSegundos ?? 0 },
+    {
+      rotulo: `Saldo de ${nomeMes(mes.value).toLowerCase()}`,
+      valor: formatarSaldo(r?.saldoMensalSegundos ?? 0),
+      saldo: r?.saldoMensalSegundos ?? 0,
+      detalhe: r?.segundosLancados ? `inclui ${formatarSaldo(r.segundosLancados)} lançado(s) no banco` : undefined,
+    },
     { rotulo: `Acumulado ${ano.value}`, valor: formatarSaldo(r?.saldoAnualAcumuladoSegundos ?? 0), saldo: r?.saldoAnualAcumuladoSegundos ?? 0 },
     { rotulo: 'Dias registrados', valor: String(linhas.value.length), detalhe: r?.diasEmAberto ? `${r.diasEmAberto} em andamento` : 'todos fechados' },
     { rotulo: 'Abonado pela tolerância', valor: formatarDuracao(linhas.value.reduce((s, l) => s + l.abonado, 0)), detalhe: `${linhas.value.reduce((s, l) => s + l.fora, 0)} batida(s) fora` },
@@ -467,6 +472,19 @@ function exportarCsv() {
       abonado = tempo absorvido pela tolerância no dia ·
       <b>ajustada</b> = batida incluída ou corrigida manualmente (sem comprovante; motivo em “ajustado à mão”).
     </p>
+
+    <!-- Lançamentos avulsos no banco de horas (não mudam as batidas; entram no saldo do mês) -->
+    <section v-if="dados?.lancamentos?.length" class="cartao mt-6 overflow-hidden" aria-label="Lançamentos no banco de horas">
+      <h2 class="rotulo border-b border-linha px-5 py-3">Lançamentos no banco de horas · {{ nomeMes(mes) }} {{ ano }}</h2>
+      <ul class="divide-y divide-linha/70">
+        <li v-for="l in dados.lancamentos" :key="l.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5 text-sm">
+          <span class="carimbo w-28 font-semibold">{{ diaSemanaCurto(l.data) }} {{ dataCurta(l.data) }}</span>
+          <span class="carimbo w-24 font-semibold" :class="classeSaldo(l.segundos)">{{ formatarSaldo(l.segundos) }}</span>
+          <span class="min-w-0 flex-1">{{ l.descricao }}</span>
+          <span class="text-xs text-tinta-apagada">por {{ l.criadoPor }} em {{ formatarMomento(l.criadoEm) }}</span>
+        </li>
+      </ul>
+    </section>
 
     <Transition
       enter-active-class="transition duration-200"

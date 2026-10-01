@@ -31,6 +31,10 @@ public record Ausencia(UUID id, LocalDate dataInicio, LocalDate dataFim, TipoAus
             throw new RegraNegocioException("AUSENCIA_LONGA_DEMAIS", "Uma ausência pode ter no máximo 1 ano.");
         }
         descricao = descricao == null || descricao.isBlank() ? null : descricao.strip();
+        if (tipo == TipoAusencia.ABONO && descricao == null) {
+            throw new RegraNegocioException("AUSENCIA_ABONO_SEM_JUSTIFICATIVA",
+                    "Informe a justificativa do abono (ex.: doação de sangue).");
+        }
     }
 
     public static Ausencia nova(LocalDate inicio, LocalDate fim, TipoAusencia tipo, String descricao, String usuario,

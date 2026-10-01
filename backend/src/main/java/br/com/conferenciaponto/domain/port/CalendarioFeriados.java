@@ -1,8 +1,10 @@
 package br.com.conferenciaponto.domain.port;
 
-import java.util.List;
 import br.com.conferenciaponto.domain.model.Feriado;
+
 import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
 
 /** Porta de saída: consulta (e cadastro) do calendário de feriados. */
 public interface CalendarioFeriados {
@@ -14,6 +16,20 @@ public interface CalendarioFeriados {
      * Não faz nada se a data já for feriado.
      */
     default void cadastrar(LocalDate data, String descricao) {
+        throw new UnsupportedOperationException("Calendário somente leitura");
+    }
+
+    /** Cadastra (ou substitui) o feriado da data. */
+    default void salvar(Feriado feriado) {
+        throw new UnsupportedOperationException("Calendário somente leitura");
+    }
+
+    default Optional<Feriado> buscar(LocalDate data) {
+        return listar(data, data).stream().findFirst();
+    }
+
+    /** Remove o feriado da data (o dia volta a ser útil ou fim de semana). */
+    default void excluir(LocalDate data) {
         throw new UnsupportedOperationException("Calendário somente leitura");
     }
 

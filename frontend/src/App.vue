@@ -24,7 +24,7 @@ const menu = computed(() => [
   { nome: 'painel', rotulo: 'Painel' },
   { nome: 'auditoria', rotulo: 'Auditoria' },
   { nome: 'conciliacao', rotulo: 'Conciliação RH' },
-  { nome: 'ausencias', rotulo: 'Férias e folgas' },
+  { nome: 'ausencias', rotulo: 'Folgas e feriados' },
 ])
 const iniciais = computed(() =>
   (auth.usuario?.nome ?? '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase(),

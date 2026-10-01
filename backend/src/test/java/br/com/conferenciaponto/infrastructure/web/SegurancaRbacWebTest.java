@@ -18,6 +18,8 @@ import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
 import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
 import br.com.conferenciaponto.application.usecase.LancarRegistroManualUseCase;
 import br.com.conferenciaponto.application.usecase.RegistrarBatidaUseCase;
+import br.com.conferenciaponto.application.usecase.GerenciarFeriadosUseCase;
+import br.com.conferenciaponto.application.usecase.GerenciarLancamentosBancoUseCase;
 import br.com.conferenciaponto.application.view.ArquivoComprovanteView;
 import br.com.conferenciaponto.application.view.MesJornadaView;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
@@ -64,6 +66,7 @@ import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -79,7 +82,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 /** Regras do SecurityFilterChain: leitura para todos os perfis, escrita só para ADMIN/USER. */
 @WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
-        AuthController.class, CicloBancoController.class, ConciliacaoController.class})
+        AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
+        FeriadoController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, JwtEmissorToken.class, SegurancaRbacWebTest.Relogio.class})
 class SegurancaRbacWebTest {
 
@@ -127,6 +131,10 @@ class SegurancaRbacWebTest {
     private ResolverDivergenciaUseCase resolverDivergencia;
     @MockitoBean
     private ConferirConciliacaoUseCase conferirConciliacao;
+    @MockitoBean
+    private GerenciarLancamentosBancoUseCase lancamentosBanco;
+    @MockitoBean
+    private GerenciarFeriadosUseCase gerenciarFeriados;
 
     private static SimpleGrantedAuthority perfil(Perfil p) {
         return new SimpleGrantedAuthority(p.name());
@@ -159,6 +167,33 @@ class SegurancaRbacWebTest {
                 .andExpect(header().string(HttpHeaders.WWW_AUTHENTICATE, "Bearer"))
                 .andExpect(jsonPath("$.sucesso").value(false))
                 .andExpect(jsonPath("$.erros[0].codigo").value("NAO_AUTENTICADO"));
+    }
+
+    @Test
+    @DisplayName("Lançar no banco e cadastrar feriado: VIEWER recebe 403; ADMIN lança (duração inválida = 400)")
+    void lancamentoNoBancoEFeriado() throws Exception {
+        String corpo = """
+                {"data":"2026-09-26","duracao":"04:00","sentido":"DEBITO","descricao":"Compensação"}""";
+        mvc.perform(post("/api/v1/lancamentos-banco").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER)))
+                        .contentType(MediaType.APPLICATION_JSON).content(corpo))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/feriados").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"data\":\"2026-06-04\",\"descricao\":\"Corpus Christi\"}"))
+                .andExpect(status().isForbidden());
+        verify(lancamentosBanco, never()).lancar(any(), anyInt(), any(), any());
+
+        when(lancamentosBanco.lancar(any(), anyInt(), any(), any())).thenReturn(br.com.conferenciaponto.domain.model.LancamentoBanco
+                .novo(LocalDate.of(2026, 9, 26), -14_400, "Compensação", "eduardo", Instant.now()));
+        mvc.perform(post("/api/v1/lancamentos-banco").with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN)))
+                        .contentType(MediaType.APPLICATION_JSON).content(corpo))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.dados.segundos").value(-14_400));
+        verify(lancamentosBanco).lancar(LocalDate.of(2026, 9, 26), -14_400, "Compensação", "eduardo");
+
+        mvc.perform(post("/api/v1/lancamentos-banco").with(jwt().authorities(perfil(Perfil.ROLE_ADMIN)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(corpo.replace("04:00", "4h")))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

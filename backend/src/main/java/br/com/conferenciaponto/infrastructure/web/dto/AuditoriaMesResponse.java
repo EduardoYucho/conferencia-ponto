@@ -5,7 +5,7 @@ import br.com.conferenciaponto.application.view.AuditoriaMesView;
 import java.util.List;
 
 public record AuditoriaMesResponse(int ano, int mes, List<DiaAuditoriaResponse> dias, ResumoMensalResponse resumo,
-                                   List<AusenciaResponse> ausencias) {
+                                   List<AusenciaResponse> ausencias, List<LancamentoBancoResponse> lancamentos) {
 
     /** Dia com batidas (real x considerado x tolerância), saldo e comprovantes para download. */
     public record DiaAuditoriaResponse(RegistroJornadaResponse registro, List<ComprovanteArquivoResponse> comprovantes,
@@ -22,6 +22,7 @@ public record AuditoriaMesResponse(int ano, int mes, List<DiaAuditoriaResponse> 
                                 d.ajustes().stream().map(AjusteResponse::de).toList()))
                         .toList(),
                 ResumoMensalResponse.de(v.resumo()),
-                v.ausencias().stream().map(AusenciaResponse::de).toList());
+                v.ausencias().stream().map(AusenciaResponse::de).toList(),
+                v.lancamentos().stream().map(LancamentoBancoResponse::de).toList());
     }
 }

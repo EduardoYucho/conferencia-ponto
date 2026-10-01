@@ -6,7 +6,7 @@ import { usePontoStore } from '@/stores/ponto'
 import { dataBR, diaSemanaCurto } from '@/utils/tempo'
 
 /**
- * Férias, atestados, licenças e folgas: os dias úteis do período ficam com jornada base zero
+ * Férias, atestados, licenças, folgas, abonos e feriados: os dias úteis ficam com jornada base zero
  * (não geram débito) e saem das pendências do painel. Dias já registrados são recalculados.
  */
 const auth = useAuthStore()
@@ -17,6 +17,7 @@ const TIPOS = [
   { valor: 'FOLGA', rotulo: 'Folga (ex.: aniversário)' },
   { valor: 'ATESTADO', rotulo: 'Atestado' },
   { valor: 'LICENCA', rotulo: 'Licença' },
+  { valor: 'ABONO', rotulo: 'Outra justificativa (abono)' },
 ]
 
 const lista = ref([])
@@ -48,6 +49,7 @@ const erroForm = computed(() => {
   const f = form.value
   if (!f.dataInicio || !f.dataFim) return 'Informe o início e o fim.'
   if (f.dataFim < f.dataInicio) return 'O fim deve ser igual ou posterior ao início.'
+  if (f.tipo === 'ABONO' && !f.descricao.trim()) return 'Informe a justificativa do abono (ex.: doação de sangue).'
   return null
 })
 
@@ -104,20 +106,163 @@ function mostrarAviso(texto) {
   timerAviso = setTimeout(() => (aviso.value = ''), 5000)
 }
 
-const corTipo = { FERIAS: 'bg-credito/10 text-credito', FOLGA: 'bg-tinta/10 text-tinta', ATESTADO: 'bg-carimbo/10 text-carimbo', LICENCA: 'bg-amber-500/15 text-amber-800' }
+const corTipo = {
+  FERIAS: 'bg-credito/10 text-credito',
+  FOLGA: 'bg-tinta/10 text-tinta',
+  ATESTADO: 'bg-carimbo/10 text-carimbo',
+  LICENCA: 'bg-amber-500/15 text-amber-800',
+  ABONO: 'bg-tinta/5 text-tinta-suave',
+}
+
+// ---------------------------------------------------------------- feriados
+const ABRANGENCIAS = [
+  { valor: 'MUNICIPAL', rotulo: 'Municipal' },
+  { valor: 'ESTADUAL', rotulo: 'Estadual' },
+  { valor: 'NACIONAL', rotulo: 'Nacional' },
+  { valor: 'EMPRESA', rotulo: 'Empresa / ponto facultativo' },
+]
+const anoFeriados = ref(anoAtual)
+const feriados = ref([])
+const carregandoFeriados = ref(false)
+const formFeriado = ref({ data: '', descricao: '', abrangencia: 'MUNICIPAL' })
+const tentouFeriado = ref(false)
+const salvandoFeriado = ref(false)
+const confirmandoFeriado = ref(null)
+
+async function carregarFeriados() {
+  carregandoFeriados.value = true
+  try {
+    feriados.value = await pontoApi.feriados(`${anoFeriados.value}-01-01`, `${anoFeriados.value}-12-31`)
+  } catch (e) {
+    erro.value = e.message
+  } finally {
+    carregandoFeriados.value = false
+  }
+}
+onMounted(carregarFeriados)
+
+function mudarAnoFeriados(delta) {
+  anoFeriados.value += delta
+  carregarFeriados()
+}
+
+const erroFeriado = computed(() => {
+  if (!formFeriado.value.data) return 'Informe a data.'
+  if (!formFeriado.value.descricao.trim()) return 'Informe o nome do feriado (ex.: Corpus Christi).'
+  return null
+})
+
+async function cadastrarFeriado() {
+  tentouFeriado.value = true
+  if (erroFeriado.value) return
+  salvandoFeriado.value = true
+  erro.value = ''
+  try {
+    const novo = await pontoApi.cadastrarFeriado({ ...formFeriado.value, descricao: formFeriado.value.descricao.trim() })
+    mostrarAviso(`${novo.descricao} (${dataBR(novo.data)}) cadastrado: o dia não gera débito.`)
+    const ano = Number(novo.data.slice(0, 4))
+    formFeriado.value = { data: '', descricao: '', abrangencia: formFeriado.value.abrangencia }
+    tentouFeriado.value = false
+    if (ano !== anoFeriados.value) anoFeriados.value = ano
+    await carregarFeriados()
+    ponto.recarregarMes().catch(() => {})
+  } catch (e) {
+    erro.value = e.message
+  } finally {
+    salvandoFeriado.value = false
+  }
+}
+
+async function excluirFeriado(f) {
+  if (confirmandoFeriado.value !== f.data) {
+    confirmandoFeriado.value = f.data
+    setTimeout(() => confirmandoFeriado.value === f.data && (confirmandoFeriado.value = null), 4000)
+    return
+  }
+  confirmandoFeriado.value = null
+  try {
+    await pontoApi.excluirFeriado(f.data)
+    mostrarAviso(`${f.descricao} (${dataBR(f.data)}) removido: o dia voltou a ser útil.`)
+    await carregarFeriados()
+    ponto.recarregarMes().catch(() => {})
+  } catch (e) {
+    erro.value = e.message
+  }
+}
 </script>
 
 <template>
   <div class="mx-auto max-w-4xl px-4 pb-16 sm:px-6">
     <header class="border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <p class="rotulo">Exceções de calendário</p>
-      <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Férias e folgas</h1>
+      <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Folgas e feriados</h1>
       <p class="mt-2 max-w-2xl text-sm text-tinta-suave">
-        Nos dias úteis de férias, atestados, licenças e folgas a jornada base é zero: não há débito e o dia não aparece
-        como pendente. Se trabalhar num desses dias, o tempo vira crédito. Os períodos do relatório do RH também podem
-        ser trazidos pela <RouterLink :to="{ name: 'conciliacao' }" class="font-semibold text-tinta underline underline-offset-4">Conciliação</RouterLink>.
+        Nos dias de feriado, férias, atestado, licença, folga ou outra justificativa a jornada base é zero: não há débito
+        e o dia não aparece como pendente. Se trabalhar num desses dias, o tempo vira crédito. Também dá para marcar pelo
+        próprio dia no Painel (ícone de calendário). Para <b>descontar</b> horas do banco (folga compensada), use
+        <b>Lançar no banco</b> no Painel. Os períodos do relatório do RH também podem ser trazidos pela
+        <RouterLink :to="{ name: 'conciliacao' }" class="font-semibold text-tinta underline underline-offset-4">Conciliação</RouterLink>.
       </p>
     </header>
+
+    <p v-if="erro" role="alert" class="cartao mt-4 border-carimbo/50 px-5 py-3 text-sm text-carimbo">{{ erro }}</p>
+
+    <!-- Feriados -->
+    <section class="cartao mt-8 overflow-hidden" aria-label="Feriados">
+      <div class="flex flex-wrap items-center justify-between gap-3 border-b border-linha px-5 py-3">
+        <h2 class="rotulo">Feriados</h2>
+        <div class="flex items-center gap-2">
+          <button type="button" class="botao-secundario px-2.5! py-1! text-xs" aria-label="Ano anterior" @click="mudarAnoFeriados(-1)">‹</button>
+          <span class="carimbo font-semibold">{{ anoFeriados }}</span>
+          <button type="button" class="botao-secundario px-2.5! py-1! text-xs" aria-label="Próximo ano" @click="mudarAnoFeriados(1)">›</button>
+        </div>
+      </div>
+
+      <form
+        v-if="auth.podeEscrever"
+        class="grid gap-3 border-b border-dashed border-linha px-5 py-4 sm:grid-cols-[10rem_1fr_12rem_auto]"
+        novalidate
+        @submit.prevent="cadastrarFeriado"
+      >
+        <label class="flex flex-col">
+          <span class="rotulo">Data</span>
+          <input v-model="formFeriado.data" type="date" class="campo mt-1" />
+        </label>
+        <label class="flex flex-col">
+          <span class="rotulo">Nome</span>
+          <input v-model="formFeriado.descricao" type="text" maxlength="120" class="campo mt-1 font-sans" placeholder="Ex.: Corpus Christi" />
+        </label>
+        <label class="flex flex-col">
+          <span class="rotulo">Abrangência</span>
+          <select v-model="formFeriado.abrangencia" class="campo mt-1 font-sans">
+            <option v-for="a in ABRANGENCIAS" :key="a.valor" :value="a.valor">{{ a.rotulo }}</option>
+          </select>
+        </label>
+        <div class="flex items-end">
+          <button type="submit" class="botao-primario w-full" :disabled="salvandoFeriado">{{ salvandoFeriado ? 'Salvando…' : 'Cadastrar' }}</button>
+        </div>
+        <p v-if="tentouFeriado && erroFeriado" class="text-sm text-carimbo sm:col-span-4">{{ erroFeriado }}</p>
+      </form>
+
+      <p v-if="carregandoFeriados && !feriados.length" class="px-5 py-6 text-center text-sm text-tinta-suave">Carregando…</p>
+      <p v-else-if="!feriados.length" class="px-5 py-6 text-center text-sm text-tinta-suave">Nenhum feriado cadastrado em {{ anoFeriados }}.</p>
+      <ul class="divide-y divide-linha/70">
+        <li v-for="f in feriados" :key="f.data" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5">
+          <span class="carimbo w-28 font-semibold">{{ diaSemanaCurto(f.data) }} {{ dataBR(f.data).slice(0, 5) }}</span>
+          <span class="min-w-0 flex-1">{{ f.descricao }}</span>
+          <span class="rounded-[2px] bg-carimbo/10 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-carimbo">{{ f.abrangenciaRotulo }}</span>
+          <button
+            v-if="auth.podeEscrever"
+            type="button"
+            class="rounded-[3px] px-2 py-1 text-xs font-semibold transition"
+            :class="confirmandoFeriado === f.data ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
+            @click="excluirFeriado(f)"
+          >{{ confirmandoFeriado === f.data ? 'Confirmar remoção?' : 'Remover' }}</button>
+        </li>
+      </ul>
+    </section>
+
+    <h2 class="rotulo mt-10">Férias, folgas, atestados e outras justificativas</h2>
 
     <form v-if="auth.podeEscrever" class="cartao mt-6 grid gap-4 px-5 py-5 sm:grid-cols-[1fr_1fr_1.2fr]" novalidate @submit.prevent="cadastrar">
       <label class="flex flex-col">
@@ -135,8 +280,14 @@ const corTipo = { FERIAS: 'bg-credito/10 text-credito', FOLGA: 'bg-tinta/10 text
         </select>
       </label>
       <label class="flex flex-col sm:col-span-2">
-        <span class="rotulo">Descrição (opcional)</span>
-        <input v-model="form.descricao" type="text" maxlength="200" class="campo mt-1 font-sans" placeholder="Ex.: Férias 2026 (1º período)" />
+        <span class="rotulo">{{ form.tipo === 'ABONO' ? 'Justificativa' : 'Descrição (opcional)' }}</span>
+        <input
+          v-model="form.descricao"
+          type="text"
+          maxlength="200"
+          class="campo mt-1 font-sans"
+          :placeholder="form.tipo === 'ABONO' ? 'Justificativa (obrigatória): ex.: doação de sangue' : 'Ex.: Férias 2026 (1º período)'"
+        />
       </label>
       <div class="flex items-end">
         <button type="submit" class="botao-primario w-full" :disabled="salvando">
@@ -146,7 +297,6 @@ const corTipo = { FERIAS: 'bg-credito/10 text-credito', FOLGA: 'bg-tinta/10 text
       <p v-if="tentou && erroForm" class="text-sm text-carimbo sm:col-span-3">{{ erroForm }}</p>
     </form>
 
-    <p v-if="erro" role="alert" class="cartao mt-4 border-carimbo/50 px-5 py-3 text-sm text-carimbo">{{ erro }}</p>
 
     <section class="cartao mt-6 overflow-hidden" aria-label="Períodos cadastrados">
       <h2 class="rotulo border-b border-linha px-5 py-3">Períodos cadastrados</h2>

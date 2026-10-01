@@ -9,6 +9,8 @@ import CartaoMensal from '@/components/CartaoMensal.vue'
 import GraficoSaldoAnual from '@/components/GraficoSaldoAnual.vue'
 import ModalAjusteBatidas from '@/components/ModalAjusteBatidas.vue'
 import ModalCicloBanco from '@/components/ModalCicloBanco.vue'
+import ModalDiaEspecial from '@/components/ModalDiaEspecial.vue'
+import ModalLancamentoBanco from '@/components/ModalLancamentoBanco.vue'
 import ModalLancamentoManual from '@/components/ModalLancamentoManual.vue'
 import TimelineDiaria from '@/components/TimelineDiaria.vue'
 import {
@@ -21,7 +23,7 @@ const auth = useAuthStore()
 const {
   configuracao, ano, mes, resumo, carregando, salvando, erro,
   hoje, jornadaBaseSegundos, diasPorData, registroHoje, diaSelecionado, dataSelecionada,
-  saldoMensal, ciclo, marcadoresDoMes, ehMesAtual,
+  saldoMensal, ciclo, marcadoresDoMes, lancamentosPorData, lancamentosMes, ehMesAtual,
   tempoReal, monitoramento, ultimoEvento,
 } = storeToRefs(store)
 
@@ -35,6 +37,11 @@ const confirmandoExclusao = ref(false)
 const destaque = ref(null) // { data, chave } — realça a linha alterada por um evento
 const cicloAberto = ref(false)
 const modoCiclo = ref('fechar')
+const bancoAberto = ref(false)
+const preBanco = ref({ data: null, duracao: '', descricao: '' })
+const diaEspecialAberto = ref(false)
+const dataEspecial = ref(null)
+const confirmandoLancamento = ref(null)
 let timerAviso = null
 let timerConfirmacao = null
 
@@ -164,6 +171,43 @@ function abrirAjuste(data) {
   ajusteAberto.value = true
 }
 
+/** Lançamento avulso no banco (abater/creditar). */
+function abrirBanco(data = null, { duracao = '', descricao = '' } = {}) {
+  preBanco.value = { data, duracao, descricao }
+  bancoAberto.value = true
+}
+
+function aoLancarNoBanco(l) {
+  mostrarAviso(`${l.segundos < 0 ? 'Abatido' : 'Creditado'} ${formatarDuracao(Math.abs(l.segundos))} no banco em ${dataCurta(l.data)} · ${l.descricao}`)
+}
+
+async function removerLancamento(l) {
+  if (confirmandoLancamento.value !== l.id) {
+    confirmandoLancamento.value = l.id
+    clearTimeout(timerConfirmacao)
+    timerConfirmacao = setTimeout(() => (confirmandoLancamento.value = null), 4000)
+    return
+  }
+  confirmandoLancamento.value = null
+  try {
+    await store.excluirLancamentoBanco(l)
+    mostrarAviso(`Lançamento de ${dataCurta(l.data)} (${formatarSaldo(l.segundos)}) removido do banco`)
+  } catch (e) {
+    mostrarAviso(e.message, 'erro')
+  }
+}
+
+/** Folga, feriado ou justificativa no dia (ou ver/remover a marcação existente). */
+function abrirDiaEspecial(data) {
+  dataEspecial.value = data
+  diaEspecialAberto.value = true
+}
+
+/** "Folga compensando o banco": lança −08:48 no dia. */
+function compensarDia(data) {
+  abrirBanco(data, { duracao: '08:48', descricao: 'Folga compensada' })
+}
+
 function aoSalvarAjuste(registro) {
   const saldo = registro.status === 'FECHADA'
     ? `saldo do dia ${formatarSaldo(registro.saldoDiarioSegundos)}`
@@ -238,6 +282,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           {{ jornadaCompleta ? 'Jornada completa' : `Bater ${proximaBatida.rotulo}` }}
         </button>
         <button type="button" class="botao-secundario" @click="abrirLancamento()">Lançamento manual</button>
+        <button type="button" class="botao-secundario" title="Abater ou creditar horas no banco (compensação, horas pagas...)" @click="abrirBanco()">Lançar no banco</button>
         </template>
       </div>
     </header>
@@ -315,6 +360,10 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           <dd class="carimbo text-right">{{ formatarDuracao(resumo.segundosPrevistos) }}</dd>
           <dt class="text-tinta-suave">Dias fechados</dt>
           <dd class="carimbo text-right">{{ resumo.diasRegistrados - resumo.diasEmAberto }}</dd>
+          <template v-if="resumo.segundosLancados">
+            <dt class="text-tinta-suave">Lançado no banco</dt>
+            <dd class="carimbo text-right font-semibold" :class="classeSaldo(resumo.segundosLancados)">{{ formatarSaldo(resumo.segundosLancados) }}</dd>
+          </template>
         </dl>
         <p v-if="resumo?.diasEmAberto" class="mt-2 text-xs italic text-tinta-suave">
           {{ resumo.diasEmAberto }} dia(s) em andamento ou incompleto(s) fora do saldo
@@ -429,14 +478,56 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         :destacada="destaque"
         :somente-leitura="!auth.podeEscrever"
         :marcadores="marcadoresDoMes"
+        :lancamentos="lancamentosPorData"
         @selecionar="store.selecionarDia"
         @lancar="abrirLancamento"
         @ajustar="abrirAjuste"
+        @marcar="abrirDiaEspecial"
       />
+    </section>
+
+    <!-- Lançamentos avulsos no banco de horas do mês -->
+    <section v-if="lancamentosMes.length" class="cartao mt-6 overflow-hidden" aria-label="Lançamentos no banco de horas do mês">
+      <div class="flex flex-wrap items-center justify-between gap-2 border-b border-linha px-5 py-3">
+        <h2 class="rotulo">Lançamentos no banco · {{ mes ? nomeMes(mes) : '' }} {{ ano }}</h2>
+        <button v-if="auth.podeEscrever" type="button" class="text-xs font-semibold text-tinta-suave underline underline-offset-4 hover:text-tinta" @click="abrirBanco()">+ lançar</button>
+      </div>
+      <ul class="divide-y divide-linha/70">
+        <li v-for="l in lancamentosMes" :key="l.id" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5">
+          <span class="carimbo w-28 font-semibold">{{ diaSemanaCurto(l.data) }} {{ dataCurta(l.data) }}</span>
+          <span class="carimbo w-24 font-semibold" :class="classeSaldo(l.segundos)">{{ formatarSaldo(l.segundos) }}</span>
+          <span class="min-w-0 flex-1 text-sm">{{ l.descricao }}</span>
+          <span class="text-xs text-tinta-apagada">por {{ l.criadoPor }}</span>
+          <button
+            v-if="auth.podeEscrever"
+            type="button"
+            class="rounded-[3px] px-2 py-1 text-xs font-semibold transition"
+            :class="confirmandoLancamento === l.id ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
+            :disabled="salvando"
+            @click="removerLancamento(l)"
+          >{{ confirmandoLancamento === l.id ? 'Confirmar remoção?' : 'Remover' }}</button>
+        </li>
+      </ul>
     </section>
 
     <ModalLancamentoManual v-if="auth.podeEscrever" v-model="modalAberto" :data-inicial="dataModal" @salvo="aoSalvarManual" />
     <ModalCicloBanco v-if="auth.podeEscrever" v-model="cicloAberto" :modo="modoCiclo" :ciclo="ciclo" @concluido="aoConcluirCiclo" />
+    <ModalLancamentoBanco
+      v-if="auth.podeEscrever"
+      v-model="bancoAberto"
+      :data-inicial="preBanco.data"
+      :duracao-inicial="preBanco.duracao"
+      :descricao-inicial="preBanco.descricao"
+      @salvo="aoLancarNoBanco"
+    />
+    <ModalDiaEspecial
+      v-if="auth.podeEscrever"
+      v-model="diaEspecialAberto"
+      :data="dataEspecial"
+      :marcador="dataEspecial ? marcadoresDoMes[dataEspecial] ?? null : null"
+      @salvo="(texto) => mostrarAviso(texto)"
+      @compensar="compensarDia"
+    />
     <ModalAjusteBatidas
       v-if="auth.podeEscrever"
       v-model="ajusteAberto"

@@ -26,6 +26,8 @@ export const usePontoStore = defineStore('ponto', () => {
   /** Férias/atestados/folgas e feriados que tocam o mês (rotulam os dias sem registro). */
   const ausenciasMes = ref([])
   const feriadosMes = ref([])
+  /** Débitos/créditos avulsos no banco de horas com data no mês (segundos negativos = abatidos). */
+  const lancamentosMes = ref([])
   const resumo = ref(null)
   const saldos = ref(null)
   const dataSelecionada = ref(null)
@@ -44,6 +46,7 @@ export const usePontoStore = defineStore('ponto', () => {
   const ultimaConciliacao = ref(null)
   let encerrarEventos = null
   let timerSaldos = null
+  let timerMes = null
 
   // -------------------------------------------------------------- getters
   const hoje = computed(() => configuracao.value?.hoje ?? dataISO())
@@ -59,15 +62,25 @@ export const usePontoStore = defineStore('ponto', () => {
   /** Ciclo aberto do banco de horas: o saldo "de verdade", que o RH zera a cada fechamento. */
   const ciclo = computed(() => saldos.value?.ciclo ?? null)
 
-  /** data -> { tipo: 'ausencia' | 'feriado', rotulo } para dias sem registro. */
+  /**
+   * data -> marcador do dia: { tipo: 'feriado', rotulo, feriado } ou { tipo: 'ausencia', rotulo, descricao, ausencia }.
+   * Rotula os dias sem registro e permite remover a marcação pelo próprio dia.
+   */
   const marcadoresDoMes = computed(() => {
     const mapa = {}
-    for (const f of feriadosMes.value) mapa[f.data] = { tipo: 'feriado', rotulo: f.descricao || 'Feriado' }
+    for (const f of feriadosMes.value) mapa[f.data] = { tipo: 'feriado', rotulo: f.descricao || 'Feriado', feriado: f }
     for (const a of ausenciasMes.value) {
       for (let d = a.dataInicio; d <= a.dataFim; d = proximoDia(d)) {
-        if (!mapa[d]) mapa[d] = { tipo: 'ausencia', rotulo: a.tipoRotulo, descricao: a.descricao }
+        if (!mapa[d]) mapa[d] = { tipo: 'ausencia', rotulo: a.tipoRotulo, descricao: a.descricao, ausencia: a }
       }
     }
+    return mapa
+  })
+
+  /** data -> lançamentos no banco daquele dia. */
+  const lancamentosPorData = computed(() => {
+    const mapa = {}
+    for (const l of lancamentosMes.value) (mapa[l.data] ??= []).push(l)
     return mapa
   })
 
@@ -107,6 +120,7 @@ export const usePontoStore = defineStore('ponto', () => {
       dias.value = dadosMes.dias
       ausenciasMes.value = dadosMes.ausencias ?? []
       feriadosMes.value = dadosMes.feriados ?? []
+      lancamentosMes.value = dadosMes.lancamentos ?? []
       resumo.value = dadosMes.resumo
       saldos.value = dadosSaldos
 
@@ -169,6 +183,48 @@ export const usePontoStore = defineStore('ponto', () => {
     return registro
   }
 
+  /** Recarrega o mês em exibição (dias, marcações, lançamentos) e os saldos. */
+  async function recarregarMes() {
+    if (ano.value) await fetchMes(ano.value, mes.value)
+  }
+
+  /**
+   * Débito (abater) ou crédito avulso no banco de horas.
+   * @param {{ data: string, duracao: string, sentido: 'DEBITO'|'CREDITO', descricao: string }} lancamento
+   */
+  async function lancarNoBanco(lancamento) {
+    const salvo = await executar(() => pontoApi.lancarNoBanco(lancamento), { indicador: salvando })
+    await recarregarMes()
+    return salvo
+  }
+
+  async function excluirLancamentoBanco(lancamento) {
+    await executar(() => pontoApi.excluirLancamentoBanco(lancamento.id), { indicador: salvando })
+    await recarregarMes()
+  }
+
+  /**
+   * Marca dias sem jornada: feriado (um dia) ou férias/folga/atestado/licença/abono (período).
+   * @param {{ tipo: 'FERIADO'|'FERIAS'|'FOLGA'|'ATESTADO'|'LICENCA'|'ABONO', dataInicio: string, dataFim?: string,
+   *           descricao?: string, abrangencia?: string }} marcacao
+   */
+  async function marcarDias({ tipo, dataInicio, dataFim, descricao, abrangencia }) {
+    const salvo = await executar(() => (tipo === 'FERIADO'
+      ? pontoApi.cadastrarFeriado({ data: dataInicio, descricao, abrangencia })
+      : pontoApi.cadastrarAusencia({ dataInicio, dataFim: dataFim || dataInicio, tipo, descricao: descricao || null })),
+    { indicador: salvando })
+    await recarregarMes()
+    return salvo
+  }
+
+  /** Remove a marcação de um dia (o feriado, ou o período de ausência inteiro). */
+  async function removerMarcacao(marcador) {
+    await executar(() => (marcador.tipo === 'feriado'
+      ? pontoApi.excluirFeriado(marcador.feriado.data)
+      : pontoApi.excluirAusencia(marcador.ausencia.id)), { indicador: salvando })
+    await recarregarMes()
+  }
+
   async function excluirRegistro(data) {
     await executar(() => pontoApi.excluir(data), { indicador: salvando })
     dataSelecionada.value = null
@@ -205,6 +261,9 @@ export const usePontoStore = defineStore('ponto', () => {
         ultimaConciliacao.value = { ...payload, recebidoEm: Date.now() }
         agendarSaldos()
       },
+      // feriado/ausência ou lançamento no banco feito em outra aba (ou pela conciliação): recarrega o mês
+      onCalendario: ({ inicio, fim }) => afetaMesExibido(inicio, fim) && agendarRecargaMes(),
+      onBanco: ({ data }) => (afetaMesExibido(data, data) ? agendarRecargaMes() : agendarSaldos()),
       onNaoAutorizado: () => useAuthStore().logout(),
     })
   }
@@ -213,6 +272,19 @@ export const usePontoStore = defineStore('ponto', () => {
     encerrarEventos?.()
     encerrarEventos = null
     clearTimeout(timerSaldos)
+    clearTimeout(timerMes)
+  }
+
+  function afetaMesExibido(inicio, fim) {
+    if (!ano.value) return false
+    const primeiro = `${ano.value}-${String(mes.value).padStart(2, '0')}-01`
+    const ultimo = `${ano.value}-${String(mes.value).padStart(2, '0')}-31`
+    return inicio <= ultimo && fim >= primeiro
+  }
+
+  function agendarRecargaMes() {
+    clearTimeout(timerMes)
+    timerMes = setTimeout(() => recarregarMes().catch(() => {}), 500)
   }
 
   /** Limpa o estado ao sair (outro usuário pode entrar na mesma aba). */
@@ -224,6 +296,7 @@ export const usePontoStore = defineStore('ponto', () => {
     dias.value = []
     ausenciasMes.value = []
     feriadosMes.value = []
+    lancamentosMes.value = []
     resumo.value = null
     saldos.value = null
     dataSelecionada.value = null
@@ -278,14 +351,16 @@ export const usePontoStore = defineStore('ponto', () => {
 
   return {
     // state
-    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, resumo, saldos, dataSelecionada, carregando, salvando,
+    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, resumo, saldos, dataSelecionada,
+    carregando, salvando,
     erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao,
     // getters
     hoje, jornadaBaseSegundos, diasPorData, registroHoje, diaSelecionado,
-    saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, ehMesAtual,
+    saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual,
     // actions
     fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,
-    ajustarBatidas, excluirRegistro, selecionarDia, limparErro,
+    ajustarBatidas, excluirRegistro, selecionarDia, limparErro, recarregarMes, lancarNoBanco, excluirLancamentoBanco,
+    marcarDias, removerMarcacao,
     conectarTempoReal, desconectarTempoReal, aplicarAtualizacao, atualizarSaldos, limpar,
   }
 })

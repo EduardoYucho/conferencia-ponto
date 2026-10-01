@@ -102,3 +102,33 @@ export function diasDoMes(ano, mes) {
 export function minutosAgora(agora = new Date()) {
   return agora.getHours() * 60 + agora.getMinutes()
 }
+
+/**
+ * Duração digitada pelo usuário -> "HH:MM" (ou null se inválida).
+ * Aceita "4", "4:30", "04:30", "40:00", "4h", "4h30" e "4,5" (= 04:30).
+ */
+export function normalizarDuracao(texto) {
+  const t = String(texto ?? '').trim().toLowerCase().replace(/\s+/g, '')
+  if (!t) return null
+  let horas
+  let minutos
+  let m
+  if ((m = t.match(/^(\d{1,3})(?::|h)(\d{1,2})?(?:min|m)?$/))) {
+    horas = Number(m[1])
+    minutos = Number(m[2] ?? 0)
+  } else if ((m = t.match(/^(\d{1,3})(?:[.,](\d{1,2}))?$/))) {
+    horas = Number(m[1])
+    minutos = m[2] ? Math.round(Number(`0.${m[2]}`) * 60) : 0
+  } else {
+    return null
+  }
+  if (minutos > 59 || (horas === 0 && minutos === 0)) return null
+  return `${pad(horas)}:${pad(minutos)}`
+}
+
+/** "04:30" -> 16200 */
+export function duracaoEmSegundos(hhmmTexto) {
+  if (!hhmmTexto) return 0
+  const [h, m, s = 0] = hhmmTexto.split(':').map(Number)
+  return h * 3600 + m * 60 + s
+}

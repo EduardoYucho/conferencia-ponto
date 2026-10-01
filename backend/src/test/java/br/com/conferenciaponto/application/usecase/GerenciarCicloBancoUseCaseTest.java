@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.view.CicloBancoView;
@@ -7,6 +8,7 @@ import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
+import br.com.conferenciaponto.domain.model.SaldoMensal;
 import br.com.conferenciaponto.domain.model.StatusCiclo;
 import br.com.conferenciaponto.domain.model.TipoDia;
 import br.com.conferenciaponto.domain.model.TipoNotificacao;
@@ -32,6 +34,7 @@ class GerenciarCicloBancoUseCaseTest {
     private static final LocalDate INICIO = LocalDate.of(2026, 5, 25);
 
     private final RegistroJornadaRepositoryEmMemoria registros = new RegistroJornadaRepositoryEmMemoria();
+    private final LancamentoBancoRepositoryEmMemoria lancamentos = new LancamentoBancoRepositoryEmMemoria();
     private final CicloBancoRepositoryEmMemoria ciclos = new CicloBancoRepositoryEmMemoria();
     private final NotificacaoRepositoryEmMemoria notificacoesRepo = new NotificacaoRepositoryEmMemoria();
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
@@ -43,7 +46,12 @@ class GerenciarCicloBancoUseCaseTest {
     }
 
     private GerenciarCicloBancoUseCase useCase() {
-        return new GerenciarCicloBancoUseCase(ciclos, registros, new ParametrosBancoHoras(INICIO, 6), eventos::add, clock());
+        return new GerenciarCicloBancoUseCase(ciclos, new ConsolidacaoBancoHoras(registros, lancamentos),
+                new ParametrosBancoHoras(INICIO, 6), eventos::add, clock());
+    }
+
+    private GerenciarLancamentosBancoUseCase lancamentosUseCase() {
+        return new GerenciarLancamentosBancoUseCase(lancamentos, ciclos, eventos::add, clock());
     }
 
     private VerificarPrazoCicloUseCase alertas() {
@@ -84,6 +92,25 @@ class GerenciarCicloBancoUseCaseTest {
         assertThat(v.meses()).hasSize(7); // mai..nov
         assertThat(v.meses().get(1).saldoAnualAcumuladoSegundos()).isEqualTo(-400); // acumulado até junho
         assertThat(v.meses().get(6).saldoAnualAcumuladoSegundos()).isEqualTo(5_000);
+    }
+
+    @Test
+    @DisplayName("Lançamento negativo no banco abate do ciclo (num sábado sem registro também) e entra no mês")
+    void lancamentoAbateDoCiclo() {
+        lancamentosUseCase().lancar(LocalDate.of(2026, 9, 26), -4 * 3600, "Compensação de horas", "eduardo");
+
+        CicloBancoView v = useCase().atual();
+        assertThat(v.saldoSegundos()).isEqualTo(5_000 - 14_400);
+        SaldoMensal setembro = v.meses().get(4);
+        assertThat(setembro.mes()).isEqualTo(9);
+        assertThat(setembro.segundosLancados()).isEqualTo(-14_400);
+        assertThat(setembro.saldoMensalSegundos()).isEqualTo(1_800 + 3_600 - 14_400);
+        assertThat(setembro.diasRegistrados()).isEqualTo(2); // o lançamento não vira "dia registrado"
+
+        // o fechamento leva o lançamento junto
+        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(LocalDate.of(2026, 9, 28), null, "eduardo");
+        assertThat(f.fechado().saldoSegundos()).isEqualTo(600 - 1_000 + 1_800 - 14_400);
+        assertThat(f.novo().saldoSegundos()).isEqualTo(3_600);
     }
 
     @Test

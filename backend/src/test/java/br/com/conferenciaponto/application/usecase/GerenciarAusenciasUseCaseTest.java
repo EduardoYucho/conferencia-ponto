@@ -136,4 +136,17 @@ class GerenciarAusenciasUseCaseTest {
         assertThatThrownBy(() -> useCase.registrarDia(SEG_02_03, TipoAusencia.ATESTADO, null, "eduardo"))
                 .isInstanceOf(ConflitoException.class);
     }
+
+    @Test
+    @DisplayName("Abono (outra justificativa): exige o motivo e isenta o dia como as demais ausências")
+    void abonoExigeJustificativa() {
+        assertThatThrownBy(() -> useCase.cadastrar(SEG_02_03, SEG_02_03, TipoAusencia.ABONO, "  ", "eduardo"))
+                .isInstanceOf(br.com.conferenciaponto.domain.exception.RegraNegocioException.class)
+                .hasMessageContaining("justificativa do abono");
+
+        Ausencia abono = useCase.cadastrar(SEG_02_03, SEG_02_03, TipoAusencia.ABONO, "Doação de sangue", "eduardo");
+
+        assertThat(abono.rotulo()).isEqualTo("Abono · Doação de sangue");
+        assertThat(classificador.classificar(SEG_02_03)).isEqualTo(TipoDia.AUSENCIA);
+    }
 }
