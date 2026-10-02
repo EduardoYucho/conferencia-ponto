@@ -40,6 +40,7 @@ import java.security.NoSuchAlgorithmException;
  * PUT  /api/v1/auth/senha                  ✓     ✓      ✓       –
  * GET  /api/v1/usuarios/titulares          ✓     ✓      ✓       –
  * /api/v1/usuarios/** (cadastro)           ✓     –      –       –
+ * /api/v1/integracoes/** (conta Google)    ✓     –      –       –
  * POST/DELETE /api/v1/feriados/**          ✓     –      –       –   (feriado vale para todos)
  * GET  /api/**  (leitura, SSE, download)   ✓     ✓      ✓       –
  * POST/PUT/PATCH/DELETE /api/**            ✓     ✓      –       –
@@ -79,6 +80,7 @@ public class SecurityConfig {
                         // cadastro de usuários e feriados (valem para todos): só o administrador
                         .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/titulares").hasAnyRole(LEITURA)
                         .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/integracoes", "/api/v1/integracoes/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasRole("ADMIN")
                         // leitura: todos os perfis

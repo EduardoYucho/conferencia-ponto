@@ -7,12 +7,14 @@ import br.com.conferenciaponto.application.evento.ConciliacaoAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.LancamentoBancoAlteradoEvento;
 import br.com.conferenciaponto.application.evento.NotificacaoCriadaEvento;
+import br.com.conferenciaponto.application.evento.PlanilhaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.infrastructure.importacao.EstadoMonitor;
 import br.com.conferenciaponto.infrastructure.web.dto.CicloBancoResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ComprovanteResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ConciliacaoEventoResponse;
+import br.com.conferenciaponto.infrastructure.web.dto.EstadoPlanilhaResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.EventoJornadaResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.MonitoramentoResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.NotificacaoEventoResponse;
@@ -56,7 +58,8 @@ import java.util.function.Supplier;
  *   <li>{@code conciliacao-atualizada} – relatório do RH conferido ou divergência resolvida;</li>
  *   <li>{@code calendario-atualizado} – feriado, férias, folga, abono ou horário alterado no período;</li>
  *   <li>{@code banco-atualizado} – lançamento avulso no banco de horas criado ou removido;</li>
- *   <li>{@code usuarios-atualizados} – usuário cadastrado ou alterado (perfil, situação, pasta).</li>
+ *   <li>{@code usuarios-atualizados} – usuário cadastrado ou alterado (perfil, situação, pasta);</li>
+ *   <li>{@code planilha-atualizada} – a planilha do Google do usuário foi gravada (ou a gravação falhou).</li>
  * </ul>
  * Um comentário {@code :ping} a cada 25 s mantém a conexão viva em proxies e
  * detecta clientes desconectados.
@@ -74,6 +77,7 @@ public class EmissorEventosSse {
     public static final String EVENTO_CALENDARIO = "calendario-atualizado";
     public static final String EVENTO_BANCO = "banco-atualizado";
     public static final String EVENTO_USUARIOS = "usuarios-atualizados";
+    public static final String EVENTO_PLANILHA = "planilha-atualizada";
 
     private static final Logger log = LoggerFactory.getLogger(EmissorEventosSse.class);
     private static final long TIMEOUT_MS = Duration.ofMinutes(30).toMillis();
@@ -151,6 +155,12 @@ public class EmissorEventosSse {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAlterarUsuario(UsuarioAlteradoEvento evento) {
         difundir(null, EVENTO_USUARIOS, new UsuarioEvento(evento.usuarioId(), evento.descricao()));
+    }
+
+    /** Publicado fora de transação (a gravação no Google não segura conexão com o banco). */
+    @EventListener
+    public void aoAtualizarPlanilha(PlanilhaAtualizadaEvento evento) {
+        difundir(evento.usuarioId(), EVENTO_PLANILHA, EstadoPlanilhaResponse.de(evento.estado()));
     }
 
     record CalendarioEvento(String inicio, String fim) {

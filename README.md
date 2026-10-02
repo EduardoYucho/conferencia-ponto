@@ -8,8 +8,9 @@ do RH** (com segundos, tolerância por horário da grade, até 6 batidas; horár
 **banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
 creditar horas), **feriados, férias, folgas, atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
-PDFs**, **acesso por perfil (JWT)** com auditoria para a coordenação e **conciliação com o relatório de
-banco de horas do RH** (tela dividida conferência × RH).
+PDFs**, **acesso por perfil (JWT)** com auditoria para a coordenação, **conciliação com o relatório de
+banco de horas do RH** (tela dividida conferência × RH) e **planilha de conferência** — em Excel ou numa
+planilha do **Google Sheets atualizada sozinha**, para compartilhar com quem confere.
 
 > **Licença:** [PolyForm Strict 1.0.0](LICENSE) — uso **não comercial** apenas. Veja [Licença](#licença).
 
@@ -23,15 +24,17 @@ conferencia-ponto/
 │   ├── iniciar.ps1 / .cmd      sobe o back-end pelo terminal (variáveis em ambiente.local.ps1)
 │   └── src/main/java/br/com/conferenciaponto/
 │       ├── domain/             regras puras (sem Spring): motor de cálculo, agregado, portas
-│       ├── application/        casos de uso (batidas, manual, importação, auditoria, download, login)
-│       └── infrastructure/     JPA, REST/SSE, monitor de PDFs, armazenamento, segurança (JWT)
+│       ├── application/        casos de uso (batidas, manual, importação, auditoria, download, login, planilha)
+│       └── infrastructure/     JPA, REST/SSE, monitor de PDFs, armazenamento, segurança (JWT), Excel e
+│                               Google Sheets
 └── frontend/                   Vue 3 · Vite · Pinia · Axios · Tailwind 4
     └── src/
         ├── api/                http.js (Bearer), eventos.js (SSE autenticado), pontoApi, authApi
         ├── stores/             auth.js (sessão, perfil, "dados de") · ponto.js (usePontoStore, tempo real)
         ├── views/              Login · TrocarSenha · Dashboard · Auditoria · Conciliacao · Ausencias ·
-        │                       MinhaConta (senha, pasta, horário) · Usuarios (administrador)
-        └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EnvioComprovantes, ...
+        │                       MinhaConta (senha, pasta, horário, planilha) · Usuarios (administrador)
+        └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EditorPlanilha,
+                                IntegracaoGoogle, EnvioComprovantes, ...
 ```
 
 ## Como rodar
@@ -58,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 191 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários)
+.\iniciar.ps1 -Testes    # 224 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -174,6 +177,52 @@ lançamentos, notificações, relatórios do RH e divergências. **Feriados vale
   o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
   passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
 
+## Planilha de conferência (Excel e Google Sheets)
+
+A conferência de cada pessoa numa planilha, para quem confere não precisar entrar no sistema:
+
+- **Resumo:** o banco de horas (ciclo atual e os encerrados), uma linha por mês com dias registrados, horas
+  trabalhadas, previstas, saldo dos dias, lançamentos no banco, **saldo do mês** e o banco de horas no fim do
+  mês, o total geral e o horário de trabalho.
+- **Uma aba por mês** (do primeiro ao último mês com registro, o mais recente primeiro): **todos os dias do
+  calendário** — inclusive fim de semana, feriado, férias e dia útil *sem registro* —, as batidas, trabalhado,
+  previsto, o ajuste da **tolerância** (saldo do dia = trabalhado + tolerância − previsto, a regra do RH), saldo
+  do dia, lançamento no banco, situação, quantos PDFs comprovam o dia e observações (feriado,
+  justificativa do abono, ajuste manual com motivo e autor, lançamento no banco). A linha **Total do mês** fica
+  fixa no topo e é feita de **fórmulas** (`=SUM(...)`), assim como o resumo, que aponta para os totais de cada
+  aba: quem confere vê de onde vem cada número.
+- Durações e horários são **números** (somam, filtram e ordenam); débito aparece negativo, em vermelho. Como no
+  saldo do sistema, só entram nos totais os dias fechados: dia em andamento ou incompleto fica com as horas em
+  branco e o que foi trabalhado até a última batida vai nas observações.
+
+**Excel:** botão *Exportar Excel* na Auditoria (`GET /api/v1/planilha/exportar`) baixa o `.xlsx` com todas as
+abas — o arquivo é gerado pelo próprio sistema, sem bibliotecas. A pasta de trabalho usa o sistema de datas de
+1904, o único em que o Excel mostra horas negativas.
+
+**Google Sheets (atualização automática):**
+
+1. **Uma vez, o administrador** cria uma *conta de serviço* no Google Cloud (gratuito) e envia a chave em
+   *Usuários → Planilhas no Google Sheets* (a tela traz o passo a passo): criar um projeto em
+   `console.cloud.google.com`, ativar a **Google Sheets API**, criar a conta em *IAM e administrador → Contas de
+   serviço* e baixar uma chave **JSON** na aba *Chaves*. O sistema confere a chave com o Google e a grava em
+   `~/.conferencia-ponto/google/conta-de-servico.json` (`ponto.google.credencial`) — fora do banco de dados e
+   nunca devolvida pela API.
+2. **Cada pessoa**, em *Minha conta → Planilha no Google*: cria uma planilha (`sheets.new`), compartilha com o
+   e-mail da conta de serviço como **Editor** e cola o link. A planilha é gravada na hora.
+3. Depois é só compartilhar a planilha, como **Leitor**, com quem confere.
+
+A cada mudança no ponto (PDF importado, ajuste, lançamento no banco, feriado, férias, horário, fechamento do
+ciclo) as abas dos meses afetados e o resumo são regravados em alguns segundos — mudanças seguidas viram uma
+gravação só. Na subida do sistema e uma vez por dia tudo é regravado. Sem internet ou no limite do Google, o
+sistema tenta de novo sozinho; se a planilha deixar de estar compartilhada, o motivo aparece em *Minha conta*.
+
+- As abas do sistema são reconhecidas por um identificador próprio, não pelo nome; **as outras abas da planilha
+  ficam intactas** (quem confere pode anotar numa aba à parte). O que for digitado numa aba do sistema é apagado
+  na gravação seguinte — por isso elas têm o aviso de edição do Google.
+- Cada pessoa usa a própria planilha (duas pessoas não podem apontar para a mesma). O administrador pode
+  vincular, atualizar ou desconectar a planilha de outra pessoa escolhendo-a em "Dados de".
+- Desligar a integração (*Usuários*) apaga a chave do computador; as planilhas ficam como estão no Google.
+
 ## Regras de cálculo (domínio)
 
 Implementadas em `MotorCalculoJornadaService` (sem dependência de framework):
@@ -235,6 +284,11 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | POST | `/conciliacoes/divergencias/aceitar-lote` | `{tipos[], inicio?, fim?}` |
 | POST | `/conciliacoes/reconferir` · DELETE `/conciliacoes/relatorios/{id}` | Reconfere tudo · remove um relatório |
 | GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo |
+| GET | `/planilha/exportar` | Planilha de conferência em Excel (`.xlsx`): resumo + uma aba por mês |
+| GET | `/planilha` | Planilha do Google da pessoa: `{situacao, emailServico, url, titulo, sincronizadaEm, erro}` |
+| PUT | `/planilha` | `{link}` vincula a planilha do Google e grava tudo nela (ADMIN: `?usuario=login`) |
+| POST | `/planilha/sincronizar` · DELETE `/planilha` | Regrava agora · deixa de gravar (ADMIN: `?usuario=login`) |
+| GET/PUT/DELETE | `/integracoes/google` | (ADMIN) conta de serviço: consulta · envia a chave `{chave: "<conteúdo do .json>"}` · desliga |
 | GET | `/comprovantes/{id}/download` | PDF original (`attachment`); também em `/api/comprovantes/{id}/download` |
 | GET | `/eventos` | Stream SSE (`text/event-stream`) com as atualizações em tempo real |
 | GET | `/importacoes?limite=` | Monitor da pasta da pessoa (`situacao`: ATIVO, INDISPONIVEL, SEM_PASTA...) + últimos comprovantes |
@@ -257,7 +311,7 @@ escrita já nasce protegida:
 
 | Perfil | Leitura (`GET`) | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | Tela inicial |
 |---|---|---|---|
-| `ROLE_ADMIN` | ✔ os próprios dados e os de todos | ✔ os próprios dados + usuários, feriados e horário de qualquer pessoa | Painel |
+| `ROLE_ADMIN` | ✔ os próprios dados e os de todos | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Painel |
 | `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Painel |
 | `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
 
@@ -271,7 +325,8 @@ filtro por mês/ano, tipo de dia e situação (débito, crédito, fora da toler�
 com/sem comprovante);
 para cada batida, o horário real e o considerado, minutos abonados pela tolerância, trabalhado,
 previsto e saldo do dia; botão **PDF ⤓** por batida e **n PDFs** por dia; totais do período;
-exportação CSV (compatível com Excel); e atualização ao vivo quando um comprovante novo chega.
+**Exportar Excel** (a planilha de conferência completa) e o atalho para a planilha do Google da pessoa, quando
+há uma; e atualização ao vivo quando um comprovante novo chega.
 
 ## Banco de dados
 
@@ -296,6 +351,7 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V12` — vários usuários: `usuario_id` em todas as tabelas de dados (os existentes vão para o primeiro
   administrador), `tb_horario_trabalho` (períodos por dia da semana, tolerância e vigência), pasta dos
   comprovantes e troca de senha obrigatória em `tb_usuario`, `vw_saldo_mensal` por usuário
+- `V13` — `tb_planilha_google`: a planilha do Google de cada usuário, com a última gravação e o último erro
 
 ## Banco de horas semestral (ciclo)
 
@@ -366,7 +422,8 @@ Quando o relógio falha (batida não registrada, comprovante não gerado) e o RH
 - **Justificativa obrigatória** (há sugestões prontas). Cada ajuste fica no histórico com antes → depois, usuário e
   data; o usuário vem do token, não da tela.
 - Batidas ajustadas aparecem marcadas (`aj` no cartão, "ajustada" na auditoria) e a coordenação vê o histórico em
-  "ajustado à mão", com filtro próprio e colunas no CSV. Perfil `VIEWER` não ajusta (`403`).
+  "ajustado à mão", com filtro próprio; na planilha de conferência a batida vai em itálico e o motivo, nas
+  observações do dia. Perfil `VIEWER` não ajusta (`403`).
 - Regras: de 1 a 6 batidas (com segundos), pelo menos 1 minuto entre elas, nada no futuro e alguma coisa precisa mudar.
 - "Incompleto" = dia que já passou com entrada sem saída (antes aparecia como "em andamento").
 
@@ -464,6 +521,7 @@ sem recompilar.
 | `calendario-atualizado` | feriado, ausência ou horário alterado | `{inicio, fim}` |
 | `banco-atualizado` | lançamento no banco de horas criado ou removido | `{data, descricao}` |
 | `usuarios-atualizados` | usuário cadastrado ou alterado (perfil, situação, pasta) | `{alterado, descricao}` |
+| `planilha-atualizada` | a planilha do Google foi gravada, falhou, foi vinculada ou desvinculada | `{situacao, url, titulo, sincronizadaEm, erro}` |
 
 Todo evento leva `usuarioId`, o dono dos dados (`null` = vale para todos, como um feriado). Cada pessoa
 recebe os eventos dos próprios dados; administrador e coordenação recebem os de todos, e a tela ignora o que

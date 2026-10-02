@@ -4,6 +4,8 @@ import DashboardView from '@/views/DashboardView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
+  // links para uma seção (ex.: /usuarios#google) rolam até ela
+  scrollBehavior: (destino) => (destino.hash ? { el: destino.hash, behavior: 'smooth' } : undefined),
   routes: [
     { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { publica: true } },
     { path: '/', name: 'painel', component: DashboardView },

@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
+import IntegracaoGoogle from '@/components/IntegracaoGoogle.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
 
 /**
@@ -352,6 +353,8 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
         </tbody>
       </table>
     </section>
+
+    <IntegracaoGoogle />
 
     <Transition
       enter-active-class="transition duration-200"

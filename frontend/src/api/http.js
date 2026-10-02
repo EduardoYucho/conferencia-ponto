@@ -44,7 +44,7 @@ let autenticacao = {
 }
 
 /** Consultas que são sempre do próprio usuário (o sino, a sessão, o cadastro). */
-const SEMPRE_DO_PROPRIO = [/^\/auth\//, /^\/notificacoes/, /^\/usuarios/]
+const SEMPRE_DO_PROPRIO = [/^\/auth\//, /^\/notificacoes/, /^\/usuarios/, /^\/integracoes/]
 
 export function configurarAutenticacao(config) {
   autenticacao = { ...autenticacao, ...config }

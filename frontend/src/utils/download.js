@@ -24,13 +24,3 @@ export function salvarBlob(blob, nome) {
 export function salvarResposta(resposta, nomePadrao) {
   salvarBlob(resposta.data, nomeDoContentDisposition(resposta.headers['content-disposition'], nomePadrao))
 }
-
-/** Gera um CSV (separador ';' e BOM, para abrir direto no Excel em pt-BR). */
-export function salvarCsv(linhas, nome) {
-  const escapar = (valor) => {
-    const texto = valor === null || valor === undefined ? '' : String(valor)
-    return /[";\n\r]/.test(texto) ? `"${texto.replace(/"/g, '""')}"` : texto
-  }
-  const conteudo = linhas.map((linha) => linha.map(escapar).join(';')).join('\r\n')
-  salvarBlob(new Blob(['﻿' + conteudo], { type: 'text/csv;charset=utf-8' }), nome)
-}

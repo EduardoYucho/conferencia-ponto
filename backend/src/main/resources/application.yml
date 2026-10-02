@@ -63,6 +63,13 @@ ponto:
     diretorio: ${PONTO_ARMAZENAMENTO_DIR:${user.home}/.conferencia-ponto/comprovantes}
     url-base: /api/comprovantes
 
+  # Planilha de conferência no Google Sheets (opcional). O administrador envia pela tela (Usuários) a chave de
+  # uma conta de serviço do Google Cloud; cada pessoa compartilha a planilha dela com o e-mail dessa conta e
+  # cola o link em "Minha conta". A chave fica neste arquivo, fora do banco de dados.
+  google:
+    credencial: ${PONTO_GOOGLE_CREDENCIAL:}   # vazio = ~/.conferencia-ponto/google/conta-de-servico.json
+    espera: 4s                                # junta mudanças seguidas (vários PDFs) numa gravação só
+
   seguranca:
     jwt:
       segredo: ${PONTO_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida

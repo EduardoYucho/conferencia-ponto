@@ -53,6 +53,7 @@ public class ConsultarAuditoriaUseCase {
                 .map(d -> new AuditoriaMesView.Dia(d, porRegistro.getOrDefault(d.id(), List.of()),
                         ajustesPorData.getOrDefault(d.data(), List.of())))
                 .toList();
-        return new AuditoriaMesView(referencia, dias, mes.resumo(), mes.ausencias(), mes.lancamentos());
+        return new AuditoriaMesView(referencia, dias, mes.resumo(), mes.ausencias(), mes.lancamentos(), mes.feriados(),
+                mes.expedientes());
     }
 }

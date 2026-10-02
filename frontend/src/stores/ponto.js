@@ -48,6 +48,8 @@ export const usePontoStore = defineStore('ponto', () => {
   const ultimaConciliacao = ref(null)
   /** Cadastro de usuários mudou (a tela de usuários recarrega). */
   const ultimaAlteracaoUsuarios = ref(null)
+  /** Planilha do Google da pessoa em tela: { situacao, emailServico, url, titulo, sincronizadaEm, erro }. */
+  const planilha = ref(null)
   let encerrarEventos = null
   let timerSaldos = null
   let timerMes = null
@@ -328,8 +330,19 @@ export const usePontoStore = defineStore('ponto', () => {
         if (alterado === auth.idEmTela) carregarMonitor()
         ultimaAlteracaoUsuarios.value = Date.now()
       },
+      onPlanilha: (estado) => daTela(estado) && (planilha.value = estado), // gravada no Google (ou falhou)
       onNaoAutorizado: () => useAuthStore().logout(),
     })
+  }
+
+  /** Situação da planilha do Google da pessoa em tela (depois, o tempo real mantém em dia). */
+  async function carregarPlanilha() {
+    try {
+      planilha.value = await pontoApi.planilha()
+    } catch {
+      // sem a situação, as telas só deixam de mostrar o atalho para a planilha
+    }
+    return planilha.value
   }
 
   /** Situação da pasta de comprovantes da pessoa em tela (o evento "conectado" traz só a do usuário logado). */
@@ -367,6 +380,7 @@ export const usePontoStore = defineStore('ponto', () => {
     saldos.value = null
     dataSelecionada.value = null
     monitoramento.value = null
+    planilha.value = null
     ultimoEvento.value = null
     ultimaConciliacao.value = null
     erro.value = null
@@ -407,6 +421,7 @@ export const usePontoStore = defineStore('ponto', () => {
     saldos.value = null
     dataSelecionada.value = null
     monitoramento.value = null
+    planilha.value = null
     ultimoEvento.value = null
     ultimaConciliacao.value = null
     erro.value = null
@@ -459,13 +474,13 @@ export const usePontoStore = defineStore('ponto', () => {
     // state
     configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
     dataSelecionada, carregando, salvando,
-    erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios,
+    erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
     // getters
     hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
     saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual,
     temExpediente, periodosDoDia, cargaDoDia,
     // actions
-    carregarMonitor, recarregarConfiguracao, trocarPessoa,
+    carregarMonitor, carregarPlanilha, recarregarConfiguracao, trocarPessoa,
     fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,
     ajustarBatidas, excluirRegistro, selecionarDia, limparErro, recarregarMes, lancarNoBanco, excluirLancamentoBanco,
     marcarDias, removerMarcacao,

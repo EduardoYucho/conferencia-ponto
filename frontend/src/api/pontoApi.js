@@ -107,6 +107,23 @@ export const pontoApi = {
   redefinirSenha: (id, senhaProvisoria) => http.put(`/usuarios/${id}/senha`, { senhaProvisoria }),
   definirPastaDe: (id, pasta) => http.put(`/usuarios/${id}/pasta`, { pasta }, { timeout: 30000 }),
 
+  // ------------------------------------------- planilha de conferência
+  /** Arquivo Excel com todos os meses e o resumo (resposta completa: blob + headers). */
+  exportarPlanilha: () => http.get('/planilha/exportar', { responseType: 'blob', timeout: 120000 }),
+  /** Planilha do Google da pessoa: { situacao, emailServico, url, titulo, sincronizadaEm, erro }. */
+  planilha: () => http.get('/planilha'),
+  /** `usuario` (login): o admin alterando a planilha de outra pessoa. Grava a planilha inteira antes de responder. */
+  vincularPlanilha: (link, usuario = null) =>
+    http.put('/planilha', { link }, { params: usuario ? { usuario } : {}, timeout: 180000 }),
+  sincronizarPlanilha: (usuario = null) =>
+    http.post('/planilha/sincronizar', null, { params: usuario ? { usuario } : {}, timeout: 180000 }),
+  desvincularPlanilha: (usuario = null) => http.delete('/planilha', { params: usuario ? { usuario } : {} }),
+  /** Conta de serviço do Google (administrador): { configurada, email, projeto, planilhas }. */
+  integracaoGoogle: () => http.get('/integracoes/google'),
+  /** @param {string} chave conteúdo do arquivo .json da chave */
+  configurarGoogle: (chave) => http.put('/integracoes/google', { chave }, { timeout: 60000 }),
+  removerGoogle: () => http.delete('/integracoes/google'),
+
   // ------------------------------------------- conciliação com o RH
   /** Envia o PDF do relatório de banco de horas (processado em segundo plano). */
   enviarRelatorioRh: (arquivo) => {

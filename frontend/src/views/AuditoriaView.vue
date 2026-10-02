@@ -5,8 +5,8 @@ import { storeToRefs } from 'pinia'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
-import { salvarCsv, salvarResposta } from '@/utils/download'
-import { dataCurta, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
+import { salvarResposta } from '@/utils/download'
+import { dataCurta, dataISO, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
 
 /**
  * Portal da coordenação: grade do mês com horários reais x considerados, cálculo da
@@ -14,7 +14,7 @@ import { dataCurta, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } fr
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const { ultimoEvento, hoje } = storeToRefs(ponto)
+const { ultimoEvento, hoje, planilha } = storeToRefs(ponto)
 const route = useRoute()
 const router = useRouter()
 
@@ -237,27 +237,21 @@ async function baixarDoDia(linha) {
   }
 }
 
-function exportarCsv() {
-  const cabecalho = ['Data', 'Dia', 'Tipo de dia']
-  TIPOS.value.forEach((t) => cabecalho.push(`${ROTULO_CURTO[t]} real`, `${ROTULO_CURTO[t]} considerado`))
-  cabecalho.push('Trabalhado', 'Previsto', 'Saldo', 'Status', 'Abonado tolerância', 'Batidas fora da tolerância',
-    'Comprovantes PDF', 'Batidas ajustadas à mão', 'Motivo do último ajuste')
-  const corpo = filtradas.value.map((l) => [
-    l.data.split('-').reverse().join('/'),
-    diaSemanaCurto(l.data),
-    ROTULO_TIPO_DIA[l.tipoDia],
-    ...batidasVisiveis(l).flatMap((b) => [b.real ?? '', b.considerado ?? '']),
-    formatarDuracao(l.segundosTrabalhados),
-    formatarDuracao(l.jornadaPrevistaSegundos),
-    l.fechado ? formatarSaldo(l.saldoDiarioSegundos).replace('−', '-') : '',
-    l.fechado ? 'Fechada' : l.incompleto ? 'Incompleto' : 'Em andamento',
-    formatarDuracao(l.abonado),
-    l.fora,
-    l.comprovantes.length,
-    l.batidas.filter((b) => b.ajustada).map((b) => b.real).join(' '),
-    l.ajustes[0] ? `${l.ajustes[0].justificativa} (${l.ajustes[0].usuario}, ${formatarMomento(l.ajustes[0].ajustadoEm)})` : '',
-  ])
-  salvarCsv([cabecalho, ...corpo], `auditoria-ponto-${auth.pessoaEmTela?.login ?? 'eu'}-${ano.value}-${String(mes.value).padStart(2, '0')}.csv`)
+// ------------------------------------------------------------------ planilha de conferência
+const exportando = ref(false)
+ponto.carregarPlanilha()
+
+/** Excel com todos os meses (dia a dia, com os totais) e o resumo do banco de horas. */
+async function exportarExcel() {
+  if (exportando.value) return
+  exportando.value = true
+  try {
+    salvarResposta(await pontoApi.exportarPlanilha(), `conferencia-ponto-${auth.pessoaEmTela?.login ?? 'eu'}-${dataISO()}.xlsx`)
+  } catch (e) {
+    mostrarAviso(`Falha ao exportar: ${e.message}`)
+  } finally {
+    exportando.value = false
+  }
 }
 </script>
 
@@ -274,12 +268,32 @@ function exportarCsv() {
           Horários reais e considerados (com segundos, como no RH), tolerância do horário de trabalho, saldo diário e comprovantes originais de cada batida.
         </p>
       </div>
-      <button type="button" class="botao-secundario" :disabled="!filtradas.length" @click="exportarCsv">
-        <svg viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" stroke-linecap="round" stroke-linejoin="round" />
-        </svg>
-        Exportar CSV
-      </button>
+      <div class="flex flex-col items-end gap-1.5">
+        <div class="flex flex-wrap justify-end gap-2">
+          <a
+            v-if="planilha?.url"
+            :href="planilha.url"
+            target="_blank"
+            rel="noopener"
+            class="botao-secundario"
+            :title="planilha.situacao === 'ERRO' ? planilha.erro : 'Planilha do Google atualizada automaticamente'"
+          >
+            <span class="size-2 rounded-full" :class="planilha.situacao === 'SINCRONIZADA' ? 'bg-credito' : 'bg-amber-500'" aria-hidden="true" />
+            Planilha no Google ↗
+          </a>
+          <button type="button" class="botao-secundario" :disabled="exportando" title="Todos os meses, dia a dia, com os totais e o banco de horas" @click="exportarExcel">
+            <svg viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12" stroke-linecap="round" stroke-linejoin="round" />
+            </svg>
+            {{ exportando ? 'Gerando…' : 'Exportar Excel' }}
+          </button>
+        </div>
+        <RouterLink
+          v-if="planilha && !planilha.url && auth.vendoOsProprios && auth.ehTitular"
+          :to="{ name: 'conta', hash: '#planilha' }"
+          class="text-xs text-tinta-suave underline underline-offset-4 hover:text-tinta"
+        >Manter uma planilha no Google sempre atualizada</RouterLink>
+      </div>
     </header>
 
     <!-- Filtros -->

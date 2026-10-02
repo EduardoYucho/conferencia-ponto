@@ -3,6 +3,7 @@ package br.com.conferenciaponto;
 import br.com.conferenciaponto.infrastructure.config.BancoHorasProperties;
 import br.com.conferenciaponto.infrastructure.armazenamento.ArmazenamentoProperties;
 import br.com.conferenciaponto.infrastructure.config.PontoProperties;
+import br.com.conferenciaponto.infrastructure.google.GoogleProperties;
 import br.com.conferenciaponto.infrastructure.importacao.ImportacaoPdfProperties;
 import br.com.conferenciaponto.infrastructure.security.SegurancaProperties;
 import org.springframework.boot.SpringApplication;
@@ -15,7 +16,8 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
         BancoHorasProperties.class,
         ImportacaoPdfProperties.class,
         ArmazenamentoProperties.class,
-        SegurancaProperties.class
+        SegurancaProperties.class,
+        GoogleProperties.class
 })
 public class ConferenciaPontoApplication {
 

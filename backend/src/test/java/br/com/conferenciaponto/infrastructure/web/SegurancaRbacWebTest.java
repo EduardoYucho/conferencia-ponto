@@ -5,6 +5,14 @@ import br.com.conferenciaponto.application.usecase.AutenticarUsuarioUseCase;
 import br.com.conferenciaponto.application.usecase.BaixarComprovanteUseCase;
 import br.com.conferenciaponto.application.usecase.ConferirConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarAuditoriaUseCase;
+import br.com.conferenciaponto.application.usecase.GerenciarPlanilhaUseCase;
+import br.com.conferenciaponto.application.planilha.Aba;
+import br.com.conferenciaponto.application.planilha.Celula;
+import br.com.conferenciaponto.application.planilha.PlanilhaConferencia;
+import br.com.conferenciaponto.application.planilha.PlanilhasRemotas;
+import br.com.conferenciaponto.application.view.EstadoPlanilhaView;
+import br.com.conferenciaponto.domain.model.VinculoPlanilha;
+import br.com.conferenciaponto.infrastructure.google.SincronizadorPlanilhas;
 import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
 import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
@@ -72,6 +80,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
@@ -94,7 +103,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
-        FeriadoController.class, UsuarioController.class})
+        FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, JwtEmissorToken.class, SegurancaRbacWebTest.Relogio.class,
         AcessoUsuarios.class})
 class SegurancaRbacWebTest {
@@ -155,6 +164,10 @@ class SegurancaRbacWebTest {
     private VerificadorPasta verificadorPasta;
     @MockitoBean
     private UsuarioRepository usuarios;
+    @MockitoBean
+    private GerenciarPlanilhaUseCase planilhas;
+    @MockitoBean
+    private SincronizadorPlanilhas sincronizadorPlanilhas;
 
     /** Usuários "do banco": coordenacao (VIEWER), maria (USER), provisoria (troca de senha); o resto é ADMIN. */
     private static Usuario doBanco(String login) {
@@ -473,5 +486,103 @@ class SegurancaRbacWebTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.length()").value(1))
                 .andExpect(jsonPath("$.dados[0].login").value("maria"));
+    }
+
+    @Test
+    @DisplayName("Planilha: quem consulta os dados baixa o Excel e vê o link; só a própria pessoa ou o ADMIN vinculam")
+    void planilhaDeConferencia() throws Exception {
+        String id = "1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789";
+        VinculoPlanilha vinculo = VinculoPlanilha.novo(idDe("maria"), id, "Ponto da Maria", "maria", Instant.parse("2026-09-29T12:00:00Z"))
+                .sincronizada(null, Instant.parse("2026-09-29T12:00:05Z"));
+        EstadoPlanilhaView estado = new EstadoPlanilhaView("planilhas@projeto.iam.gserviceaccount.com", vinculo);
+        when(planilhas.estado(any())).thenReturn(estado);
+        when(planilhas.vincular(any(), any(), any())).thenReturn(estado);
+        when(planilhas.montar(any())).thenReturn(new PlanilhaConferencia("Maria", "maria", List.of(new Aba(Aba.ID_RESUMO,
+                "Resumo", List.of(List.of(Celula.texto("Conferência de ponto · Maria"))), List.of(190), 0)), Instant.EPOCH));
+
+        // coordenação: consulta o link e baixa o arquivo da pessoa escolhida
+        mvc.perform(get("/api/v1/planilha").param("usuario", "maria")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.situacao").value("SINCRONIZADA"))
+                .andExpect(jsonPath("$.dados.url").value("https://docs.google.com/spreadsheets/d/" + id + "/edit"))
+                .andExpect(jsonPath("$.dados.emailServico").value("planilhas@projeto.iam.gserviceaccount.com"));
+        verify(planilhas).estado(idDe("maria"));
+        mvc.perform(get("/api/v1/planilha/exportar").param("usuario", "maria")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+                .andExpect(header().string(HttpHeaders.CONTENT_DISPOSITION,
+                        "attachment; filename=\"conferencia-ponto-maria-2026-09-29.xlsx\""))
+                .andExpect(result -> assertThat(result.getResponse().getContentAsByteArray()).startsWith('P', 'K'));
+        // ... mas não vincula nem manda gravar
+        mvc.perform(put("/api/v1/planilha").param("usuario", "maria").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"link\":\"" + id + "\"}")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/planilha/sincronizar")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isForbidden());
+
+        // a própria pessoa vincula a dela; a de outra pessoa, não
+        mvc.perform(put("/api/v1/planilha").contentType(MediaType.APPLICATION_JSON).content("{\"link\":\"" + id + "\"}")
+                        .with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.titulo").value("Ponto da Maria"));
+        verify(planilhas).vincular(idDe("maria"), id, "maria");
+        mvc.perform(put("/api/v1/planilha").param("usuario", "eduardo").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"link\":\"" + id + "\"}")
+                        .with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
+                .andExpect(status().isForbidden());
+
+        // o administrador vincula, atualiza e desconecta a planilha de outra pessoa
+        mvc.perform(put("/api/v1/planilha").param("usuario", "maria").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"link\":\"" + id + "\"}")
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk());
+        verify(planilhas).vincular(idDe("maria"), id, "eduardo");
+        when(planilhas.sincronizarAgora(any())).thenReturn(estado);
+        mvc.perform(post("/api/v1/planilha/sincronizar").param("usuario", "maria")
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk());
+        verify(planilhas).sincronizarAgora(idDe("maria"));
+        when(planilhas.desvincular(any())).thenReturn(new EstadoPlanilhaView("planilhas@projeto.iam.gserviceaccount.com", null));
+        mvc.perform(delete("/api/v1/planilha").param("usuario", "maria")
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.situacao").value("SEM_PLANILHA"));
+    }
+
+    @Test
+    @DisplayName("Conta de serviço do Google: só o ADMIN consulta, envia a chave ou desliga; a chave nunca volta na resposta")
+    void integracaoComOGoogle() throws Exception {
+        var integracao = new GerenciarPlanilhaUseCase.Integracao(
+                new PlanilhasRemotas.Conta("planilhas@projeto.iam.gserviceaccount.com", "projeto"), 2);
+        when(planilhas.integracao()).thenReturn(integracao);
+        when(planilhas.configurar(any())).thenReturn(integracao);
+
+        for (Perfil p : List.of(Perfil.ROLE_USER, Perfil.ROLE_VIEWER)) {
+            String login = p == Perfil.ROLE_USER ? "maria" : "coordenacao";
+            mvc.perform(get("/api/v1/integracoes/google").with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
+                    .andExpect(status().isForbidden());
+            mvc.perform(put("/api/v1/integracoes/google").contentType(MediaType.APPLICATION_JSON).content("{\"chave\":\"{}\"}")
+                            .with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
+                    .andExpect(status().isForbidden());
+            mvc.perform(delete("/api/v1/integracoes/google").with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
+                    .andExpect(status().isForbidden());
+        }
+        verify(planilhas, never()).configurar(any());
+        verify(planilhas, never()).desconfigurar();
+
+        mvc.perform(put("/api/v1/integracoes/google").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"chave\":\"{\\\"type\\\":\\\"service_account\\\",\\\"private_key\\\":\\\"SEGREDO\\\"}\"}")
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.configurada").value(true))
+                .andExpect(jsonPath("$.dados.email").value("planilhas@projeto.iam.gserviceaccount.com"))
+                .andExpect(jsonPath("$.dados.planilhas").value(2))
+                .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("SEGREDO"))));
+        verify(planilhas).configurar("{\"type\":\"service_account\",\"private_key\":\"SEGREDO\"}");
+        verify(sincronizadorPlanilhas).agendarTodos();
     }
 }

@@ -5,12 +5,14 @@ import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import EditorHorario from '@/components/EditorHorario.vue'
 import EditorPasta from '@/components/EditorPasta.vue'
+import EditorPlanilha from '@/components/EditorPlanilha.vue'
 import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
 
 /**
- * Minha conta: senha, pasta dos comprovantes e horário de trabalho. O administrador consultando outra pessoa
- * ("Dados de") vê e altera a pasta e o horário dela por aqui; a senha é sempre a do próprio usuário.
+ * Minha conta: senha, pasta dos comprovantes, horário de trabalho e planilha no Google. O administrador
+ * consultando outra pessoa ("Dados de") vê e altera a pasta, o horário e a planilha dela por aqui; a senha é
+ * sempre a do próprio usuário.
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
@@ -176,6 +178,16 @@ const quando = (iso) => {
           </li>
         </ul>
       </div>
+    </section>
+
+    <!-- Planilha no Google -->
+    <section v-if="temPonto" id="planilha" class="cartao mt-6 scroll-mt-6 px-5 py-5" aria-labelledby="titulo-planilha">
+      <h2 id="titulo-planilha" class="font-sans text-lg font-bold">Planilha no Google</h2>
+      <p class="mt-1 mb-4 text-sm text-tinta-suave">
+        A conferência {{ outraPessoa ? 'desta pessoa' : 'do seu ponto' }} numa planilha do Google Sheets, mês a mês,
+        com o total de horas e o banco de horas, sempre atualizada. Serve para compartilhar com quem confere.
+      </p>
+      <EditorPlanilha :pode-editar="podeEditar" :usuario="outraPessoa ? pessoa?.login : null" />
     </section>
 
     <!-- Senha -->

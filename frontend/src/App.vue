@@ -49,7 +49,8 @@ const opcoesPessoa = computed(() => {
 })
 const pessoaSelecionada = computed({
   get: () => (auth.vendoOsProprios ? auth.usuario?.login : auth.visto),
-  set: (login) => trocarPessoa(login),
+  // escolher de novo a mesma pessoa não muda nada (zeraria os dados sem recarregar as telas)
+  set: (login) => login !== pessoaSelecionada.value && trocarPessoa(login),
 })
 /**
  * As telas são remontadas ao trocar de pessoa (cada uma carrega os dados da nova pessoa). Ao sair, a tela atual
