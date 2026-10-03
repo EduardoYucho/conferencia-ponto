@@ -45,7 +45,10 @@ public class AutenticarUsuarioUseCase {
         Usuario usuario = encontrado.filter(u -> senhaConfere && u.ativo())
                 .orElseThrow(CredenciaisInvalidasException::new);
 
-        Usuario logado = usuario.registrarLogin(clock.instant());
+        // relê antes de gravar: a conferência da senha demora, e o administrador pode ter alterado o cadastro
+        Usuario logado = usuarios.buscarPorId(usuario.id()).filter(Usuario::ativo)
+                .orElseThrow(CredenciaisInvalidasException::new)
+                .registrarLogin(clock.instant());
         usuarios.salvar(logado);
         EmissorToken.TokenEmitido token = emissor.emitir(logado);
         return new SessaoView(token.valor(), token.expiraEm(), logado);
@@ -54,7 +57,7 @@ public class AutenticarUsuarioUseCase {
     @Transactional(readOnly = true)
     public Usuario usuarioAtual(String login) {
         return usuarios.buscarPorLogin(login).filter(Usuario::ativo)
-                .orElseThrow(CredenciaisInvalidasException::new);
+                .orElseThrow(CredenciaisInvalidasException::acessoDesativado);
     }
 
     @Transactional

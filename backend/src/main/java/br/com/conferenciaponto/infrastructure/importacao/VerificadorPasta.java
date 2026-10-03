@@ -16,6 +16,8 @@ import java.util.concurrent.TimeoutException;
 @Component
 public class VerificadorPasta {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(VerificadorPasta.class);
+
     static final long LIMITE_SEGUNDOS = 6;
 
     public record Resultado(boolean acessivel, String aviso) {
@@ -45,7 +47,9 @@ public class VerificadorPasta {
             Thread.currentThread().interrupt();
             return new Resultado(false, "A conferência da pasta foi interrompida.");
         } catch (ExecutionException e) {
-            return new Resultado(false, "Não foi possível abrir a pasta: " + e.getCause().getMessage());
+            log.warn("Conferência da pasta {} falhou: {}", caminho, String.valueOf(e.getCause()));
+            return new Resultado(false, "O computador onde o sistema roda não conseguiu abrir essa pasta. Confira o "
+                    + "caminho e se a pasta está compartilhada com permissão de leitura.");
         }
     }
 }

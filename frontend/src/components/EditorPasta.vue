@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
+import { mensagemDe } from '@/utils/erros'
 
 /**
  * Pasta onde chegam os comprovantes PDF da pessoa. O sistema roda num computador só: a pasta precisa ser
@@ -14,6 +15,11 @@ const props = defineProps({
   podeEditar: { type: Boolean, default: false },
   /** Id de outra pessoa (o administrador alterando a pasta dela); null = a própria. */
   usuarioId: { type: String, default: null },
+  /**
+   * A pasta em tela é de outra pessoa. Sem o id dela (a lista de pessoas ainda não carregou) não dá para
+   * alterar: salvar sem id gravaria a pasta de quem está logado.
+   */
+  deOutraPessoa: { type: Boolean, default: false },
 })
 const emit = defineEmits(['salvo'])
 
@@ -27,6 +33,7 @@ const mensagem = ref('')
 watch(() => props.pasta, (p) => (texto.value = p ?? ''))
 
 const alterada = computed(() => (texto.value.trim() || null) !== (props.pasta ?? null))
+const semIdentificacao = computed(() => props.deOutraPessoa && !props.usuarioId)
 
 const situacao = computed(() => {
   const m = props.monitor
@@ -46,31 +53,38 @@ async function verificar() {
   try {
     verificacao.value = await pontoApi.verificarPasta(texto.value.trim())
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
   } finally {
     verificando.value = false
   }
 }
 
 async function salvar(valor = texto.value) {
-  salvando.value = true
   erro.value = ''
   mensagem.value = ''
+  if (semIdentificacao.value) {
+    erro.value = 'Esta pessoa ainda não foi identificada: a pasta dela não pode ser alterada agora.'
+    return
+  }
+  salvando.value = true
+  let r
   try {
     const pasta = (valor ?? '').trim()
-    const r = props.usuarioId
+    r = props.usuarioId
       ? await pontoApi.definirPastaDe(props.usuarioId, pasta)
       : await pontoApi.salvarMinhaPasta(pasta)
-    verificacao.value = r.pasta ? r : null
-    mensagem.value = r.pasta
-      ? (r.acessivel ? 'Pasta salva. Os PDFs que já estão nela serão importados (sem duplicar).' : 'Pasta salva, mas ainda não está acessível.')
-      : 'Monitoramento desligado. Envie os comprovantes pela tela.'
-    emit('salvo', r)
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
+    return
   } finally {
     salvando.value = false
   }
+  // salvou: nada depois daqui pode parecer falha da gravação
+  verificacao.value = r?.pasta ? r : null
+  mensagem.value = r?.pasta
+    ? (r.acessivel ? 'Pasta salva. Os PDFs que já estão nela serão importados (sem duplicar).' : 'Pasta salva, mas ainda não está acessível.')
+    : 'Monitoramento desligado. Envie os comprovantes pela tela.'
+  emit('salvo', r ?? { pasta: null })
 }
 </script>
 
@@ -84,7 +98,11 @@ async function salvar(valor = texto.value) {
       </span>
     </p>
 
-    <form v-if="podeEditar" class="mt-4" novalidate @submit.prevent="salvar()">
+    <p v-if="podeEditar && semIdentificacao" role="alert" class="mt-4 rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo">
+      Não foi possível identificar esta pessoa (a lista de pessoas não carregou), então a pasta dela não pode ser
+      alterada agora. Aguarde um instante; se continuar, recarregue a página.
+    </p>
+    <form v-else-if="podeEditar" class="mt-4" novalidate @submit.prevent="salvar()">
       <label class="block">
         <span class="rotulo">Caminho da pasta</span>
         <input

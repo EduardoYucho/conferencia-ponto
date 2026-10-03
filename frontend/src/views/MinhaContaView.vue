@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
@@ -7,7 +7,9 @@ import EditorHorario from '@/components/EditorHorario.vue'
 import EditorPasta from '@/components/EditorPasta.vue'
 import EditorPlanilha from '@/components/EditorPlanilha.vue'
 import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
+import { mensagemDe } from '@/utils/erros'
 
 /**
  * Minha conta: senha, pasta dos comprovantes, horário de trabalho e planilha no Google. O administrador
@@ -29,14 +31,22 @@ const pasta = ref(null)
 const monitor = ref(null)
 const recentes = ref([])
 const carregando = ref(false)
-const erro = ref('')
+/** O horário e a pasta já chegaram (antes disso não dá para dizer "nenhuma pasta": é desconhecido). */
+const carregado = ref(false)
+const erro = ref(null)
 const aviso = ref('')
 const hoje = computed(() => ponto.hoje ?? dataISO())
+let timerAviso = null
+let timerRecarga = null
+onBeforeUnmount(() => {
+  clearTimeout(timerAviso)
+  clearTimeout(timerRecarga)
+})
 
 async function carregar() {
   if (!temPonto.value) return
   carregando.value = true
-  erro.value = ''
+  erro.value = null
   try {
     const [h, imp] = await Promise.all([pontoApi.horarios(), pontoApi.importacoes(8)])
     vigencias.value = h
@@ -51,8 +61,9 @@ async function carregar() {
     } else {
       pasta.value = estado.situacao === 'SEM_PASTA' ? null : estado.diretorio
     }
+    carregado.value = true
   } catch (e) {
-    erro.value = e.message
+    erro.value = e
   } finally {
     carregando.value = false
   }
@@ -76,7 +87,7 @@ async function trocarSenha() {
     senha.value = { atual: '', nova: '', confirmacao: '' }
     mostrar('Senha alterada.')
   } catch (e) {
-    erroSenha.value = e.message
+    erroSenha.value = mensagemDe(e)
   } finally {
     salvandoSenha.value = false
   }
@@ -86,7 +97,8 @@ async function trocarSenha() {
 async function aoSalvarPasta(r) {
   pasta.value = r.pasta
   if (!outraPessoa.value) auth.atualizarUsuario().catch(() => {})
-  setTimeout(carregar, 1500) // o monitor leva um instante para conectar à pasta nova
+  clearTimeout(timerRecarga)
+  timerRecarga = setTimeout(carregar, 1500) // o monitor leva um instante para conectar à pasta nova
 }
 
 function aoSalvarHorario(r) {
@@ -102,11 +114,10 @@ function aoEnviar({ total, importados }) {
   carregar()
 }
 
-let timer = null
 function mostrar(texto) {
   aviso.value = texto
-  clearTimeout(timer)
-  timer = setTimeout(() => (aviso.value = ''), 5000)
+  clearTimeout(timerAviso)
+  timerAviso = setTimeout(() => (aviso.value = ''), 5000)
 }
 
 const ROTULO_STATUS = { IMPORTADO: 'importado', DUPLICADO: 'já existia', REJEITADO: 'recusado', INVALIDO: 'inválido' }
@@ -128,7 +139,10 @@ const quando = (iso) => {
       </p>
     </header>
 
-    <p v-if="erro" role="alert" class="mt-6 rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo">{{ erro }}</p>
+    <!-- Falha ao carregar o horário e a pasta (numa recarga, o que já estava na tela continua) -->
+    <div v-if="erro" class="mt-6">
+      <EstadoDaTela :erro="erro" :carregando="carregando" manter @tentar="carregar" />
+    </div>
 
     <!-- Horário -->
     <section v-if="temPonto" class="cartao mt-6 px-5 py-5" aria-labelledby="titulo-horario">
@@ -137,7 +151,7 @@ const quando = (iso) => {
         A base do cálculo: o que é previsto em cada dia e onde vale a tolerância. Dia sem expediente
         (como sábado e domingo) conta todo o tempo trabalhado como crédito.
       </p>
-      <p v-if="carregando && !vigencias.length" class="text-sm text-tinta-suave">Carregando…</p>
+      <p v-if="!carregado" class="text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'O horário não foi carregado.' }}</p>
       <EditorHorario
         v-else
         :vigencias="vigencias"
@@ -155,11 +169,14 @@ const quando = (iso) => {
         Os PDFs dos comprovantes viram batidas automaticamente. Escolha a pasta onde eles chegam
         {{ outraPessoa ? '' : '(a mesma onde o navegador salva os downloads, por exemplo)' }} e/ou envie-os pela tela.
       </p>
+      <p v-if="!carregado" class="text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'A pasta não foi carregada.' }}</p>
       <EditorPasta
+        v-else
         :pasta="pasta"
         :monitor="monitor"
         :pode-editar="podeEditar"
         :usuario-id="outraPessoa ? pessoa?.id : null"
+        :de-outra-pessoa="outraPessoa"
         @salvo="aoSalvarPasta"
       />
       <div v-if="!outraPessoa && auth.ehTitular" class="mt-6">

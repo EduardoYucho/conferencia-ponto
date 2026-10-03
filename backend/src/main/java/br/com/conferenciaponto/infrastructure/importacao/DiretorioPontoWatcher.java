@@ -282,8 +282,8 @@ public class DiretorioPontoWatcher {
     private void ficarIndisponivel(Exception erro) {
         String motivo = descrever(erro);
         if (estado.situacao() != Situacao.INDISPONIVEL) {
-            log.warn("Pasta {} inacessível ({}). Nova tentativa a cada {}s.",
-                    diretorio, motivo, intervaloReconexao.toSeconds());
+            log.warn("Pasta {} inacessível ({}; {}). Nova tentativa a cada {}s.",
+                    diretorio, motivo, erro.toString(), intervaloReconexao.toSeconds());
         } else {
             log.debug("Pasta {} continua inacessível: {}", diretorio, motivo);
         }
@@ -305,12 +305,22 @@ public class DiretorioPontoWatcher {
         }
     }
 
+    /** Motivo que a pessoa lê na tela (o detalhe técnico fica no log). */
     private static String descrever(Exception erro) {
-        String mensagem = erro.getMessage();
         if (erro instanceof NoSuchFileException) {
             return "pasta não encontrada";
         }
-        return mensagem == null || mensagem.isBlank() ? erro.getClass().getSimpleName() : mensagem;
+        if (erro instanceof java.nio.file.AccessDeniedException) {
+            return "sem permissão para abrir a pasta";
+        }
+        if (erro instanceof java.nio.file.NotDirectoryException) {
+            return "o caminho não é uma pasta";
+        }
+        String mensagem = erro.getMessage();
+        if (mensagem != null && mensagem.startsWith("a pasta ")) {
+            return mensagem; // mensagens do próprio monitor
+        }
+        return "a pasta não respondeu (rede fora do ar ou o outro computador está desligado?)";
     }
 
     // ------------------------------------------------------------------ ciclo de vida

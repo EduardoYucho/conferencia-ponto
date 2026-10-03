@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.infrastructure.security;
 
+import br.com.conferenciaponto.infrastructure.log.FiltroUsuarioNoLog;
+import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
 import jakarta.servlet.DispatcherType;
 import jakarta.servlet.http.HttpServletRequest;
@@ -41,6 +43,8 @@ import java.security.NoSuchAlgorithmException;
  * GET  /api/v1/usuarios/titulares          ✓     ✓      ✓       –
  * /api/v1/usuarios/** (cadastro)           ✓     –      –       –
  * /api/v1/integracoes/** (conta Google)    ✓     –      –       –
+ * /api/v1/logs/** (logs do sistema)        ✓     –      –       –
+ * POST /api/v1/erros-de-tela               ✓     ✓      ✓       –   (a tela avisa o servidor de um erro dela)
  * POST/DELETE /api/v1/feriados/**          ✓     –      –       –   (feriado vale para todos)
  * GET  /api/**  (leitura, SSE, download)   ✓     ✓      ✓       –
  * POST/PUT/PATCH/DELETE /api/**            ✓     ✓      –       –
@@ -81,6 +85,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/titulares").hasAnyRole(LEITURA)
                         .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasRole("ADMIN")
                         .requestMatchers("/api/v1/integracoes", "/api/v1/integracoes/**").hasRole("ADMIN")
+                        .requestMatchers("/api/v1/logs", "/api/v1/logs/**").hasRole("ADMIN")
+                        .requestMatchers(HttpMethod.POST, "/api/v1/erros-de-tela").hasAnyRole(LEITURA)
                         .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasRole("ADMIN")
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasRole("ADMIN")
                         // leitura: todos os perfis
@@ -99,7 +105,9 @@ public class SecurityConfig {
                         .accessDeniedHandler(respostas))
                 .exceptionHandling(e -> e
                         .authenticationEntryPoint(respostas)
-                        .accessDeniedHandler(respostas));
+                        .accessDeniedHandler(respostas))
+                // com o token conferido, o login entra no contexto de log (arquivo do usuário)
+                .addFilterAfter(new FiltroUsuarioNoLog(), BearerTokenAuthenticationFilter.class);
         return http.build();
     }
 

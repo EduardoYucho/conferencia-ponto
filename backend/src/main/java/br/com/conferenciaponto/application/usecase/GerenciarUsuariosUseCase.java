@@ -190,6 +190,10 @@ public class GerenciarUsuariosUseCase {
         if (limpa.chars().anyMatch(c -> c < 32) || limpa.contains("\"")) {
             throw new RegraNegocioException("PASTA_INVALIDA", "O caminho da pasta tem caracteres inválidos.");
         }
+        if (!caminhoCompleto(limpa)) {
+            throw new RegraNegocioException("PASTA_INVALIDA", "Informe o caminho completo da pasta "
+                    + "(ex.: C:\\Users\\fulano\\Downloads\\Ponto ou \\\\NOME-DO-PC\\Ponto).");
+        }
         String chave = chavePasta(limpa);
         usuarios.listar().stream()
                 .filter(u -> !u.id().equals(dono) && u.pastaComprovantes() != null)
@@ -202,13 +206,31 @@ public class GerenciarUsuariosUseCase {
         return limpa;
     }
 
-    /** Mesma pasta escrita de outro jeito (barras, maiúsculas, barra no fim). */
+    /** Começa na raiz: {@code C:\...}, {@code \\servidor\...} ou {@code /...}. */
+    static boolean caminhoCompleto(String pasta) {
+        String p = pasta.strip().replace('\\', '/');
+        return p.startsWith("/") || p.matches("^[A-Za-z]:/.*");
+    }
+
+    /**
+     * Mesma pasta escrita de outro jeito: barras, maiúsculas, barra no fim, barras repetidas e os trechos
+     * {@code .} e {@code ..} (que apontariam para a pasta de outra pessoa sem parecer).
+     */
     static String chavePasta(String pasta) {
-        String p = pasta.strip().replace('\\', '/').toLowerCase(Locale.ROOT);
-        while (p.length() > 1 && p.endsWith("/")) {
-            p = p.substring(0, p.length() - 1);
+        String p = pasta.strip().replace('\\', '/');
+        String raiz = p.startsWith("//") ? "//" : p.startsWith("/") ? "/" : "";
+        java.util.ArrayDeque<String> partes = new java.util.ArrayDeque<>();
+        for (String parte : p.split("/+")) {
+            if (parte.isEmpty() || parte.equals(".")) {
+                continue;
+            }
+            if (parte.equals("..")) {
+                partes.pollLast();
+            } else {
+                partes.addLast(parte.strip());
+            }
         }
-        return p;
+        return (raiz + String.join("/", partes)).toLowerCase(Locale.ROOT);
     }
 
     private static String validarNome(String nome) {
@@ -234,8 +256,9 @@ public class GerenciarUsuariosUseCase {
             throw new RegraNegocioException("SENHA_FRACA", "A senha precisa ter pelo menos %d caracteres."
                     .formatted(AutenticarUsuarioUseCase.TAMANHO_MINIMO_SENHA));
         }
-        if (senha.length() > 72) { // limite do BCrypt
-            throw new RegraNegocioException("SENHA_LONGA", "A senha pode ter no máximo 72 caracteres.");
+        if (senha.getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 72) { // limite do BCrypt, em bytes
+            throw new RegraNegocioException("SENHA_LONGA",
+                    "A senha é longa demais: use até 72 caracteres (letras com acento contam em dobro).");
         }
     }
 

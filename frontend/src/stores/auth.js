@@ -31,6 +31,12 @@ export const useAuthStore = defineStore('auth', () => {
   const visto = ref(salva?.visto ?? null)
   /** Pessoas com dados de ponto que o usuário pode consultar: [{ id, login, nome }]. */
   const titulares = ref([])
+  /** A lista de pessoas não pôde ser carregada (as telas avisam e oferecem tentar de novo). */
+  const erroTitulares = ref(null)
+  /** Por que a sessão terminou sozinha (a tela de login explica): texto ou null. */
+  const avisoDeSaida = ref(null)
+  let timerExpiracao = null
+  let aoExpirar = () => {}
 
   const autenticado = computed(() => !!token.value && new Date(expiraEm.value) > new Date())
   const perfis = computed(() => usuario.value?.perfis ?? [])
@@ -78,23 +84,49 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
+  /**
+   * O token tem hora para vencer: em vez de esperar a próxima ação dar erro, a sessão é encerrada na hora
+   * certa, com explicação. (O setTimeout do navegador não aceita esperas acima de ~24 dias.)
+   */
+  function agendarExpiracao() {
+    clearTimeout(timerExpiracao)
+    if (!token.value || !expiraEm.value) return
+    const falta = new Date(expiraEm.value).getTime() - Date.now()
+    timerExpiracao = setTimeout(() => {
+      if (token.value && new Date(expiraEm.value) <= new Date()) aoExpirar()
+      else agendarExpiracao()
+    }, Math.min(Math.max(falta, 0) + 500, 2_000_000_000))
+  }
+
+  /** Registrado no main.js: o que fazer quando o token vence com a aba aberta. */
+  function definirAoExpirar(acao) {
+    aoExpirar = acao
+    agendarExpiracao()
+  }
+
   async function login(loginInformado, senha) {
     const sessao = await authApi.login(loginInformado, senha)
     token.value = sessao.token
     expiraEm.value = sessao.expiraEm
     usuario.value = sessao.usuario
     visto.value = null
+    avisoDeSaida.value = null
     persistir()
+    agendarExpiracao()
     if (!sessao.usuario.trocarSenha) await carregarTitulares().catch(() => {})
     return sessao.usuario
   }
 
-  function logout() {
+  /** @param {string|null} [aviso] por que a sessão terminou sem a pessoa pedir (mostrado no login) */
+  function logout(aviso = null) {
+    clearTimeout(timerExpiracao)
     token.value = null
     expiraEm.value = null
     usuario.value = null
     visto.value = null
     titulares.value = []
+    erroTitulares.value = null
+    avisoDeSaida.value = aviso
     persistir()
   }
 
@@ -119,7 +151,13 @@ export const useAuthStore = defineStore('auth', () => {
    * pessoa da lista. Se a pessoa em tela deixou de existir (desativada), volta para os próprios dados.
    */
   async function carregarTitulares() {
-    titulares.value = await pontoApi.titulares()
+    try {
+      titulares.value = await pontoApi.titulares()
+      erroTitulares.value = null
+    } catch (e) {
+      erroTitulares.value = e
+      throw e
+    }
     if (visto.value && !titulares.value.some((t) => t.login === visto.value)) visto.value = null
     if (!visto.value && !ehTitular.value) visto.value = titulares.value[0]?.login ?? null
     persistir()
@@ -145,9 +183,9 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   return {
-    token, expiraEm, usuario, visto, titulares,
+    token, expiraEm, usuario, visto, titulares, erroTitulares, avisoDeSaida,
     autenticado, perfis, ehAdmin, ehTitular, podeVerTodos, precisaTrocarSenha, vendoOsProprios, pessoaEmTela,
     idEmTela, podeEscrever, somenteLeitura, rotuloPerfil,
-    login, logout, atualizarUsuario, alterarSenha, carregarTitulares, verComo, loginConsultado, rotaInicial,
+    definirAoExpirar, login, logout, atualizarUsuario, alterarSenha, carregarTitulares, verComo, loginConsultado, rotaInicial,
   }
 })

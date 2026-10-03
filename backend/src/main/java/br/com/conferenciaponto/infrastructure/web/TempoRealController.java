@@ -45,6 +45,8 @@ import java.util.UUID;
 @RequestMapping("/api/v1")
 public class TempoRealController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(TempoRealController.class);
+
     /** Arquivos por envio (a tela manda um por vez; o limite protege a API). */
     static final int MAXIMO_ARQUIVOS_POR_ENVIO = 50;
 
@@ -99,7 +101,7 @@ public class TempoRealController {
     /** Comprovantes enviados pela tela (arrastar e soltar): mesmas regras da pasta monitorada. */
     @PostMapping(path = "/importacoes/enviar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ApiResponse<List<ProcessadorComprovantePdf.ResultadoEnvio>> enviar(
-            @RequestPart("arquivos") List<MultipartFile> arquivos, Titular titular) throws IOException {
+            @RequestPart("arquivos") List<MultipartFile> arquivos, Titular titular) {
         if (arquivos == null || arquivos.isEmpty()) {
             throw new RegraNegocioException("SEM_ARQUIVOS", "Selecione os comprovantes em PDF.");
         }
@@ -115,7 +117,14 @@ public class TempoRealController {
                         "Só arquivos PDF são aceitos.", null));
                 continue;
             }
-            resultados.add(processador.enviar(titular.id(), nome, arquivo.getBytes()));
+            try {
+                resultados.add(processador.enviar(titular.id(), nome, arquivo.getBytes()));
+            } catch (IOException | RuntimeException e) {
+                // um arquivo com problema não impede os outros
+                log.error("Falha ao importar o comprovante \"{}\" enviado pela tela", nome, e);
+                resultados.add(new ProcessadorComprovantePdf.ResultadoEnvio(nome, "ERRO",
+                        "Não foi possível importar este arquivo agora. Tente enviá-lo de novo.", null));
+            }
         }
         return ApiResponse.ok(resultados);
     }

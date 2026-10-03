@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.infrastructure.agendamento;
 
+import org.springframework.transaction.event.TransactionalEventListener;
+import org.springframework.transaction.event.TransactionPhase;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
 import br.com.conferenciaponto.application.usecase.VerificarPrazoCicloUseCase;
@@ -51,12 +53,20 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        for (Usuario u : titulares()) {
-            CicloBanco aberto = ciclos.garantirCicloAberto(u.id());
-            log.info("Banco de horas de {}: ciclo aberto desde {} (fechamento previsto em {})", u.login(),
-                    DATA.format(aberto.dataInicio()), DATA.format(aberto.dataFimPrevista()));
+        try {
+            for (Usuario u : titulares()) {
+                try {
+                    CicloBanco aberto = ciclos.garantirCicloAberto(u.id());
+                    log.info("Banco de horas de {}: ciclo aberto desde {} (fechamento previsto em {})", u.login(),
+                            DATA.format(aberto.dataInicio()), DATA.format(aberto.dataFimPrevista()));
+                } catch (RuntimeException e) {
+                    log.error("Não foi possível abrir o ciclo do banco de horas de {}", u.login(), e);
+                }
+            }
+            verificar();
+        } catch (RuntimeException e) {
+            log.error("Conferência dos ciclos do banco de horas na subida falhou", e);
         }
-        verificar();
     }
 
     @Scheduled(cron = "${ponto.banco-horas.cron-alertas:0 0 1 * * *}", zone = "${ponto.fuso-horario:America/Sao_Paulo}")
@@ -64,9 +74,14 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
         verificar();
     }
 
-    @EventListener
+    /** Depois de gravado: uma falha no aviso não desfaz o fechamento ou a correção do ciclo. */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAtualizarCiclo(CicloAtualizadoEvento evento) {
-        verificarPrazo.executar(evento.usuarioId(), LocalDate.now(clock));
+        try {
+            verificarPrazo.executar(evento.usuarioId(), LocalDate.now(clock));
+        } catch (RuntimeException e) {
+            log.warn("Falha ao atualizar o aviso de prazo do banco de horas", e);
+        }
     }
 
     private void verificar() {
@@ -75,7 +90,7 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
                 verificarPrazo.executar(u.id(), LocalDate.now(clock))
                         .ifPresent(n -> log.info("Aviso do banco de horas de {}: {}", u.login(), n.titulo()));
             } catch (RuntimeException e) {
-                log.warn("Falha ao conferir o prazo do banco de horas de {}: {}", u.login(), e.getMessage());
+                log.warn("Falha ao conferir o prazo do banco de horas de {}", u.login(), e);
             }
         }
     }

@@ -134,7 +134,7 @@ class LeitorRelatorioRhPdfBoxTest {
                 .hasMessageContaining("Relatório de Banco de Horas");
         assertThatThrownBy(() -> leitor.ler(new byte[]{1, 2, 3}))
                 .isInstanceOf(RegraNegocioException.class)
-                .hasMessageContaining("Não foi possível ler o PDF");
+                .hasMessageContaining("não é um PDF válido");
     }
 
     @Test

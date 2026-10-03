@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
+import br.com.conferenciaponto.application.evento.ComprovanteNaoImportadoEvento;
+import org.springframework.context.ApplicationEventPublisher;
 import br.com.conferenciaponto.application.usecase.ImportarComprovanteUseCase;
 import br.com.conferenciaponto.domain.model.StatusImportacao;
 import org.slf4j.Logger;
@@ -30,16 +32,20 @@ public class ProcessadorComprovantePdf {
      * estabilização (importante na primeira leitura de uma pasta com centenas de PDFs antigos).
      */
     static final Duration ARQUIVO_ASSENTADO = Duration.ofSeconds(30);
+    /** Arquivo vazio há esse tempo não é mais um download em andamento. */
+    static final Duration ARQUIVO_ABANDONADO = Duration.ofMinutes(2);
 
     private final PdfParserService parser;
     private final ImportarComprovanteUseCase importar;
     private final ImportacaoPdfProperties properties;
+    private final ApplicationEventPublisher eventos;
 
     public ProcessadorComprovantePdf(PdfParserService parser, ImportarComprovanteUseCase importar,
-                                     ImportacaoPdfProperties properties) {
+                                     ImportacaoPdfProperties properties, ApplicationEventPublisher eventos) {
         this.parser = parser;
         this.importar = importar;
         this.properties = properties;
+        this.eventos = eventos;
     }
 
     /** Processador da pasta de um usuário (usado pelo monitor dele). */
@@ -53,14 +59,17 @@ public class ProcessadorComprovantePdf {
 
     /** PDF enviado pela tela ("Enviar comprovantes"): mesmas regras da pasta monitorada. */
     public ResultadoEnvio enviar(UUID usuarioId, String nomeArquivo, byte[] conteudo) {
-        String nome = nomeArquivo == null || nomeArquivo.isBlank() ? "comprovante.pdf" : Path.of(nomeArquivo)
-                .getFileName().toString();
+        String nome = nomeSimples(nomeArquivo);
         PdfParserService.ComprovanteLido lido;
         try {
             lido = parser.lerConteudo(nome, conteudo);
         } catch (IOException e) {
-            return new ResultadoEnvio(nome, StatusImportacao.INVALIDO.name(), "Não foi possível ler o PDF: " + e.getMessage(),
-                    null);
+            // as mensagens do leitor são feitas para a pessoa (arquivo vazio, grande demais)
+            return new ResultadoEnvio(nome, StatusImportacao.INVALIDO.name(), e.getMessage(), null);
+        } catch (RuntimeException e) {
+            log.warn("PDF \"{}\" enviado pela tela não pôde ser lido: {}", nome, e.toString());
+            return new ResultadoEnvio(nome, StatusImportacao.INVALIDO.name(),
+                    "O arquivo não é um PDF válido ou está danificado.", null);
         }
         synchronized (this) {
             return importar.executar(usuarioId, new ImportarComprovanteUseCase.Comprovante(
@@ -69,6 +78,15 @@ public class ProcessadorComprovantePdf {
                     .orElseGet(() -> new ResultadoEnvio(nome, "JA_PROCESSADO",
                             "Este comprovante já tinha sido processado.", lido.dataHora().orElse(null)));
         }
+    }
+
+    /** Só o nome do arquivo, sem pasta (o nome vem do navegador e pode ter caracteres que o Windows não aceita). */
+    static String nomeSimples(String nomeArquivo) {
+        if (nomeArquivo == null || nomeArquivo.isBlank()) {
+            return "comprovante.pdf";
+        }
+        String nome = nomeArquivo.substring(Math.max(nomeArquivo.lastIndexOf('/'), nomeArquivo.lastIndexOf('\\')) + 1).strip();
+        return nome.isEmpty() ? "comprovante.pdf" : nome.length() > 200 ? nome.substring(nome.length() - 200) : nome;
     }
 
     /**
@@ -88,6 +106,11 @@ public class ProcessadorComprovantePdf {
                 return true;
             } catch (NoSuchFileException e) {
                 log.debug("{} não existe mais (arquivo temporário?)", arquivo.getFileName());
+                return true;
+            } catch (ArquivoRecusadoException e) {
+                // definitivo: avisa a pessoa uma vez e não tenta de novo enquanto o arquivo não mudar
+                log.warn("{} não foi importado: {}", arquivo.getFileName(), e.getMessage());
+                avisarRecusa(usuarioId, arquivo, e.getMessage());
                 return true;
             } catch (IOException e) {
                 Path pasta = arquivo.getParent();
@@ -111,10 +134,22 @@ public class ProcessadorComprovantePdf {
         }
     }
 
+    private void avisarRecusa(UUID usuarioId, Path arquivo, String mensagem) {
+        try {
+            eventos.publishEvent(new ComprovanteNaoImportadoEvento(usuarioId, String.valueOf(arquivo.getFileName()),
+                    StatusImportacao.INVALIDO, null, mensagem));
+        } catch (RuntimeException e) {
+            log.debug("Aviso de arquivo recusado não entregue: {}", e.getMessage());
+        }
+    }
+
     /** O navegador pode criar o arquivo antes de terminar de gravar: exige tamanho > 0 e estável. */
     private void aguardarTamanhoEstavel(Path arquivo) throws IOException {
         long antes = Files.size(arquivo);
         Instant modificadoEm = Files.getLastModifiedTime(arquivo).toInstant();
+        if (antes == 0 && modificadoEm.isBefore(Instant.now().minus(ARQUIVO_ABANDONADO))) {
+            throw new ArquivoRecusadoException("O arquivo está vazio (download interrompido). Baixe o comprovante de novo.");
+        }
         if (antes > 0 && modificadoEm.isBefore(Instant.now().minus(ARQUIVO_ASSENTADO))) {
             return;
         }

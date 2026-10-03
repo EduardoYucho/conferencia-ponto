@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { usePontoStore } from '@/stores/ponto'
+import { mensagemDe } from '@/utils/erros'
 import { dataCurta, dataISO, deISO, diaSemanaCurto, formatarDuracao, paraMinutos } from '@/utils/tempo'
 
 /**
@@ -84,7 +85,7 @@ const errosIntervalos = computed(() =>
     if (s <= e) return 'A saída deve ser posterior à entrada.'
     if (i > 0) {
       const saidaAnterior = paraMinutos(intervalos.value[i - 1].saida)
-      if (saidaAnterior !== null && e < saidaAnterior) return 'Deve começar após o fim do 1º intervalo.'
+      if (saidaAnterior !== null && e < saidaAnterior) return `Deve começar após o fim do ${i}º intervalo.`
     }
     return null
   }),
@@ -112,17 +113,20 @@ async function enviar() {
   errosCampo.value = {}
   if (!valido.value) return
 
+  let registro
   try {
-    const registro = await store.postRegistroManual({
+    registro = await store.postRegistroManual({
       data: data.value,
       intervalos: intervalos.value.map(({ entrada, saida }) => ({ entrada, saida })),
     })
-    emit('salvo', registro)
-    emit('update:modelValue', false)
   } catch (e) {
-    erroServidor.value = e.message
-    errosCampo.value = e.porCampo ?? {}
+    erroServidor.value = mensagemDe(e)
+    errosCampo.value = e?.porCampo ?? {}
+    return
   }
+  // lançou: a janela fecha antes de avisar a tela (nada depois daqui pode parecer falha e levar a lançar de novo)
+  emit('update:modelValue', false)
+  emit('salvo', registro)
 }
 </script>
 
@@ -233,7 +237,7 @@ async function enviar() {
                 class="text-sm font-semibold text-tinta underline decoration-linha decoration-2 underline-offset-4 hover:decoration-tinta"
                 @click="adicionarIntervalo"
               >
-                + Adicionar 2º intervalo
+                + Adicionar {{ intervalos.length + 1 }}º intervalo
               </button>
             </fieldset>
 

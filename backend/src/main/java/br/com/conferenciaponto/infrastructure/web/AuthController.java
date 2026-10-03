@@ -1,5 +1,8 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.domain.exception.CredenciaisInvalidasException;
+import br.com.conferenciaponto.application.view.SessaoView;
+import br.com.conferenciaponto.infrastructure.log.ContextoDeLog;
 import br.com.conferenciaponto.application.usecase.AutenticarUsuarioUseCase;
 import br.com.conferenciaponto.infrastructure.web.dto.AlterarSenhaRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
@@ -27,6 +30,14 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api/v1/auth")
 public class AuthController {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(AuthController.class);
+
+    /** O login vem de fora: sem quebras de linha (não forja linhas de log) e cortado. */
+    private static String limpar(String login) {
+        String limpo = login == null ? "" : login.replaceAll("[\r\n\t]", " ").strip();
+        return limpo.length() > 60 ? limpo.substring(0, 60) + "…" : limpo;
+    }
+
     private final AutenticarUsuarioUseCase autenticar;
 
     public AuthController(AutenticarUsuarioUseCase autenticar) {
@@ -35,7 +46,15 @@ public class AuthController {
 
     @PostMapping("/login")
     public ApiResponse<SessaoResponse> login(@Valid @RequestBody LoginRequest request) {
-        return ApiResponse.ok(SessaoResponse.de(autenticar.autenticar(request.login(), request.senha())));
+        try {
+            SessaoView sessao = autenticar.autenticar(request.login(), request.senha());
+            ContextoDeLog.comUsuario(sessao.usuario().login(), () -> log.info("Entrou no sistema"));
+            return ApiResponse.ok(SessaoResponse.de(sessao));
+        } catch (CredenciaisInvalidasException e) {
+            // sem a senha, claro: só o login tentado, para o administrador reconhecer tentativas repetidas
+            log.warn("Tentativa de login recusada para \"{}\"", limpar(request.login()));
+            throw e;
+        }
     }
 
     @GetMapping("/me")

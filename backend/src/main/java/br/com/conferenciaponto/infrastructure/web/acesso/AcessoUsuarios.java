@@ -42,7 +42,7 @@ public class AcessoUsuarios {
 
     public Usuario logado(String login) {
         return usuarios.buscarPorLogin(login).filter(Usuario::ativo)
-                .orElseThrow(CredenciaisInvalidasException::new);
+                .orElseThrow(CredenciaisInvalidasException::acessoDesativado);
     }
 
     /**

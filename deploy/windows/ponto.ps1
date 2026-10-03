@@ -15,7 +15,10 @@
     ponto iniciar       sobe agora (e volta a subir sozinho no logon)
     ponto parar         para (e não sobe sozinho até "ponto iniciar")
     ponto reiniciar     para e sobe de novo (ex.: depois de mudar a configuração)
-    ponto logs          acompanha o log (Ctrl+C para sair)
+    ponto logs          acompanha o log ao vivo, colorido por gravidade (Ctrl+C para sair)
+    ponto logs maria    ao vivo, só o que é do usuário "maria" (ou "sistema": o que não é de uma pessoa)
+    ponto logs -Erros   ao vivo, só avisos e erros (combina com o usuário: ponto logs maria -Erros)
+    ponto logs pasta    abre a pasta dos logs por usuário e por hora
     ponto config        abre a configuração (pasta dos PDFs, usuários...) no Bloco de Notas
     ponto atualizar     recompila a partir da pasta do projeto e troca a versão (-Testes roda os testes)
     ponto console       roda no próprio terminal, com a saída na tela (diagnóstico; Ctrl+C para parar)
@@ -26,6 +29,7 @@
     config\application.yml        configuração desta máquina (copiada de backend\config na instalação)
     config\servico.yml            porta, segredo do login e logs (gerado)
     logs\conferencia-ponto.log    log da aplicação (e build.log da última compilação)
+    logs\usuarios\<login>\<aaaa-mm-dd>\<hh>h.log   um arquivo por usuário e por hora (guardados por 30 dias)
 
 .EXAMPLE
   ponto
@@ -37,8 +41,12 @@
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Comando = 'status',
+    # "ponto logs <usuario>": de quem são as linhas a acompanhar (ou "pasta" para abrir a pasta dos logs)
+    [Parameter(Position = 1)] [string] $Alvo = '',
     [int] $Porta = 0,
-    [switch] $Testes
+    [switch] $Testes,
+    # "ponto logs -Erros": só avisos e erros
+    [switch] $Erros
 )
 
 $ErrorActionPreference = 'Stop'
@@ -54,6 +62,7 @@ $PastaLogs     = Join-Path $Raiz 'logs'
 $Jar           = Join-Path $PastaApp 'conferencia-ponto.jar'
 $ArquivoEstado = Join-Path $Raiz 'instalacao.json'
 $ArquivoLog    = Join-Path $PastaLogs 'conferencia-ponto.log'
+$PastaLogsUsuarios = Join-Path $PastaLogs 'usuarios'
 $LogBuild      = Join-Path $PastaLogs 'build.log'
 $PortaPadrao   = 8080
 
@@ -271,6 +280,7 @@ function Preparar-Config([string] $repositorio, [int] $porta) {
 
     $segredo = Segredo-Existente $repositorio
     $log = ($ArquivoLog -replace '\\', '/')
+    $pastaLogs = ($PastaLogs -replace '\\', '/')
     $servico = @(
         '# Gerado por "ponto instalar" / "ponto atualizar": porta, segredo do login e logs do serviço.',
         '# A configuração da aplicação (pasta dos PDFs, usuários...) fica no application.yml desta pasta.',
@@ -280,6 +290,9 @@ function Preparar-Config([string] $repositorio, [int] $porta) {
         '  seguranca:',
         '    jwt:',
         "      segredo: `"$segredo`"",
+        '  # logs por usuário e por hora: <pasta>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log',
+        '  logs:',
+        "    diretorio: `"$pastaLogs`"",
         'logging:',
         '  file:',
         "    name: `"$log`"",
@@ -511,6 +524,7 @@ function Cmd-Instalar([switch] $Atualizacao) {
     Info 'Início:         automático quando você entra no Windows (tarefa agendada "ConferenciaPonto")'
     Info "Configuração:   $(Join-Path $PastaConfig 'application.yml')"
     Info "Logs:           $ArquivoLog"
+    Info "Logs por pessoa: $PastaLogsUsuarios  (um arquivo por usuário e por hora)"
     if (-not $Atualizacao) {
         Write-Host ''
         Info 'Abra um terminal NOVO e use:  ponto  |  ponto abrir  |  ponto logs  |  ponto parar  |  ponto atualizar'
@@ -548,13 +562,62 @@ function Cmd-Status {
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
     Write-Host ''
-    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs | config | atualizar [-Testes] | console | desinstalar'
+    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | console | desinstalar'
 }
 
-function Cmd-Logs {
+# Uma linha do log geral:
+#   2026-10-02T22:00:58.300-03:00  INFO 3511 --- [conferencia-ponto] [  thread] [maria|K7M2QX] acesso  : GET ... -> 200
+# vira, na tela:   22:00:58 INFO  maria K7M2QX acesso  GET ... -> 200     (colorida pela gravidade)
+$PadraoLinhaLog = '^\d{4}-\d\d-\d\dT(?<hora>\d\d:\d\d:\d\d)\S*\s+(?<nivel>[A-Z]+)\s+\d+\s+---\s+(?:\[[^\]]*\]\s+)*\[(?<usuario>[^|\]]*)\|(?<protocolo>[^\]]*)\]\s+(?<origem>\S+)\s*:\s?(?<mensagem>.*)$'
+
+function Escrever-LinhaDeLog([string] $linha, [string] $usuario, [bool] $soErros, [ref] $mostrando) {
+    $m = [regex]::Match($linha, $PadraoLinhaLog)
+    if (-not $m.Success) {
+        # continuação da linha anterior (a pilha de um erro): acompanha a decisão tomada para ela
+        if ($mostrando.Value) { Write-Host "         $linha" -ForegroundColor DarkGray }
+        return
+    }
+    $nivel = $m.Groups['nivel'].Value
+    $quem = $m.Groups['usuario'].Value
+    $mostrando.Value = (-not $usuario -or $quem -eq $usuario) -and (-not $soErros -or $nivel -in 'WARN', 'ERROR')
+    if (-not $mostrando.Value) { return }
+    $cor = switch ($nivel) { 'ERROR' { 'Red' } 'WARN' { 'Yellow' } 'DEBUG' { 'DarkGray' } default { 'Gray' } }
+    $rotulo = switch ($nivel) { 'ERROR' { 'ERRO ' } 'WARN' { 'AVISO' } default { $nivel.PadRight(5) } }
+    $protocolo = $m.Groups['protocolo'].Value
+    $origem = ($m.Groups['origem'].Value -split '\.')[-1]
+    Write-Host "$($m.Groups['hora'].Value) " -NoNewline -ForegroundColor DarkGray
+    Write-Host "$rotulo " -NoNewline -ForegroundColor $cor
+    Write-Host "$($quem.PadRight(12)) " -NoNewline -ForegroundColor Cyan
+    if ($protocolo -and $protocolo -ne '-') { Write-Host "$protocolo " -NoNewline -ForegroundColor DarkYellow }
+    Write-Host "$origem " -NoNewline -ForegroundColor DarkGray
+    Write-Host $m.Groups['mensagem'].Value -ForegroundColor $cor
+}
+
+function Cmd-Logs([string] $alvo, [bool] $soErros) {
+    if ($alvo -in 'pasta', 'abrir', 'arquivos') {
+        if (-not (Test-Path -LiteralPath $PastaLogsUsuarios)) { Falhar "Ainda não há logs por usuário em $PastaLogsUsuarios." }
+        Info "$PastaLogsUsuarios  (uma pasta por usuário; dentro, uma por dia; dentro, um arquivo por hora)"
+        Start-Process explorer.exe -ArgumentList "`"$PastaLogsUsuarios`""
+        return
+    }
     if (-not (Test-Path -LiteralPath $ArquivoLog)) { Falhar "Ainda não há log em $ArquivoLog." }
-    Info "$ArquivoLog  (Ctrl+C para sair)"
-    Get-Content -LiteralPath $ArquivoLog -Tail 60 -Wait -Encoding UTF8
+    $usuario = $alvo.Trim().ToLowerInvariant()
+    $filtro = @()
+    if ($usuario) { $filtro += "só de `"$usuario`"" }
+    if ($soErros) { $filtro += 'só avisos e erros' }
+    $descricao = if ($filtro) { $filtro -join ', ' } else { 'tudo' }
+    Info "Log ao vivo ($descricao). Ctrl+C para sair."
+    Info 'Colunas: hora, gravidade, usuário, protocolo, origem, mensagem.  Outros filtros: ponto logs <usuario> [-Erros] | ponto logs pasta'
+    if ($usuario -and -not (Test-Path -LiteralPath (Join-Path $PastaLogsUsuarios $usuario))) {
+        Aviso "Ainda não há nenhuma linha de `"$usuario`" guardada (confira o login). Aguardando..."
+    }
+    Write-Host ''
+    $mostrando = $false
+    # com filtro, as últimas linhas do arquivo podem não ter nada dele: olha mais para trás
+    $ultimas = if ($usuario -or $soErros) { 2000 } else { 60 }
+    Get-Content -LiteralPath $ArquivoLog -Tail $ultimas -Wait -Encoding UTF8 | ForEach-Object {
+        Escrever-LinhaDeLog $_ $usuario $soErros ([ref] $mostrando)
+    }
 }
 
 function Cmd-Console {
@@ -594,8 +657,8 @@ switch ($Comando.ToLowerInvariant()) {
     'iniciar'     { Iniciar-Aplicacao }
     'parar'       { Exigir-Instalacao; Parar-Aplicacao }
     'reiniciar'   { Exigir-Instalacao; Parar-Aplicacao -Silencioso; Iniciar-Aplicacao }
-    'logs'        { Cmd-Logs }
-    'log'         { Cmd-Logs }
+    'logs'        { Cmd-Logs $Alvo $Erros.IsPresent }
+    'log'         { Cmd-Logs $Alvo $Erros.IsPresent }
     'abrir'       { Exigir-Instalacao; Start-Process "http://localhost:$(Porta-Configurada)/" }
     'config'      {
         Exigir-Instalacao

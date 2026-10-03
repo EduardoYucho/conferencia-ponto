@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
+import { mensagemDe } from '@/utils/erros'
 import { dataBR, dataCurta, diaSemanaCurto } from '@/utils/tempo'
 
 /**
@@ -123,14 +124,16 @@ async function enviar() {
       descricao: descricao.value.trim(),
       abrangencia: ehFeriado.value ? abrangencia.value : undefined,
     })
-    const rotulo = TODOS_TIPOS.find((t) => t.valor === tipo.value).rotulo
-    emit('salvo', ehFeriado.value || dias.value === 1
-      ? `${rotulo} em ${dataBR(dataInicio.value)}: o dia não gera débito`
-      : `${rotulo} de ${dataBR(dataInicio.value)} a ${dataBR(dataFim.value)}: ${dias.value} dias sem débito`)
-    emit('update:modelValue', false)
   } catch (e) {
-    erroServidor.value = e.message
+    erroServidor.value = mensagemDe(e)
+    return
   }
+  // marcou: a janela fecha antes de avisar a tela (nada depois daqui pode parecer falha da gravação)
+  emit('update:modelValue', false)
+  const rotulo = TODOS_TIPOS.find((t) => t.valor === tipo.value)?.rotulo ?? 'Marcação'
+  emit('salvo', ehFeriado.value || dias.value === 1
+    ? `${rotulo} em ${dataBR(dataInicio.value)}: o dia não gera débito`
+    : `${rotulo} de ${dataBR(dataInicio.value)} a ${dataBR(dataFim.value)}: ${dias.value} dias sem débito`)
 }
 
 async function remover() {
@@ -146,12 +149,13 @@ async function remover() {
     : `${marcador.rotulo} (${periodoAtual.value}) removida: os dias voltaram a ser úteis`
   try {
     await store.removerMarcacao(marcador)
-    emit('salvo', texto)
-    emit('update:modelValue', false)
   } catch (e) {
-    erroServidor.value = e.message
+    erroServidor.value = mensagemDe(e)
     confirmandoRemocao.value = false
+    return
   }
+  emit('update:modelValue', false)
+  emit('salvo', texto)
 }
 
 function compensar() {

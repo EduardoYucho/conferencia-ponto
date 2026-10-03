@@ -21,6 +21,7 @@ import br.com.conferenciaponto.infrastructure.web.dto.NotificacaoEventoResponse;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.http.MediaType;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -30,7 +31,9 @@ import org.springframework.transaction.event.TransactionalEventListener;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
+import java.time.Clock;
 import java.time.Duration;
+import java.time.LocalDate;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -58,8 +61,11 @@ import java.util.function.Supplier;
  *   <li>{@code conciliacao-atualizada} – relatório do RH conferido ou divergência resolvida;</li>
  *   <li>{@code calendario-atualizado} – feriado, férias, folga, abono ou horário alterado no período;</li>
  *   <li>{@code banco-atualizado} – lançamento avulso no banco de horas criado ou removido;</li>
- *   <li>{@code usuarios-atualizados} – usuário cadastrado ou alterado (perfil, situação, pasta);</li>
- *   <li>{@code planilha-atualizada} – a planilha do Google do usuário foi gravada (ou a gravação falhou).</li>
+ *   <li>{@code usuarios-atualizados} – usuário cadastrado ou alterado (só diz quem; os dados vêm da API);</li>
+ *   <li>{@code planilha-atualizada} – a planilha do Google do usuário foi gravada (ou a gravação falhou);</li>
+ *   <li>{@code presenca-atualizada} – alguém bateu o ponto hoje, ou o dia de hoje mudou para alguém (folga,
+ *       feriado, cadastro): vai para <b>todos</b>, sem dado nenhum — é só o aviso para o painel da equipe
+ *       consultar de novo.</li>
  * </ul>
  * Um comentário {@code :ping} a cada 25 s mantém a conexão viva em proxies e
  * detecta clientes desconectados.
@@ -78,6 +84,7 @@ public class EmissorEventosSse {
     public static final String EVENTO_BANCO = "banco-atualizado";
     public static final String EVENTO_USUARIOS = "usuarios-atualizados";
     public static final String EVENTO_PLANILHA = "planilha-atualizada";
+    public static final String EVENTO_PRESENCA = "presenca-atualizada";
 
     private static final Logger log = LoggerFactory.getLogger(EmissorEventosSse.class);
     private static final long TIMEOUT_MS = Duration.ofMinutes(30).toMillis();
@@ -92,9 +99,16 @@ public class EmissorEventosSse {
 
     private final Map<SseEmitter, Assinante> emissores = new ConcurrentHashMap<>();
     private final ObjectMapper json;
+    private final Clock clock;
+
+    @Autowired
+    public EmissorEventosSse(ObjectMapper json, Clock clock) {
+        this.json = json;
+        this.clock = clock;
+    }
 
     public EmissorEventosSse(ObjectMapper json) {
-        this.json = json;
+        this(json, Clock.systemDefaultZone());
     }
 
     /** Abre uma nova conexão e envia o evento inicial. O navegador reconecta sozinho ao expirar. */
@@ -117,6 +131,9 @@ public class EmissorEventosSse {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAtualizarJornada(JornadaAtualizadaEvento evento) {
         difundir(evento.usuarioId(), EVENTO_JORNADA, EventoJornadaResponse.de(evento));
+        if (LocalDate.now(clock).equals(evento.data())) {
+            avisarPresenca(); // só as batidas de hoje mudam quem está trabalhando agora
+        }
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -144,6 +161,10 @@ public class EmissorEventosSse {
     public void aoAlterarCalendario(CalendarioAlteradoEvento evento) {
         difundir(evento.usuarioId(), EVENTO_CALENDARIO,
                 new CalendarioEvento(evento.inicio().toString(), evento.fim().toString()));
+        LocalDate hoje = LocalDate.now(clock);
+        if (!evento.inicio().isAfter(hoje) && !evento.fim().isBefore(hoje)) {
+            avisarPresenca();
+        }
     }
 
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
@@ -151,10 +172,25 @@ public class EmissorEventosSse {
         difundir(evento.usuarioId(), EVENTO_BANCO, new BancoEvento(evento.data().toString(), evento.descricao()));
     }
 
-    /** Vai para todos: a lista de usuários (seletor) e a "Minha conta" de quem foi alterado se atualizam. */
+    /**
+     * Vai para todos, só com quem mudou (sem login, pasta nem descrição): a lista de usuários (seletor) e a
+     * "Minha conta" de quem foi alterado se atualizam. As conexões de quem mudou são encerradas — o navegador
+     * reconecta sozinho, já com o perfil novo (ou é recusado, se foi desativado).
+     */
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAlterarUsuario(UsuarioAlteradoEvento evento) {
-        difundir(null, EVENTO_USUARIOS, new UsuarioEvento(evento.usuarioId(), evento.descricao()));
+        difundir(null, EVENTO_USUARIOS, new UsuarioEvento(evento.usuarioId()));
+        avisarPresenca();
+        emissores.forEach((emissor, assinante) -> {
+            if (assinante.usuarioId().equals(evento.usuarioId())) {
+                emissores.remove(emissor);
+                try {
+                    emissor.complete();
+                } catch (RuntimeException e) {
+                    log.debug("Conexão SSE já encerrada: {}", e.getMessage());
+                }
+            }
+        });
     }
 
     /** Publicado fora de transação (a gravação no Google não segura conexão com o banco). */
@@ -163,13 +199,18 @@ public class EmissorEventosSse {
         difundir(evento.usuarioId(), EVENTO_PLANILHA, EstadoPlanilhaResponse.de(evento.estado()));
     }
 
+    /** Para todos e sem conteúdo: quem está com o painel da equipe aberto busca a situação nova pela API. */
+    private void avisarPresenca() {
+        difundir(null, EVENTO_PRESENCA, Map.of());
+    }
+
     record CalendarioEvento(String inicio, String fim) {
     }
 
     record BancoEvento(String data, String descricao) {
     }
 
-    record UsuarioEvento(UUID alterado, String descricao) {
+    record UsuarioEvento(UUID alterado) {
     }
 
     /** Mudança de situação do monitor de PDFs (não é transacional: publicado pela thread do monitor). */

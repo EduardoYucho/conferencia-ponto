@@ -14,7 +14,7 @@ import java.util.List;
  */
 public record AjusteBatidasRequest(
         @NotEmpty(message = "Informe ao menos uma batida.")
-        @Size(max = 4, message = "O dia comporta no máximo 4 batidas.")
+        @Size(max = 6, message = "O dia comporta no máximo 6 batidas (3 entradas e 3 saídas).")
         List<@NotNull(message = "Há batida sem horário.") LocalTime> horarios,
         @NotBlank(message = "Informe o motivo do ajuste.")
         @Size(min = 5, max = 500, message = "A justificativa deve ter de 5 a 500 caracteres.")

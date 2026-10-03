@@ -19,6 +19,10 @@ $env:PONTO_JWT_SEGREDO = '<gerado-na-primeira-execucao>'
 # Onde os PDFs ficam arquivados (padrão: .conferencia-ponto\comprovantes na pasta do usuário)
 # $env:PONTO_ARMAZENAMENTO_DIR = "$HOME\.conferencia-ponto\comprovantes"
 
+# Logs (padrão: .conferencia-ponto\logs na pasta do usuário): conferencia-ponto.log com tudo e, em
+# usuarios\<login>\<aaaa-mm-dd>\<hh>h.log, um arquivo por usuário e por hora (guardados por 30 dias)
+# $env:PONTO_LOGS_DIR = "$HOME\.conferencia-ponto\logs"
+
 # Banco (padrão: localhost:5432/conferencia_ponto, usuário e senha "ponto")
 # $env:DB_URL      = 'jdbc:postgresql://localhost:5432/conferencia_ponto'
 # $env:DB_USER     = 'ponto'

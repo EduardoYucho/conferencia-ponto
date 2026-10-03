@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.infrastructure.google;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import br.com.conferenciaponto.application.planilha.PlanilhaRemotaException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -25,6 +27,8 @@ import java.util.Map;
  */
 @Component
 public class GoogleSheetsApi {
+
+    private static final Logger log = LoggerFactory.getLogger(GoogleSheetsApi.class);
 
     /** Uma aba da planilha no Google. */
     public record AbaRemota(int id, String titulo, int indice) {
@@ -234,15 +238,18 @@ public class GoogleSheetsApi {
                     "O link é de um arquivo do Excel aberto no Google Drive, não de uma planilha do Google. Crie uma "
                             + "planilha nova em sheets.new (ou use Arquivo > Salvar como Planilhas Google).", false);
         }
+        // o detalhe do Google vem em inglês e é técnico: vai para o log; a pessoa lê o que fazer
+        log.warn("O Google recusou a gravação (HTTP {}): {}", status, mensagem.isBlank() ? "sem detalhes" : mensagem);
         return new PlanilhaRemotaException("GOOGLE_RECUSOU",
-                "O Google recusou a gravação (HTTP %d): %s".formatted(status, mensagem.isBlank() ? "sem detalhes" : mensagem),
-                false);
+                "O Google recusou a gravação da planilha (código %d). Tente \"Atualizar agora\"; se continuar, avise o administrador."
+                        .formatted(status), false);
     }
 
     private static PlanilhaRemotaException semConexao(Exception e) {
+        log.warn("Sem conexão com o Google: {}", e.toString());
         return new PlanilhaRemotaException("GOOGLE_SEM_CONEXAO",
-                "Sem conexão com o Google (%s). O sistema tenta de novo sozinho."
-                        .formatted(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()), true, e);
+                "Sem conexão com o Google. O sistema tenta de novo sozinho; se continuar, confira a internet do servidor.",
+                true, e);
     }
 
     private static String base(String url) {

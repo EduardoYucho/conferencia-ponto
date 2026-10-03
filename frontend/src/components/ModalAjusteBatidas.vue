@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { usePontoStore } from '@/stores/ponto'
 import { pontoApi } from '@/api/pontoApi'
+import { mensagemDe } from '@/utils/erros'
 import { comSegundos, dataCurta, diaSemanaCurto, paraSegundos, segundosAgora } from '@/utils/tempo'
 
 /**
@@ -46,6 +47,7 @@ const erroServidor = ref('')
 const tentouEnviar = ref(false)
 const botaoIncluir = ref(null)
 let sequencia = 0
+let pedidoContexto = 0
 
 const novaLinha = (valor = '', original = null, ajustada = false) =>
   ({ id: ++sequencia, valor, original, ajustada })
@@ -60,16 +62,24 @@ async function reiniciar() {
   tentouEnviar.value = false
   comprovadas.value = new Set()
   historico.value = []
-  if (!props.registro) return
+  // a janela pode ser reaberta em outro dia antes de a resposta chegar: só a do último pedido entra
+  const pedido = ++pedidoContexto
+  if (!props.registro) {
+    carregandoContexto.value = false
+    aplicarSugestaoRh() // dia que só existe no RH: não há comprovantes a conferir, mas as batidas do RH entram
+    return
+  }
   carregandoContexto.value = true
   try {
     const contexto = await pontoApi.contextoAjuste(props.data)
+    if (pedido !== pedidoContexto) return
     comprovadas.value = new Set(contexto.comprovadas)
     historico.value = contexto.historico
   } catch (e) {
-    erroContexto.value = `Não foi possível conferir os comprovantes do dia: ${e.message}`
+    if (pedido !== pedidoContexto) return
+    erroContexto.value = `Não foi possível conferir os comprovantes do dia. ${mensagemDe(e)}`
   } finally {
-    carregandoContexto.value = false
+    if (pedido === pedidoContexto) carregandoContexto.value = false
   }
   aplicarSugestaoRh()
 }
@@ -189,17 +199,20 @@ async function enviar() {
   tentouEnviar.value = true
   erroServidor.value = ''
   if (!valido.value) return
+  let registro
   try {
-    const registro = await store.ajustarBatidas({
+    registro = await store.ajustarBatidas({
       data: props.data,
       horarios: finais.value.map((x) => x.horario),
       justificativa: justificativa.value.trim(),
     })
-    emit('salvo', registro)
-    emit('update:modelValue', false)
   } catch (e) {
-    erroServidor.value = e.message
+    erroServidor.value = mensagemDe(e)
+    return
   }
+  // salvou: a janela fecha antes de avisar a tela (nada depois daqui pode parecer falha da gravação)
+  emit('update:modelValue', false)
+  emit('salvo', registro)
 }
 
 const formatarMomento = (iso) =>
@@ -253,7 +266,10 @@ const listaHoras = (horarios) => (horarios.length ? horarios.join(' · ') : 'sem
             <fieldset>
               <legend class="rotulo">Batidas do dia</legend>
               <p v-if="carregandoContexto" class="mt-2 text-sm text-tinta-suave">Conferindo comprovantes…</p>
-              <p v-if="erroContexto" class="mt-2 text-sm text-carimbo">{{ erroContexto }}</p>
+              <p v-if="erroContexto" role="alert" class="mt-2 text-sm text-carimbo">
+                {{ erroContexto }}
+                <button type="button" class="ml-1 font-semibold underline underline-offset-4" @click="reiniciar">Tentar de novo</button>
+              </p>
 
               <ul class="mt-2 space-y-2">
                 <li

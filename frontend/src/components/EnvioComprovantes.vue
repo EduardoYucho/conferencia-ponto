@@ -1,6 +1,7 @@
 <script setup>
 import { ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
+import { mensagemDe } from '@/utils/erros'
 
 /**
  * Envio dos comprovantes PDF pela tela (arrastar e soltar ou escolher), para quem não tem uma pasta
@@ -19,7 +20,7 @@ const ROTULOS = {
   REJEITADO: { texto: 'recusado', classe: 'bg-carimbo/15 text-carimbo' },
   INVALIDO: { texto: 'inválido', classe: 'bg-carimbo/15 text-carimbo' },
   ENVIANDO: { texto: 'enviando…', classe: 'bg-amber-500/15 text-amber-700' },
-  ERRO: { texto: 'erro', classe: 'bg-carimbo/15 text-carimbo' },
+  ERRO: { texto: 'não enviado', classe: 'bg-carimbo/15 text-carimbo' },
 }
 /** A API aceita até 50 por envio; manda em lotes para mostrar o progresso. */
 const LOTE = 10
@@ -28,6 +29,8 @@ const itens = ref([])
 const arrastando = ref(false)
 const enviando = ref(false)
 const campo = ref(null)
+/** Arquivos soltos durante um envio não entram: a pessoa precisa saber disso para soltar de novo. */
+const ignorados = ref(0)
 
 function escolher() {
   campo.value?.click()
@@ -35,7 +38,12 @@ function escolher() {
 
 async function enviar(lista) {
   const arquivos = [...(lista ?? [])]
-  if (!arquivos.length || enviando.value) return
+  if (!arquivos.length) return
+  if (enviando.value) {
+    ignorados.value = arquivos.length
+    return
+  }
+  ignorados.value = 0
   const pdfs = arquivos.filter((a) => a.name.toLowerCase().endsWith('.pdf'))
   for (const a of arquivos.filter((x) => !pdfs.includes(x))) {
     itens.value.unshift({ nome: a.name, status: 'INVALIDO', mensagem: 'Só arquivos PDF são aceitos.' })
@@ -53,7 +61,8 @@ async function enviar(lista) {
         resultados.forEach((r, j) => Object.assign(novos[i + j], { status: r.status, mensagem: r.mensagem }))
         importados += resultados.filter((r) => r.status === 'IMPORTADO').length
       } catch (e) {
-        lote.forEach((_, j) => Object.assign(novos[i + j], { status: 'ERRO', mensagem: e.message }))
+        const motivo = mensagemDe(e)
+        lote.forEach((_, j) => Object.assign(novos[i + j], { status: 'ERRO', mensagem: motivo }))
       }
       itens.value = [...itens.value]
     }
@@ -92,6 +101,11 @@ defineExpose({ enviar })
       <p class="mt-1 text-xs text-tinta-apagada">O mesmo comprovante nunca gera batida duas vezes.</p>
       <input ref="campo" type="file" accept="application/pdf,.pdf" multiple class="sr-only" @change="enviar($event.target.files)" />
     </div>
+
+    <p v-if="ignorados" role="alert" class="mt-2 text-sm text-carimbo">
+      {{ ignorados }} arquivo(s) não entraram porque já havia um envio em andamento.
+      {{ enviando ? 'Espere terminar e solte-os de novo.' : 'Solte-os de novo.' }}
+    </p>
 
     <ul v-if="itens.length" class="mt-3 max-h-64 divide-y divide-linha/70 overflow-y-auto rounded-[3px] border border-linha text-sm" aria-live="polite">
       <li v-for="(item, i) in itens" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2">

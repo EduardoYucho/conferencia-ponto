@@ -1,21 +1,51 @@
 <script setup>
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
 import { useNotificacoesStore } from '@/stores/notificacoes'
+import { mensagemDe } from '@/utils/erros'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 
 /** Sino com os avisos do sistema (prazo do banco de horas, relatório do RH conferido). */
 const notificacoes = useNotificacoesStore()
-const { lista, naoLidas, recemChegada } = storeToRefs(notificacoes)
+const { lista, naoLidas, recemChegada, carregado } = storeToRefs(notificacoes)
 const router = useRouter()
 
 const aberto = ref(false)
 const raiz = ref(null)
 const pulsando = ref(false)
+const carregando = ref(false)
+const erroCarga = ref(null)
+/** "Marcar todos como lidos" não funcionou (a frase aparece dentro do painel). */
+const falhaAoMarcar = ref('')
 let timerPulso = null
 
+/** Enquanto os avisos não chegaram, o painel não pode dizer "nenhum aviso": ou está carregando, ou falhou. */
+const falhouCarga = computed(() => !carregado.value && !!erroCarga.value)
+
+async function carregar() {
+  carregando.value = true
+  erroCarga.value = null
+  try {
+    await notificacoes.carregar()
+  } catch (e) {
+    erroCarga.value = e
+  } finally {
+    carregando.value = false
+  }
+}
+
+async function marcarTodas() {
+  falhaAoMarcar.value = ''
+  try {
+    await notificacoes.marcarTodas()
+  } catch (e) {
+    falhaAoMarcar.value = mensagemDe(e)
+  }
+}
+
 onMounted(() => {
-  notificacoes.carregar().catch(() => {})
+  carregar()
   document.addEventListener('mousedown', aoClicarFora)
   window.addEventListener('keydown', aoTeclar)
 })
@@ -24,6 +54,9 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', aoTeclar)
   clearTimeout(timerPulso)
 })
+
+// a falha de uma tentativa anterior não fica esperando no painel reaberto
+watch(aberto, (abriu) => abriu && (falhaAoMarcar.value = ''))
 
 watch(recemChegada, (n) => {
   if (!n) return
@@ -95,11 +128,17 @@ const icone = (tipo) => (tipo === 'CONCILIACAO' ? '⇄' : tipo === 'CICLO_VENCID
             v-if="naoLidas"
             type="button"
             class="text-xs font-semibold text-tinta-suave underline underline-offset-4 hover:text-tinta"
-            @click="notificacoes.marcarTodas()"
+            @click="marcarTodas"
           >marcar todos como lidos</button>
         </div>
+        <p v-if="falhaAoMarcar" role="alert" class="border-b border-linha px-4 py-2 text-xs text-carimbo">{{ falhaAoMarcar }}</p>
+        <div v-if="falhouCarga" class="px-4 py-3">
+          <EstadoDaTela :erro="erroCarga" :carregando="carregando" @tentar="carregar" />
+        </div>
         <ul class="max-h-96 divide-y divide-linha/70 overflow-y-auto">
-          <li v-if="!lista.length" class="px-4 py-6 text-center text-sm text-tinta-suave">Nenhum aviso por enquanto.</li>
+          <li v-if="!lista.length && !falhouCarga" class="px-4 py-6 text-center text-sm text-tinta-suave">
+            {{ carregado ? 'Nenhum aviso por enquanto.' : 'Carregando…' }}
+          </li>
           <li v-for="n in lista" :key="n.id">
             <button
               type="button"

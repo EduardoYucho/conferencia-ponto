@@ -1,27 +1,40 @@
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
+import { mensagemDe } from '@/utils/erros'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 
 /**
  * Conta de serviço do Google com que o sistema grava as planilhas (administrador). A chave é um arquivo .json
  * criado no Google Cloud: é enviada uma vez e fica só no computador do servidor.
  */
 const estado = ref(null)
+const carregando = ref(false)
+/** Falha ao ler a situação da integração (com "Tentar de novo"); `erro` é a falha de uma ação. */
+const erroCarga = ref(null)
 const erro = ref('')
 const aviso = ref('')
 const ocupado = ref('') // 'enviar' | 'remover'
 const copiado = ref(false)
+/** A área de transferência não está disponível (acesso por http na rede local): a pessoa copia à mão. */
+const naoCopiou = ref(false)
 const confirmandoRemocao = ref(false)
 const campoArquivo = ref(null)
+let timerCopiado = null
 
 async function carregar() {
+  carregando.value = true
+  erroCarga.value = null
   try {
     estado.value = await pontoApi.integracaoGoogle()
   } catch (e) {
-    erro.value = e.message
+    erroCarga.value = e
+  } finally {
+    carregando.value = false
   }
 }
 onMounted(carregar)
+onBeforeUnmount(() => clearTimeout(timerCopiado))
 
 async function enviar(evento) {
   const arquivo = evento.target.files?.[0]
@@ -35,10 +48,17 @@ async function enviar(evento) {
   }
   ocupado.value = 'enviar'
   try {
-    estado.value = await pontoApi.configurarGoogle(await arquivo.text())
+    let chave
+    try {
+      chave = await arquivo.text()
+    } catch {
+      erro.value = 'Não foi possível ler este arquivo. Escolha de novo o .json baixado em "Chaves" da conta de serviço.'
+      return
+    }
+    estado.value = await pontoApi.configurarGoogle(chave)
     aviso.value = 'Chave aceita pelo Google. Agora cada pessoa vincula a planilha dela em "Minha conta".'
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
   } finally {
     ocupado.value = ''
   }
@@ -52,19 +72,21 @@ async function remover() {
     estado.value = await pontoApi.removerGoogle()
     confirmandoRemocao.value = false
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
   } finally {
     ocupado.value = ''
   }
 }
 
 async function copiarEmail() {
+  naoCopiou.value = false
   try {
     await navigator.clipboard.writeText(estado.value.email)
     copiado.value = true
-    setTimeout(() => (copiado.value = false), 2000)
+    clearTimeout(timerCopiado)
+    timerCopiado = setTimeout(() => (copiado.value = false), 2000)
   } catch {
-    // sem permissão de área de transferência: o e-mail está na tela
+    naoCopiou.value = true
   }
 }
 </script>
@@ -78,7 +100,10 @@ async function copiarEmail() {
       vez por você.
     </p>
 
-    <p v-if="!estado && !erro" class="mt-4 text-sm text-tinta-suave">Carregando…</p>
+    <!-- Ainda carregando, ou a situação da integração não pôde ser lida -->
+    <div v-if="!estado" class="mt-4">
+      <EstadoDaTela :carregando="carregando" :erro="erroCarga" @tentar="carregar" />
+    </div>
 
     <!-- Configurada -->
     <template v-if="estado?.configurada">
@@ -95,6 +120,7 @@ async function copiarEmail() {
       <p class="mt-1 flex flex-wrap items-center gap-2">
         <code class="carimbo break-all rounded-[2px] bg-papel px-2 py-1 text-xs">{{ estado.email }}</code>
         <button type="button" class="botao-secundario px-2! py-1! text-xs" @click="copiarEmail">{{ copiado ? 'copiado' : 'copiar' }}</button>
+        <span v-if="naoCopiou" role="alert" class="w-full text-xs text-carimbo">Não foi possível copiar: selecione o e-mail e copie.</span>
       </p>
       <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2">
         <button type="button" class="botao-secundario py-1.5! text-xs" :disabled="!!ocupado" @click="campoArquivo.click()">

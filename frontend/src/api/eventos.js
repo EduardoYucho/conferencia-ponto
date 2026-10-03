@@ -1,5 +1,6 @@
 import { fetchEventSource } from '@microsoft/fetch-event-source'
 import { http, tokenAtual } from './http'
+import { relatar } from '@/utils/erros'
 
 class ErroDefinitivo extends Error {}
 
@@ -8,7 +9,8 @@ class ErroDefinitivo extends Error {}
  *
  * O EventSource nativo não permite enviar o header Authorization, então o stream é lido
  * via fetch (@microsoft/fetch-event-source) com o Bearer token. Reconecta sozinho com
- * espera exponencial (1s → 30s); 401/403 encerram a assinatura.
+ * espera exponencial (1s → 30s). Só o 401 (sessão vencida) e o 403 de senha provisória encerram a assinatura:
+ * qualquer outra recusa (um proxy no caminho, o servidor subindo) é tratada como queda e tentada de novo.
  *
  * @returns {() => void} função que encerra a assinatura
  */
@@ -26,6 +28,7 @@ export function conectarEventos({
   onBanco = () => {},
   onUsuarios = () => {},
   onPlanilha = () => {},
+  onPresenca = () => {},
 } = {}) {
   const url = `${http.defaults.baseURL.replace(/\/$/, '')}/eventos`
   const controle = new AbortController()
@@ -35,7 +38,7 @@ export function conectarEventos({
     try {
       callback(JSON.parse(texto))
     } catch (erro) {
-      console.error('[SSE] payload inválido', erro)
+      relatar(erro, 'tempo real') // um evento que a tela não soube aplicar não derruba a assinatura
     }
   }
 
@@ -52,8 +55,16 @@ export function conectarEventos({
         return
       }
       if (resposta.status === 401 || resposta.status === 403) {
-        onNaoAutorizado()
-        throw new ErroDefinitivo(`HTTP ${resposta.status}`)
+        let codigo = null
+        try {
+          codigo = (await resposta.json())?.erros?.[0]?.codigo ?? null
+        } catch {
+          // sem corpo legível: decide só pelo status
+        }
+        if (resposta.status === 401 || codigo === 'TROCAR_SENHA') {
+          onNaoAutorizado(resposta.status, codigo)
+          throw new ErroDefinitivo(`HTTP ${resposta.status}`)
+        }
       }
       throw new Error(`HTTP ${resposta.status}`)
     },
@@ -70,6 +81,7 @@ export function conectarEventos({
       else if (mensagem.event === 'banco-atualizado') lerJson(mensagem.data, onBanco)
       else if (mensagem.event === 'usuarios-atualizados') lerJson(mensagem.data, onUsuarios)
       else if (mensagem.event === 'planilha-atualizada') lerJson(mensagem.data, onPlanilha)
+      else if (mensagem.event === 'presenca-atualizada') onPresenca()
     },
 
     onclose() {

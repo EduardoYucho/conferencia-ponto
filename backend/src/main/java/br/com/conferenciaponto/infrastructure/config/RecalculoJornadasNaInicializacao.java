@@ -26,9 +26,14 @@ class RecalculoJornadasNaInicializacao implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        int alterados = recalcular.executar();
-        if (alterados > 0) {
-            log.info("{} dia(s) recalculado(s) com a regra atual de cálculo", alterados);
+        try {
+            int alterados = recalcular.executar();
+            if (alterados > 0) {
+                log.info("{} dia(s) recalculado(s) com a regra atual de cálculo", alterados);
+            }
+        } catch (RuntimeException e) {
+            // um dia inconsistente não pode impedir o sistema de subir
+            log.error("Não foi possível recalcular os dias na subida; o sistema segue com os valores gravados", e);
         }
     }
 }

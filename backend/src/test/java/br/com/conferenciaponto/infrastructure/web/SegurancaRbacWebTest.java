@@ -15,6 +15,10 @@ import br.com.conferenciaponto.domain.model.VinculoPlanilha;
 import br.com.conferenciaponto.infrastructure.google.SincronizadorPlanilhas;
 import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
+import br.com.conferenciaponto.application.usecase.ConsultarPresencaUseCase;
+import br.com.conferenciaponto.application.view.PresencaView;
+import br.com.conferenciaponto.infrastructure.log.ArquivosDeLog;
+import br.com.conferenciaponto.infrastructure.log.LogsProperties;
 import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
 import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
 import br.com.conferenciaponto.application.usecase.GerenciarFeriadosUseCase;
@@ -103,7 +107,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  */
 @WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
-        FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class})
+        FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class,
+        PresencaController.class, LogController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, JwtEmissorToken.class, SegurancaRbacWebTest.Relogio.class,
         AcessoUsuarios.class})
 class SegurancaRbacWebTest {
@@ -168,6 +173,12 @@ class SegurancaRbacWebTest {
     private GerenciarPlanilhaUseCase planilhas;
     @MockitoBean
     private SincronizadorPlanilhas sincronizadorPlanilhas;
+    @MockitoBean
+    private ConsultarPresencaUseCase presenca;
+    @MockitoBean
+    private ArquivosDeLog arquivosDeLog;
+    @MockitoBean
+    private LogsProperties logsProperties;
 
     /** Usuários "do banco": coordenacao (VIEWER), maria (USER), provisoria (troca de senha); o resto é ADMIN. */
     private static Usuario doBanco(String login) {
@@ -584,5 +595,66 @@ class SegurancaRbacWebTest {
                 .andExpect(content().string(org.hamcrest.Matchers.not(org.hamcrest.Matchers.containsString("SEGREDO"))));
         verify(planilhas).configurar("{\"type\":\"service_account\",\"private_key\":\"SEGREDO\"}");
         verify(sincronizadorPlanilhas).agendarTodos();
+    }
+
+    @Test
+    @DisplayName("Equipe agora: qualquer perfil logado consulta; quem pergunta decide o detalhe (o caso de uso recebe o usuário)")
+    void presencaParaTodos() throws Exception {
+        when(presenca.agora(any())).thenAnswer(inv -> {
+            Usuario quem = inv.getArgument(0);
+            return new PresencaView(LocalDate.of(2026, 10, 2), LocalTime.of(10, 0), List.of(new PresencaView.Pessoa(
+                    idDe("maria"), quem.podeVerTodos() ? "maria" : null, "Maria", false, PresencaView.Situacao.TRABALHANDO,
+                    "Trabalhando desde 08:02", null, LocalTime.of(8, 2), "08:00–12:00 · 13:00–17:48", List.of(), false, false)));
+        });
+
+        mvc.perform(get("/api/v1/presenca")).andExpect(status().isUnauthorized());
+        for (Perfil p : Perfil.values()) {
+            String login = p == Perfil.ROLE_USER ? "maria" : p == Perfil.ROLE_VIEWER ? "coordenacao" : "eduardo";
+            mvc.perform(get("/api/v1/presenca").with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
+                    .andExpect(status().isOk())
+                    .andExpect(jsonPath("$.dados.total").value(1))
+                    .andExpect(jsonPath("$.dados.online").value(1))
+                    .andExpect(jsonPath("$.dados.offline").value(0))
+                    .andExpect(jsonPath("$.dados.pessoas[0].online").value(true))
+                    .andExpect(jsonPath("$.dados.pessoas[0].situacao").value("TRABALHANDO"))
+                    .andExpect(jsonPath("$.dados.pessoas[0].situacaoRotulo").value("Trabalhando"))
+                    .andExpect(jsonPath("$.dados.pessoas[0].motivo").value("Trabalhando desde 08:02"));
+        }
+        // escrever no painel não existe (e a coordenação nunca escreve)
+        mvc.perform(post("/api/v1/presenca").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER)))).andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("Logs: só o ADMIN lê (ao vivo e arquivos); qualquer perfil logado relata erro de tela; sem token, nada")
+    void logsSoParaAdministrador() throws Exception {
+        when(arquivosDeLog.listar()).thenReturn(List.of());
+        when(logsProperties.pastaDosUsuarios()).thenReturn(java.nio.file.Path.of("logs", "usuarios"));
+        when(logsProperties.dias()).thenReturn(30);
+        String erro = "{\"mensagem\":\"Cannot read properties of null\",\"tela\":\"/auditoria\"}";
+
+        for (String rota : List.of("/api/v1/logs/ao-vivo", "/api/v1/logs/arquivos", "/api/v1/logs/arquivo?login=maria&data=2026-10-02&hora=10")) {
+            mvc.perform(get(rota)).andExpect(status().isUnauthorized());
+            mvc.perform(get(rota).with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
+                    .andExpect(status().isForbidden());
+            mvc.perform(get(rota).with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                    .andExpect(status().isForbidden());
+        }
+        verify(arquivosDeLog, never()).ler(any(), any(), anyInt());
+
+        mvc.perform(get("/api/v1/logs/ao-vivo").with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.linhas").isArray());
+        mvc.perform(get("/api/v1/logs/arquivos").with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.diasGuardados").value(30));
+
+        mvc.perform(post("/api/v1/erros-de-tela").contentType(MediaType.APPLICATION_JSON).content(erro))
+                .andExpect(status().isUnauthorized());
+        for (Perfil p : Perfil.values()) {
+            String login = p == Perfil.ROLE_USER ? "maria" : p == Perfil.ROLE_VIEWER ? "coordenacao" : "eduardo";
+            mvc.perform(post("/api/v1/erros-de-tela").contentType(MediaType.APPLICATION_JSON).content(erro)
+                            .with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
+                    .andExpect(status().isAccepted());
+        }
     }
 }

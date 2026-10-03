@@ -7,5 +7,5 @@ import jakarta.validation.constraints.NotNull;
 public record AtualizarUsuarioRequest(
         @NotBlank(message = "Informe o nome.") String nome,
         @NotNull(message = "Escolha o perfil.") Perfil perfil,
-        boolean ativo) {
+        @NotNull(message = "Informe se o usuário está ativo.") Boolean ativo) {
 }

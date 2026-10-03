@@ -6,6 +6,8 @@ import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { salvarResposta } from '@/utils/download'
+import { mensagemDe } from '@/utils/erros'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { dataCurta, dataISO, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
 
 /**
@@ -14,7 +16,7 @@ import { dataCurta, dataISO, diaSemanaCurto, formatarDuracao, formatarSaldo, nom
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const { ultimoEvento, hoje, planilha } = storeToRefs(ponto)
+const { ultimoEvento, hoje, planilha, reconectouEm } = storeToRefs(ponto)
 const route = useRoute()
 const router = useRouter()
 
@@ -34,40 +36,60 @@ const SITUACOES = [
 
 // ------------------------------------------------------------------ filtros
 const agora = new Date()
-const ano = ref(Number(route.query.ano) || agora.getFullYear())
-const mes = ref(Number(route.query.mes) || agora.getMonth() + 1)
+
+/** Mês pedido no endereço (?ano=&mes=). Se vier algo que não é um mês de verdade, vale o mês atual. */
+function mesDoEndereco() {
+  const atual = { ano: agora.getFullYear(), mes: agora.getMonth() + 1 }
+  const a = route.query.ano === undefined ? atual.ano : Number(route.query.ano)
+  const m = route.query.mes === undefined ? atual.mes : Number(route.query.mes)
+  const valido = Number.isInteger(a) && a >= 2000 && a <= 2100 && Number.isInteger(m) && m >= 1 && m <= 12
+  return valido ? { ano: a, mes: m } : atual
+}
+const inicial = mesDoEndereco()
+const ano = ref(inicial.ano)
+const mes = ref(inicial.mes)
 const tipoDia = ref('TODOS')
 const situacao = ref('TODAS')
 const ordenacao = ref({ campo: 'data', direcao: 1 })
 
 const anos = computed(() => {
   const atual = agora.getFullYear()
-  return Array.from({ length: 5 }, (_, i) => atual - 3 + i)
+  const lista = Array.from({ length: 5 }, (_, i) => atual - 3 + i)
+  // navegando com as setas (ou vindo de um link) o ano em tela pode estar fora da lista: ele entra nela
+  if (!lista.includes(ano.value)) lista.push(ano.value)
+  return lista.sort((x, y) => x - y)
 })
 
 // ------------------------------------------------------------------ dados
+/** Dados do mês em tela; null = ainda não chegaram (carregando ou falhou). */
 const dados = ref(null)
 const carregando = ref(false)
-const erro = ref('')
+const erro = ref(null)
 const baixando = ref(new Set())
-const aviso = ref('')
+/** { texto, tipo: 'ok' | 'erro' } */
+const aviso = ref(null)
 let timerRecarga = null
 let timerAviso = null
+let pedido = 0
 
 async function carregar() {
+  // trocando de mês depressa, as respostas podem chegar fora de ordem: só a do último pedido entra na tela
+  const meu = ++pedido
   carregando.value = true
-  erro.value = ''
+  erro.value = null
   try {
-    dados.value = await pontoApi.auditoria(ano.value, mes.value)
+    const resposta = await pontoApi.auditoria(ano.value, mes.value)
+    if (meu === pedido) dados.value = resposta
   } catch (e) {
-    erro.value = e.message
+    if (meu === pedido) erro.value = e
   } finally {
-    carregando.value = false
+    if (meu === pedido) carregando.value = false
   }
 }
 
 watch([ano, mes], () => {
   router.replace({ query: { ...route.query, ano: ano.value, mes: mes.value } })
+  dados.value = null // os dias do mês anterior não ficam sob o título do mês novo
   carregar()
 }, { immediate: true })
 
@@ -87,15 +109,24 @@ watch(ultimoEvento, (evento) => {
   if (evento.origem === 'COMPROVANTE_PDF') mostrarAviso(`Atualizado agora: ${evento.mensagem}`)
 })
 
+// A conexão voltou depois de uma queda: o que mudou nesse meio-tempo não chegou por evento
+watch(reconectouEm, (momento) => momento && carregar())
+
 onBeforeUnmount(() => {
   clearTimeout(timerRecarga)
   clearTimeout(timerAviso)
 })
 
-function mostrarAviso(texto) {
-  aviso.value = texto
+/** Aviso no canto da tela. O de erro fica até ser fechado (ou até o próximo aviso); o de sucesso some sozinho. */
+function mostrarAviso(texto, tipo = 'ok') {
+  aviso.value = { texto, tipo }
   clearTimeout(timerAviso)
-  timerAviso = setTimeout(() => (aviso.value = ''), 5000)
+  if (tipo !== 'erro') timerAviso = setTimeout(() => (aviso.value = null), 5000)
+}
+
+function fecharAviso() {
+  clearTimeout(timerAviso)
+  aviso.value = null
 }
 
 // ------------------------------------------------------------------ linhas
@@ -168,20 +199,30 @@ const totais = computed(() => {
 
 const indicadores = computed(() => {
   const r = dados.value?.resumo
+  // sem os dados do mês (carregando ou falhou) os números não são zero: são desconhecidos ("—")
+  const tem = !!dados.value
   return [
     {
       rotulo: `Saldo de ${nomeMes(mes.value).toLowerCase()}`,
-      valor: formatarSaldo(r?.saldoMensalSegundos ?? 0),
-      saldo: r?.saldoMensalSegundos ?? 0,
+      valor: formatarSaldo(r?.saldoMensalSegundos),
+      saldo: r?.saldoMensalSegundos ?? null,
       detalhe: r?.segundosLancados ? `inclui ${formatarSaldo(r.segundosLancados)} lançado(s) no banco` : undefined,
     },
-    { rotulo: `Acumulado ${ano.value}`, valor: formatarSaldo(r?.saldoAnualAcumuladoSegundos ?? 0), saldo: r?.saldoAnualAcumuladoSegundos ?? 0 },
-    { rotulo: 'Dias registrados', valor: String(linhas.value.length), detalhe: r?.diasEmAberto ? `${r.diasEmAberto} em andamento` : 'todos fechados' },
-    { rotulo: 'Abonado pela tolerância', valor: formatarDuracao(linhas.value.reduce((s, l) => s + l.abonado, 0)), detalhe: `${linhas.value.reduce((s, l) => s + l.fora, 0)} batida(s) fora` },
+    { rotulo: `Acumulado ${ano.value}`, valor: formatarSaldo(r?.saldoAnualAcumuladoSegundos), saldo: r?.saldoAnualAcumuladoSegundos ?? null },
+    {
+      rotulo: 'Dias registrados',
+      valor: tem ? String(linhas.value.length) : '—',
+      detalhe: !tem ? undefined : r?.diasEmAberto ? `${r.diasEmAberto} em andamento` : 'todos fechados',
+    },
+    {
+      rotulo: 'Abonado pela tolerância',
+      valor: tem ? formatarDuracao(linhas.value.reduce((s, l) => s + l.abonado, 0)) : '—',
+      detalhe: tem ? `${linhas.value.reduce((s, l) => s + l.fora, 0)} batida(s) fora` : undefined,
+    },
     {
       rotulo: 'Comprovantes PDF',
-      valor: String(linhas.value.reduce((s, l) => s + l.comprovantes.length, 0)),
-      detalhe: ajustadasNoMes.value ? `${ajustadasNoMes.value} batida(s) ajustada(s) à mão` : 'arquivados no mês',
+      valor: tem ? String(linhas.value.reduce((s, l) => s + l.comprovantes.length, 0)) : '—',
+      detalhe: !tem ? undefined : ajustadasNoMes.value ? `${ajustadasNoMes.value} batida(s) ajustada(s) à mão` : 'arquivados no mês',
     },
   ]
 })
@@ -222,7 +263,7 @@ async function baixar(comprovante) {
   try {
     salvarResposta(await pontoApi.baixarComprovante(comprovante.id), `comprovante_${comprovante.id}.pdf`)
   } catch (e) {
-    mostrarAviso(`Falha ao baixar ${comprovante.rotulo}: ${e.message}`)
+    mostrarAviso(`Não foi possível baixar o comprovante (${comprovante.rotulo}). ${mensagemDe(e)}`, 'erro')
   } finally {
     const restante = new Set(baixando.value)
     restante.delete(comprovante.id)
@@ -248,7 +289,7 @@ async function exportarExcel() {
   try {
     salvarResposta(await pontoApi.exportarPlanilha(), `conferencia-ponto-${auth.pessoaEmTela?.login ?? 'eu'}-${dataISO()}.xlsx`)
   } catch (e) {
-    mostrarAviso(`Falha ao exportar: ${e.message}`)
+    mostrarAviso(`Não foi possível exportar. ${mensagemDe(e)}`, 'erro')
   } finally {
     exportando.value = false
   }
@@ -331,7 +372,7 @@ async function exportarExcel() {
         </select>
       </label>
       <p class="ml-auto self-center text-sm text-tinta-suave" aria-live="polite">
-        {{ filtradas.length }} de {{ linhas.length }} dia(s)
+        {{ dados ? `${filtradas.length} de ${linhas.length} dia(s)` : '' }}
       </p>
     </section>
 
@@ -344,7 +385,10 @@ async function exportarExcel() {
       </div>
     </section>
 
-    <p v-if="erro" role="alert" class="cartao mt-4 border-carimbo/50 px-5 py-3 text-carimbo">{{ erro }}</p>
+    <!-- Falha ao carregar o mês (numa recarga, os dias que já estavam na tela continuam) -->
+    <div v-if="erro" class="mt-4">
+      <EstadoDaTela :erro="erro" :carregando="carregando" manter @tentar="carregar" />
+    </div>
 
     <!-- Grade -->
     <section class="cartao mt-4 overflow-hidden" aria-label="Grade de auditoria">
@@ -369,8 +413,10 @@ async function exportarExcel() {
             </tr>
           </thead>
           <tbody>
-            <tr v-if="carregando && !linhas.length">
-              <td :colspan="TIPOS.length + 6" class="px-3 py-10 text-center text-tinta-suave">Carregando…</td>
+            <tr v-if="!dados">
+              <td :colspan="TIPOS.length + 6" class="px-3 py-10 text-center text-tinta-suave">
+                {{ carregando ? 'Carregando…' : 'Os dias deste mês não foram carregados.' }}
+              </td>
             </tr>
             <tr v-else-if="!filtradas.length">
               <td :colspan="TIPOS.length + 6" class="px-3 py-10 text-center text-tinta-suave">
@@ -509,9 +555,14 @@ async function exportarExcel() {
     >
       <div
         v-if="aviso"
-        role="status"
-        class="fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-[3px] bg-tinta px-4 py-3 text-sm font-medium text-cartao shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
-      >{{ aviso }}</div>
+        :role="aviso.tipo === 'erro' ? 'alert' : 'status'"
+        class="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-md items-start gap-3 rounded-[3px] px-4 py-3 text-sm font-medium text-cartao shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
+        :class="aviso.tipo === 'erro' ? 'bg-carimbo' : 'bg-credito'"
+      >
+        <span class="min-w-0 flex-1">{{ aviso.texto }}</span>
+        <!-- o erro não some sozinho: fica até a pessoa ler e fechar -->
+        <button v-if="aviso.tipo === 'erro'" type="button" class="shrink-0 font-semibold underline underline-offset-4" @click="fecharAviso">fechar</button>
+      </div>
     </Transition>
   </div>
 </template>

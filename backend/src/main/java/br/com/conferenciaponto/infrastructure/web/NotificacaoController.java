@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import java.util.List;
 import br.com.conferenciaponto.application.usecase.NotificacoesUseCase;
 import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
@@ -29,9 +30,13 @@ public class NotificacaoController {
         this.notificacoes = notificacoes;
     }
 
+    /** Os avisos são sempre os do próprio usuário; quem só consulta (coordenação) não tem avisos. */
     @GetMapping
     public ApiResponse<NotificacoesResponse> listar(Titular titular) {
-        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.id())));
+        if (!titular.logado().isTitular()) {
+            return ApiResponse.ok(new NotificacoesResponse(0, List.of()));
+        }
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.logado().id())));
     }
 
     @PostMapping("/{id}/lida")

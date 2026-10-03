@@ -1,6 +1,7 @@
 <script setup>
-import { computed, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
+import { mensagemDe } from '@/utils/erros'
 import {
   DIAS_HORARIO, cargaDosPeriodos, dataBR, formatarDuracao, periodosDoTexto, textoDosPeriodos,
 } from '@/utils/tempo'
@@ -36,6 +37,8 @@ const erro = ref('')
 const tentou = ref(false)
 const confirmandoRemocao = ref(null)
 const form = ref(null)
+let timerConfirmacao = null
+onBeforeUnmount(() => clearTimeout(timerConfirmacao))
 
 function periodosDe(vigencia, sigla) {
   try {
@@ -93,7 +96,9 @@ const situacaoDias = computed(() => {
       const lidos = periodosDoTexto(textoDosPeriodos(periodos))
       return [sigla, { erro: null, carga: cargaDosPeriodos(lidos) }]
     } catch (e) {
-      return [sigla, { erro: e.message, carga: 0 }]
+      // periodosDoTexto explica o problema do horário numa frase própria (Error simples); qualquer outra falha
+      // é defeito da tela e não aparece como veio
+      return [sigla, { erro: e?.name === 'Error' ? e.message : mensagemDe(e), carga: 0 }]
     }
   }))
 })
@@ -119,35 +124,43 @@ async function salvar() {
   erro.value = ''
   if (erroForm.value) return
   salvando.value = true
+  let resultado
   try {
     const f = form.value
-    const resultado = await pontoApi.salvarHorario({
+    resultado = await pontoApi.salvarHorario({
       vigenteDesde: f.vigenteDesde,
       toleranciaMinutos: Number(f.toleranciaMinutos),
       dias: Object.fromEntries(DIAS_HORARIO.map((d) => [d.sigla, textoDosPeriodos(f.dias[d.sigla])])),
     }, props.usuario)
-    editando.value = false
-    emit('salvo', resultado)
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
+    return
   } finally {
     salvando.value = false
   }
+  // salvou: nada depois daqui pode parecer falha da gravação
+  editando.value = false
+  emit('salvo', resultado)
 }
 
 async function remover(vigencia) {
   if (confirmandoRemocao.value !== vigencia.id) {
     confirmandoRemocao.value = vigencia.id
-    setTimeout(() => (confirmandoRemocao.value = null), 4000)
+    clearTimeout(timerConfirmacao)
+    timerConfirmacao = setTimeout(() => (confirmandoRemocao.value = null), 4000)
     return
   }
+  clearTimeout(timerConfirmacao)
   confirmandoRemocao.value = null
   erro.value = ''
+  let resultado
   try {
-    emit('salvo', await pontoApi.excluirHorario(vigencia.id, props.usuario))
+    resultado = await pontoApi.excluirHorario(vigencia.id, props.usuario)
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
+    return
   }
+  emit('salvo', resultado)
 }
 
 const cargaDoDia = (vigencia, sigla) => cargaDosPeriodos(periodosDe(vigencia, sigla))

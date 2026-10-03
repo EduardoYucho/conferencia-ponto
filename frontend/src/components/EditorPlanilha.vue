@@ -1,9 +1,11 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { storeToRefs } from 'pinia'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
+import { mensagemDe } from '@/utils/erros'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 
 /**
  * Planilha do Google da pessoa em tela: o sistema reescreve as abas (resumo + um mês por aba) a cada mudança no
@@ -18,15 +20,29 @@ const props = defineProps({
 
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const { planilha } = storeToRefs(ponto)
+const { planilha, erroPlanilha } = storeToRefs(ponto)
 
 const link = ref('')
 const trocando = ref(false)
 const ocupado = ref('') // 'conectar' | 'atualizar' | 'desconectar'
 const erro = ref('')
 const copiado = ref(false)
+/** A área de transferência não está disponível (acesso por http na rede local): a pessoa copia à mão. */
+const naoCopiou = ref(false)
+const carregando = ref(false)
+let timerCopiado = null
 
-onMounted(() => ponto.carregarPlanilha())
+/** A situação da planilha vem da store (o tempo real a mantém em dia); se a leitura falhar, fica em `erroPlanilha`. */
+async function carregar() {
+  carregando.value = true
+  try {
+    await ponto.carregarPlanilha()
+  } finally {
+    carregando.value = false
+  }
+}
+onMounted(carregar)
+onBeforeUnmount(() => clearTimeout(timerCopiado))
 
 const vinculada = computed(() => !!planilha.value?.url)
 const semIntegracao = computed(() => planilha.value?.situacao === 'SEM_INTEGRACAO')
@@ -58,7 +74,7 @@ async function executar(acao, chamada) {
     planilha.value = await chamada()
     return true
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
     return false
   } finally {
     ocupado.value = ''
@@ -76,18 +92,28 @@ const atualizar = () => executar('atualizar', () => pontoApi.sincronizarPlanilha
 const desconectar = () => executar('desconectar', () => pontoApi.desvincularPlanilha(props.usuario))
 
 async function copiarEmail() {
+  naoCopiou.value = false
   try {
     await navigator.clipboard.writeText(planilha.value.emailServico)
     copiado.value = true
-    setTimeout(() => (copiado.value = false), 2000)
+    clearTimeout(timerCopiado)
+    timerCopiado = setTimeout(() => (copiado.value = false), 2000)
   } catch {
-    // sem permissão de área de transferência: o e-mail está na tela para copiar à mão
+    naoCopiou.value = true
   }
 }
 </script>
 
 <template>
   <div>
+    <!-- Ainda carregando, ou a situação da planilha não pôde ser lida -->
+    <EstadoDaTela
+      v-if="!planilha"
+      :carregando="carregando || !erroPlanilha"
+      :erro="erroPlanilha"
+      @tentar="carregar"
+    />
+
     <!-- Integração ainda não configurada pelo administrador -->
     <p v-if="semIntegracao && !vinculada" class="text-sm text-tinta-suave">
       A integração com o Google Sheets ainda não foi configurada.
@@ -143,6 +169,7 @@ async function copiarEmail() {
           <span class="mt-1 flex flex-wrap items-center gap-2">
             <code class="carimbo break-all rounded-[2px] bg-papel px-2 py-1 text-xs">{{ planilha.emailServico }}</code>
             <button type="button" class="botao-secundario px-2! py-1! text-xs" @click="copiarEmail">{{ copiado ? 'copiado' : 'copiar' }}</button>
+            <span v-if="naoCopiou" role="alert" class="w-full text-xs text-carimbo">Não foi possível copiar: selecione o e-mail e copie.</span>
           </span>
         </li>
         <li>

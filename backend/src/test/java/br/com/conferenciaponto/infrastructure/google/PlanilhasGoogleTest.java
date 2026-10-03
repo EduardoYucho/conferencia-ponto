@@ -285,7 +285,10 @@ class PlanilhasGoogleTest {
         google.falharCom(400, "INVALID_ARGUMENT", "Invalid requests[0].updateCells: algo errado", null);
         assertThat(catchThrowableOfType(PlanilhaRemotaException.class, () -> planilhas.verificar(ID)))
                 .satisfies(e -> assertThat(e.getCodigo()).isEqualTo("GOOGLE_RECUSOU"))
-                .hasMessageContaining("algo errado");
+                // o detalhe do Google (técnico, em inglês) fica no log; a pessoa lê o que fazer
+                .hasMessageContaining("O Google recusou a gravação da planilha")
+                .hasMessageContaining("Atualizar agora")
+                .satisfies(e -> assertThat(e.getMessage()).doesNotContain("algo errado"));
     }
 
     @Test

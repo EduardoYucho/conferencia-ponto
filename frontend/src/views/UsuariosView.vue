@@ -1,11 +1,13 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import IntegracaoGoogle from '@/components/IntegracaoGoogle.vue'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
+import { mensagemDe } from '@/utils/erros'
 
 /**
  * Cadastro de usuários (administrador). Cada pessoa tem o próprio acesso, horário, banco de horas e pasta de
@@ -25,16 +27,34 @@ const rotuloPerfil = (valor) => PERFIS.find((p) => p.valor === valor)?.rotulo ??
 
 const usuarios = ref([])
 const carregando = ref(false)
-const erro = ref('')
+/** Falha ao carregar a lista (com "Tentar de novo"). As falhas das ações aparecem junto de cada ação. */
+const erroLista = ref(null)
+const erroNovo = ref('')
+const erroEdicao = ref('')
+/** "Redefinir senha" falhou: { id, mensagem }, mostrado na linha da pessoa. */
+const falhaNaLinha = ref(null)
 const aviso = ref('')
+let timerAviso = null
+let timerConfirmacao = null
+onBeforeUnmount(() => {
+  clearTimeout(timerAviso)
+  clearTimeout(timerConfirmacao)
+})
+
+/** No início de cada ação: o erro de uma ação anterior não fica na tela depois de outra tentativa. */
+function limparErrosDeAcao() {
+  erroNovo.value = ''
+  erroEdicao.value = ''
+  falhaNaLinha.value = null
+}
 
 async function carregar() {
   carregando.value = true
-  erro.value = ''
+  erroLista.value = null
   try {
     usuarios.value = await pontoApi.usuarios()
   } catch (e) {
-    erro.value = e.message
+    erroLista.value = e
   } finally {
     carregando.value = false
   }
@@ -59,6 +79,7 @@ function senhaAleatoria() {
 }
 
 function abrirNovo() {
+  limparErrosDeAcao()
   novo.value = { nome: '', login: '', perfil: 'ROLE_USER', senhaProvisoria: senhaAleatoria(), pastaComprovantes: '' }
   tentouNovo.value = false
   credenciais.value = null
@@ -85,24 +106,30 @@ const errosNovo = computed(() => {
 
 async function criar() {
   tentouNovo.value = true
+  limparErrosDeAcao()
   if (Object.values(errosNovo.value).some(Boolean)) return
   salvandoNovo.value = true
-  erro.value = ''
   try {
     const n = novo.value
-    const criado = await pontoApi.criarUsuario({
+    const enviado = {
       nome: n.nome.trim(),
       login: n.login.trim().toLowerCase(),
       perfil: n.perfil,
       senhaProvisoria: n.senhaProvisoria,
       pastaComprovantes: n.perfil === 'ROLE_VIEWER' ? null : (n.pastaComprovantes.trim() || null),
-    })
-    credenciais.value = { nome: criado.nome, login: criado.login, senha: n.senhaProvisoria }
+    }
+    let criado
+    try {
+      criado = await pontoApi.criarUsuario(enviado)
+    } catch (e) {
+      erroNovo.value = mensagemDe(e)
+      return
+    }
+    // criou: o que vem depois (recarregar a lista) não pode parecer falha da criação
+    credenciais.value = { nome: criado?.nome ?? enviado.nome, login: criado?.login ?? enviado.login, senha: n.senhaProvisoria }
     novoAberto.value = false
     await carregar()
     auth.carregarTitulares().catch(() => {})
-  } catch (e) {
-    erro.value = e.message
   } finally {
     salvandoNovo.value = false
   }
@@ -124,25 +151,30 @@ const editando = ref(null)
 const salvandoEdicao = ref(false)
 
 function editar(u) {
+  limparErrosDeAcao()
   editando.value = { id: u.id, nome: u.nome, perfil: u.perfil, ativo: u.ativo, login: u.login }
 }
 
 async function salvarEdicao() {
   const e = editando.value
+  limparErrosDeAcao()
   if (!e.nome.trim()) {
-    erro.value = 'Informe o nome.'
+    erroEdicao.value = 'Informe o nome.'
     return
   }
   salvandoEdicao.value = true
-  erro.value = ''
   try {
-    await pontoApi.atualizarUsuario(e.id, { nome: e.nome.trim(), perfil: e.perfil, ativo: e.ativo })
+    try {
+      await pontoApi.atualizarUsuario(e.id, { nome: e.nome.trim(), perfil: e.perfil, ativo: e.ativo })
+    } catch (ex) {
+      erroEdicao.value = mensagemDe(ex)
+      return
+    }
+    // salvou: o que vem depois (recarregar a lista) não pode parecer falha da gravação
     editando.value = null
     mostrar('Usuário atualizado.')
     await carregar()
     auth.carregarTitulares().catch(() => {})
-  } catch (ex) {
-    erro.value = ex.message
   } finally {
     salvandoEdicao.value = false
   }
@@ -150,20 +182,24 @@ async function salvarEdicao() {
 
 const confirmandoSenha = ref(null)
 async function redefinirSenha(u) {
+  limparErrosDeAcao()
   if (confirmandoSenha.value !== u.id) {
     confirmandoSenha.value = u.id
-    setTimeout(() => (confirmandoSenha.value = null), 4000)
+    clearTimeout(timerConfirmacao)
+    timerConfirmacao = setTimeout(() => (confirmandoSenha.value = null), 4000)
     return
   }
+  clearTimeout(timerConfirmacao)
   confirmandoSenha.value = null
   const senha = senhaAleatoria()
   try {
     await pontoApi.redefinirSenha(u.id, senha)
-    credenciais.value = { nome: u.nome, login: u.login, senha }
-    await carregar()
   } catch (e) {
-    erro.value = e.message
+    falhaNaLinha.value = { id: u.id, mensagem: mensagemDe(e) }
+    return
   }
+  credenciais.value = { nome: u.nome, login: u.login, senha }
+  await carregar()
 }
 
 // --------------------------------------------------------------- navegação
@@ -174,11 +210,10 @@ function verDados(u, rota = 'painel') {
 }
 
 // ------------------------------------------------------------------- apoio
-let timer = null
 function mostrar(texto) {
   aviso.value = texto
-  clearTimeout(timer)
-  timer = setTimeout(() => (aviso.value = ''), 4000)
+  clearTimeout(timerAviso)
+  timerAviso = setTimeout(() => (aviso.value = ''), 4000)
 }
 
 const MONITOR = {
@@ -195,13 +230,16 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
   <div class="mx-auto max-w-6xl px-4 pb-16 sm:px-6">
     <header class="flex flex-wrap items-end justify-between gap-4 border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
       <div>
-        <p class="rotulo">Administração · {{ ativos }} usuário(s) ativo(s)</p>
+        <p class="rotulo">Administração<template v-if="usuarios.length"> · {{ ativos }} usuário(s) ativo(s)</template></p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Usuários</h1>
       </div>
       <button type="button" class="botao-primario" @click="abrirNovo">Novo usuário</button>
     </header>
 
-    <p v-if="erro" role="alert" class="mt-6 rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo">{{ erro }}</p>
+    <!-- Falha ao carregar a lista (numa recarga, as pessoas que já estavam na tela continuam) -->
+    <div v-if="erroLista" class="mt-6">
+      <EstadoDaTela :erro="erroLista" :carregando="carregando" manter @tentar="carregar" />
+    </div>
 
     <!-- Dados para repassar -->
     <section v-if="credenciais" class="cartao mt-6 border-credito/50 px-5 py-4" aria-live="polite">
@@ -267,6 +305,7 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
         O usuário começa com o horário padrão (segunda a sexta, 08:00–12:00 e 13:00–17:48), que pode ser alterado
         por ele ou por você.
       </p>
+      <p v-if="erroNovo" role="alert" class="rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo sm:col-span-2">{{ erroNovo }}</p>
       <div class="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
         <button type="button" class="botao-secundario" :disabled="salvandoNovo" @click="novoAberto = false">Cancelar</button>
         <button type="submit" class="botao-primario" :disabled="salvandoNovo">{{ salvandoNovo ? 'Criando…' : 'Criar usuário' }}</button>
@@ -286,7 +325,9 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
           </tr>
         </thead>
         <tbody>
-          <tr v-if="carregando && !usuarios.length"><td colspan="5" class="px-4 py-6 text-center text-tinta-suave">Carregando…</td></tr>
+          <tr v-if="!usuarios.length && (carregando || erroLista)">
+            <td colspan="5" class="px-4 py-6 text-center text-tinta-suave">{{ carregando ? 'Carregando…' : 'A lista de usuários não foi carregada.' }}</td>
+          </tr>
           <template v-for="u in usuarios" :key="u.id">
             <tr class="border-b border-linha/70 align-top" :class="u.ativo ? '' : 'opacity-55'">
               <td class="px-4 py-2.5">
@@ -321,6 +362,7 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
                   :class="confirmandoSenha === u.id ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
                   @click="redefinirSenha(u)"
                 >{{ confirmandoSenha === u.id ? 'Gerar senha provisória?' : 'Redefinir senha' }}</button>
+                <p v-if="falhaNaLinha?.id === u.id" role="alert" class="mt-1 max-w-[22rem] text-left text-xs whitespace-normal text-carimbo sm:ml-auto">{{ falhaNaLinha.mensagem }}</p>
               </td>
             </tr>
             <tr v-if="editando?.id === u.id" class="border-b border-linha/70 bg-papel/50">
@@ -346,6 +388,7 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
                   <p v-if="!editando.ativo && u.ativo" class="w-full text-xs text-tinta-suave">
                     Desativado, o usuário não entra mais e a pasta dele deixa de ser monitorada. O histórico de ponto fica guardado.
                   </p>
+                  <p v-if="erroEdicao" role="alert" class="w-full text-sm text-carimbo">{{ erroEdicao }}</p>
                 </form>
               </td>
             </tr>

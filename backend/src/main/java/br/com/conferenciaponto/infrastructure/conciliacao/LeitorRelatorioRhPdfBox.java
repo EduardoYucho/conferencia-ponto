@@ -47,6 +47,8 @@ import java.util.regex.Pattern;
 @Component
 public class LeitorRelatorioRhPdfBox implements LeitorRelatorioRh {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(LeitorRelatorioRhPdfBox.class);
+
     private static final Pattern DATA_INICIO = Pattern.compile("^(\\d{2}/\\d{2}/\\d{4})(.*)$");
     private static final Pattern HORARIO = Pattern.compile("-?\\d{2,4}:\\d{2}:\\d{2}");
     private static final Pattern EMISSAO = Pattern.compile("(\\d{2}/\\d{2}/\\d{4})\\s+(\\d{2}:\\d{2}:\\d{2})");
@@ -87,10 +89,18 @@ public class LeitorRelatorioRhPdfBox implements LeitorRelatorioRh {
             linhas = agrupar(coletor.palavras);
         } catch (InvalidPasswordException e) {
             throw invalido("O PDF está protegido por senha.");
-        } catch (IOException e) {
-            throw invalido("Não foi possível ler o PDF: " + e.getMessage());
+        } catch (IOException | RuntimeException e) {
+            log.warn("Relatório do RH ilegível: {}", e.toString());
+            throw invalido("O arquivo não é um PDF válido ou está danificado. Baixe o relatório de novo no sistema "
+                    + "do RH e envie outra vez.");
         }
-        return interpretar(linhas);
+        try {
+            return interpretar(linhas);
+        } catch (java.time.DateTimeException e) {
+            log.warn("Relatório do RH com data ou hora fora do padrão: {}", e.toString());
+            throw invalido("O PDF não parece ser o \"Relatório de Banco de Horas\" do RH: há uma data ou hora fora "
+                    + "do formato esperado.");
+        }
     }
 
     RelatorioRhLido interpretar(List<Linha> linhas) {

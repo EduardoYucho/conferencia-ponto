@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
+import br.com.conferenciaponto.infrastructure.log.ContextoDeLog;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
 import br.com.conferenciaponto.application.usecase.GerenciarUsuariosUseCase;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -97,9 +98,11 @@ public class GerenciadorMonitoresPdf {
             return;
         }
         Map<UUID, String> desejados = new LinkedHashMap<>();
+        Map<UUID, String> logins = new LinkedHashMap<>();
         for (Usuario u : usuarios.listar()) {
             if (u.ativo() && u.isTitular() && u.pastaComprovantes() != null) {
                 desejados.put(u.id(), u.pastaComprovantes());
+                logins.put(u.id(), u.login());
             }
         }
         monitores.forEach((usuarioId, monitor) -> {
@@ -124,7 +127,19 @@ public class GerenciadorMonitoresPdf {
                     properties.processarExistentes(), properties.varreduraPeriodica(),
                     properties.intervaloReconexao(), processador.doUsuario(usuarioId), eventos);
             monitores.put(usuarioId, monitor);
-            threads.execute(monitor::monitorar);
+            String login = logins.getOrDefault(usuarioId, ContextoDeLog.SISTEMA);
+            threads.execute(() -> ContextoDeLog.comUsuario(login, () -> {
+                try {
+                    monitor.monitorar();
+                } catch (Throwable e) {
+                    // nada deveria escapar do monitor: registra e libera a vaga para ele ser recriado
+                    log.error("O monitor da pasta {} parou por um erro inesperado", monitor.getDiretorio(), e);
+                    monitores.remove(usuarioId, monitor);
+                    if (e instanceof Error erro && !(e instanceof StackOverflowError)) {
+                        throw erro;
+                    }
+                }
+            }));
         });
     }
 

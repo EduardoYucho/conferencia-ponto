@@ -51,6 +51,8 @@ import java.util.stream.Collectors;
 @Service
 public class ResolverDivergenciaUseCase {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(ResolverDivergenciaUseCase.class);
+
     private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final DivergenciaRepository divergencias;
@@ -95,7 +97,7 @@ public class ResolverDivergenciaUseCase {
      * @return a divergência depois do aceite (ACEITO_RH, ou pendente de outro tipo se sobrou diferença)
      */
     @Transactional
-    public Divergencia aceitarRh(UUID usuarioId, UUID id, String usuario) {
+    public Divergencia aceitarRh(UUID usuarioId, UUID id, String usuario, boolean administrador) {
         Divergencia d = pendente(usuarioId, id);
         DiaVigente vigente = relatorios.vigentes(usuarioId, d.data(), d.data()).stream().findFirst()
                 .orElseThrow(() -> new ConflitoException("DIVERGENCIA_SEM_RELATORIO",
@@ -112,6 +114,12 @@ public class ResolverDivergenciaUseCase {
                 OcorrenciaRh ocorrencia = vigente.dia().tipoOcorrencia().orElseThrow(() -> new RegraNegocioException(
                         "DIVERGENCIA_NAO_ACEITAVEL", "O RH não indica feriado nem ausência neste dia."));
                 if (ocorrencia == OcorrenciaRh.FERIADO) {
+                    if (!administrador) {
+                        // feriado vale para todos: mudaria o dia e o saldo das outras pessoas
+                        throw new RegraNegocioException("FERIADO_SO_ADMINISTRADOR", ("O RH marca %s como feriado. Feriado "
+                                + "vale para todos: peça ao administrador para cadastrá-lo em \"Folgas e feriados\" "
+                                + "(esta divergência some sozinha depois).").formatted(DATA.format(d.data())));
+                    }
                     aceitarFeriado(d.data(), vigente.dia());
                 } else {
                     TipoAusencia tipo = ocorrencia.ausencia().orElseThrow(() -> new RegraNegocioException(
@@ -178,7 +186,7 @@ public class ResolverDivergenciaUseCase {
      * transação: um dia que não puder ser aceito não impede os demais).
      */
     public ResultadoLote aceitarEmLote(UUID usuarioId, Set<TipoDivergencia> tipos, LocalDate inicio, LocalDate fim,
-                                       String usuario) {
+                                       String usuario, boolean administrador) {
         List<Divergencia> alvo = divergencias.listar(usuarioId, StatusDivergencia.PENDENTE, inicio, fim).stream()
                 .filter(d -> tipos.contains(d.tipo()) && d.aceitavel())
                 .sorted(Comparator.comparing(Divergencia::data))
@@ -190,7 +198,7 @@ public class ResolverDivergenciaUseCase {
                 Boolean aceita = transacao.execute(status -> {
                     boolean aindaPendente = divergencias.buscarPorId(d.id()).map(Divergencia::isPendente).orElse(false);
                     if (aindaPendente) { // pode ter sido resolvida junto com outro dia (ex.: período de férias)
-                        aceitarRh(usuarioId, d.id(), usuario);
+                        aceitarRh(usuarioId, d.id(), usuario, administrador);
                     }
                     return aindaPendente;
                 });
@@ -200,7 +208,9 @@ public class ResolverDivergenciaUseCase {
             } catch (DominioException e) {
                 falhas.add(new ResultadoLote.Falha(d.data(), d.tipo(), e.getMessage()));
             } catch (RuntimeException e) {
-                falhas.add(new ResultadoLote.Falha(d.data(), d.tipo(), "Erro inesperado: " + e.getMessage()));
+                log.error("Aceite em lote: falha no dia {} ({}) do usuário {}", d.data(), d.tipo(), usuarioId, e);
+                falhas.add(new ResultadoLote.Falha(d.data(), d.tipo(),
+                        "Não foi possível aceitar este dia agora. Tente aceitá-lo individualmente."));
             }
         }
         publicar(usuarioId, "%d divergência(s) aceita(s) em lote".formatted(aceitas));

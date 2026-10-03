@@ -46,7 +46,15 @@ class ConciliacaoEmSegundoPlano {
                         r.diasConferidos(), r.novas(), r.resolvidas());
             }
         } catch (RuntimeException e) {
-            log.warn("Falha ao reconferir a conciliação com o RH na subida: {}", e.getMessage());
+            log.warn("Falha ao reconferir a conciliação com o RH na subida", e);
+        }
+        try {
+            // relatório recebido e ainda não conferido (o sistema parou no meio): confere agora
+            for (java.util.UUID pendente : conferir.relatoriosPorConferir()) {
+                aoReceberRelatorio(new RelatorioRhRecebidoEvento(pendente));
+            }
+        } catch (RuntimeException e) {
+            log.warn("Falha ao retomar os relatórios do RH que estavam por conferir", e);
         }
     }
 
@@ -57,8 +65,13 @@ class ConciliacaoEmSegundoPlano {
             ConferirConciliacaoUseCase.Resultado r = conferir.processarRelatorio(evento.relatorioId());
             log.info("Relatório do RH conferido: {} dia(s), {} divergência(s) nova(s)", r.diasConferidos(), r.novas());
         } catch (RuntimeException e) {
-            log.warn("Falha ao conferir o relatório do RH {}", evento.relatorioId(), e);
-            conferir.marcarErro(evento.relatorioId(), "Falha ao conferir: " + e.getMessage());
+            log.error("Falha ao conferir o relatório do RH {}", evento.relatorioId(), e);
+            try {
+                conferir.marcarErro(evento.relatorioId(), "Não foi possível conferir este relatório (erro interno). "
+                        + "Remova-o e envie de novo; se continuar, avise o administrador.");
+            } catch (RuntimeException falha) {
+                log.error("O relatório do RH {} não pôde ser marcado com erro", evento.relatorioId(), falha);
+            }
         }
     }
 
@@ -91,7 +104,7 @@ class ConciliacaoEmSegundoPlano {
         try {
             acao.run();
         } catch (RuntimeException e) {
-            log.warn("Falha ao reconferir a conciliação: {}", e.getMessage());
+            log.warn("Falha ao reconferir a conciliação (a lista de divergências pode estar desatualizada: use Reconferir)", e);
         }
     }
 }

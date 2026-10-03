@@ -2,6 +2,7 @@
 import { nextTick, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
+import { mensagemDe } from '@/utils/erros'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -20,6 +21,7 @@ onMounted(async () => {
 
 async function entrar() {
   erro.value = ''
+  auth.avisoDeSaida = null
   if (!login.value.trim() || !senha.value) {
     erro.value = 'Informe login e senha.'
     return
@@ -32,7 +34,7 @@ async function entrar() {
       : auth.rotaInicial()
     router.replace(destino)
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
     senha.value = ''
   } finally {
     enviando.value = false
@@ -67,6 +69,14 @@ async function entrar() {
           <input v-model="senha" type="password" class="campo mt-1.5" autocomplete="current-password" :aria-invalid="!!erro" />
         </label>
       </div>
+
+      <p
+        v-if="auth.avisoDeSaida && !erro"
+        role="status"
+        class="mt-4 rounded-[3px] border border-amber-600/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-900"
+      >
+        {{ auth.avisoDeSaida }}
+      </p>
 
       <p v-if="erro" role="alert" class="mt-4 rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo">
         {{ erro }}

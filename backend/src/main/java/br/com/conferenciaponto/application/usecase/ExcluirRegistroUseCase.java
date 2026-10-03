@@ -36,12 +36,12 @@ public class ExcluirRegistroUseCase {
     public void executar(UUID usuarioId, LocalDate data) {
         RegistroJornada registro = repository.buscarPorData(usuarioId, data)
                 .orElseThrow(() -> new RecursoNaoEncontradoException("REGISTRO_NAO_ENCONTRADO",
-                        "Não há registro de jornada em %s.".formatted(data)));
+                        "Não há registro de jornada em %s.".formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(data))));
         long comprovantes = arquivos.contarPorRegistro(registro.getId());
         if (comprovantes > 0) {
             throw new ConflitoException("REGISTRO_COM_COMPROVANTES",
                     "O dia %s tem %d comprovante(s) PDF arquivado(s) e não pode ser excluído (trilha de auditoria)."
-                            .formatted(data, comprovantes));
+                            .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(data), comprovantes));
         }
         repository.excluir(registro);
         eventos.publishEvent(new JornadaAtualizadaEvento(usuarioId, data, OrigemAtualizacao.EXCLUSAO, null, null));

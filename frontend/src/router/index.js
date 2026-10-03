@@ -1,17 +1,22 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import DashboardView from '@/views/DashboardView.vue'
+// Fora do carregamento sob demanda: é para o login que a aba volta quando algo dá errado (sessão vencida,
+// sistema atualizado), e nessa hora os arquivos antigos das outras telas podem não existir mais.
+import LoginView from '@/views/LoginView.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
   // links para uma seção (ex.: /usuarios#google) rolam até ela
   scrollBehavior: (destino) => (destino.hash ? { el: destino.hash, behavior: 'smooth' } : undefined),
   routes: [
-    { path: '/login', name: 'login', component: () => import('@/views/LoginView.vue'), meta: { publica: true } },
+    { path: '/login', name: 'login', component: LoginView, meta: { publica: true } },
     { path: '/', name: 'painel', component: DashboardView },
     { path: '/auditoria', name: 'auditoria', component: () => import('@/views/AuditoriaView.vue') },
     { path: '/conciliacao', name: 'conciliacao', component: () => import('@/views/ConciliacaoView.vue') },
     { path: '/ausencias', name: 'ausencias', component: () => import('@/views/AusenciasView.vue') },
+    { path: '/equipe', name: 'equipe', component: () => import('@/views/EquipeView.vue') },
+    { path: '/logs', name: 'logs', component: () => import('@/views/LogsView.vue'), meta: { admin: true } },
     { path: '/conta', name: 'conta', component: () => import('@/views/MinhaContaView.vue') },
     { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { admin: true } },
     {

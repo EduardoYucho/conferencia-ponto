@@ -1,9 +1,11 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { dataBR, diaSemanaCurto } from '@/utils/tempo'
+import { mensagemDe } from '@/utils/erros'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 
 /**
  * Férias, atestados, licenças, folgas, abonos e feriados: os dias úteis ficam com jornada base zero
@@ -22,23 +24,46 @@ const TIPOS = [
 
 const lista = ref([])
 const carregando = ref(false)
-const erro = ref('')
+/** A lista de períodos já chegou (antes disso não dá para dizer "nenhuma ausência": é desconhecido). */
+const listaCarregada = ref(false)
+/** Falha ao carregar os períodos (aparece na própria lista, com "Tentar de novo"). */
+const erroLista = ref(null)
+/** O servidor recusou o cadastro (aparece dentro do formulário). */
+const erroCadastro = ref('')
+/** A remoção de uma linha falhou: { chave, mensagem }, mostrado na própria linha. */
+const falhaNaLinha = ref(null)
 const aviso = ref('')
 const salvando = ref(false)
 const confirmando = ref(null)
 const form = ref({ dataInicio: '', dataFim: '', tipo: 'FERIAS', descricao: '' })
 const tentou = ref(false)
+let timerAviso = null
+let timerConfirmacao = null
+let timerConfirmacaoFeriado = null
+onBeforeUnmount(() => {
+  clearTimeout(timerAviso)
+  clearTimeout(timerConfirmacao)
+  clearTimeout(timerConfirmacaoFeriado)
+})
+
+/** No início de cada ação: o erro de uma ação anterior não fica na tela depois de outra tentativa. */
+function limparErrosDeAcao() {
+  erroCadastro.value = ''
+  erroCadastroFeriado.value = ''
+  falhaNaLinha.value = null
+}
 
 const anoAtual = new Date().getFullYear()
 const intervalo = { inicio: `${anoAtual - 2}-01-01`, fim: `${anoAtual + 1}-12-31` }
 
 async function carregar() {
   carregando.value = true
-  erro.value = ''
+  erroLista.value = null
   try {
     lista.value = (await pontoApi.ausencias(intervalo.inicio, intervalo.fim)).slice().reverse()
+    listaCarregada.value = true
   } catch (e) {
-    erro.value = e.message
+    erroLista.value = e
   } finally {
     carregando.value = false
   }
@@ -65,41 +90,49 @@ function aoMudarInicio() {
 
 async function cadastrar() {
   tentou.value = true
+  limparErrosDeAcao()
   if (erroForm.value) return
   salvando.value = true
-  erro.value = ''
   try {
-    const nova = await pontoApi.cadastrarAusencia({ ...form.value, descricao: form.value.descricao.trim() || null })
-    mostrarAviso(`${nova.tipoRotulo} de ${dataBR(nova.dataInicio)} a ${dataBR(nova.dataFim)} cadastrada: os dias úteis não geram débito.`)
+    let nova
+    try {
+      nova = await pontoApi.cadastrarAusencia({ ...form.value, descricao: form.value.descricao.trim() || null })
+    } catch (e) {
+      erroCadastro.value = mensagemDe(e)
+      return
+    }
+    // cadastrou: o que vem depois (recarregar a lista, atualizar os saldos) não pode parecer falha do cadastro
+    mostrarAviso(`${nova?.tipoRotulo ?? 'Ausência'} de ${dataBR(nova?.dataInicio)} a ${dataBR(nova?.dataFim)} cadastrada: os dias úteis não geram débito.`)
     form.value = { dataInicio: '', dataFim: '', tipo: form.value.tipo, descricao: '' }
     tentou.value = false
     await carregar()
-    ponto.atualizarSaldos()
-  } catch (e) {
-    erro.value = e.message
+    ponto.atualizarSaldos() // se falhar, o aviso geral da tela oferece "Atualizar agora"
   } finally {
     salvando.value = false
   }
 }
 
 async function excluir(a) {
+  limparErrosDeAcao()
   if (confirmando.value !== a.id) {
     confirmando.value = a.id
-    setTimeout(() => confirmando.value === a.id && (confirmando.value = null), 4000)
+    clearTimeout(timerConfirmacao)
+    timerConfirmacao = setTimeout(() => (confirmando.value = null), 4000)
     return
   }
+  clearTimeout(timerConfirmacao)
   confirmando.value = null
   try {
     await pontoApi.excluirAusencia(a.id)
-    mostrarAviso(`${a.tipoRotulo} de ${dataBR(a.dataInicio)} removida: os dias voltam a ser úteis.`)
-    await carregar()
-    ponto.atualizarSaldos()
   } catch (e) {
-    erro.value = e.message
+    falhaNaLinha.value = { chave: `ausencia-${a.id}`, mensagem: mensagemDe(e) }
+    return
   }
+  mostrarAviso(`${a.tipoRotulo} de ${dataBR(a.dataInicio)} removida: os dias voltam a ser úteis.`)
+  await carregar()
+  ponto.atualizarSaldos() // se falhar, o aviso geral da tela oferece "Atualizar agora"
 }
 
-let timerAviso = null
 function mostrarAviso(texto) {
   aviso.value = texto
   clearTimeout(timerAviso)
@@ -124,27 +157,44 @@ const ABRANGENCIAS = [
 const anoFeriados = ref(anoAtual)
 const feriados = ref([])
 const carregandoFeriados = ref(false)
+/** Os feriados do ano em tela já chegaram (antes disso não dá para dizer "nenhum feriado"). */
+const feriadosCarregados = ref(false)
+const erroFeriados = ref(null)
+const erroCadastroFeriado = ref('')
+let pedidoFeriados = 0
 const formFeriado = ref({ data: '', descricao: '', abrangencia: 'MUNICIPAL' })
 const tentouFeriado = ref(false)
 const salvandoFeriado = ref(false)
 const confirmandoFeriado = ref(null)
 
 async function carregarFeriados() {
+  // trocando de ano depressa, as respostas podem chegar fora de ordem: só a do último pedido entra na tela
+  const pedido = ++pedidoFeriados
   carregandoFeriados.value = true
+  erroFeriados.value = null
   try {
-    feriados.value = await pontoApi.feriados(`${anoFeriados.value}-01-01`, `${anoFeriados.value}-12-31`)
+    const doAno = await pontoApi.feriados(`${anoFeriados.value}-01-01`, `${anoFeriados.value}-12-31`)
+    if (pedido !== pedidoFeriados) return
+    feriados.value = doAno
+    feriadosCarregados.value = true
   } catch (e) {
-    erro.value = e.message
+    if (pedido === pedidoFeriados) erroFeriados.value = e
   } finally {
-    carregandoFeriados.value = false
+    if (pedido === pedidoFeriados) carregandoFeriados.value = false
   }
 }
 onMounted(carregarFeriados)
 
-function mudarAnoFeriados(delta) {
-  anoFeriados.value += delta
-  carregarFeriados()
+/** Troca o ano em tela: os feriados do ano anterior não ficam sob o ano novo. */
+function mostrarFeriadosDe(ano) {
+  anoFeriados.value = ano
+  feriados.value = []
+  feriadosCarregados.value = false
+  falhaNaLinha.value = null
+  return carregarFeriados()
 }
+
+const mudarAnoFeriados = (delta) => mostrarFeriadosDe(anoFeriados.value + delta)
 
 const erroFeriado = computed(() => {
   if (!formFeriado.value.data) return 'Informe a data.'
@@ -154,40 +204,51 @@ const erroFeriado = computed(() => {
 
 async function cadastrarFeriado() {
   tentouFeriado.value = true
+  limparErrosDeAcao()
   if (erroFeriado.value) return
   salvandoFeriado.value = true
-  erro.value = ''
   try {
-    const novo = await pontoApi.cadastrarFeriado({ ...formFeriado.value, descricao: formFeriado.value.descricao.trim() })
-    mostrarAviso(`${novo.descricao} (${dataBR(novo.data)}) cadastrado: o dia não gera débito.`)
-    const ano = Number(novo.data.slice(0, 4))
+    const enviado = { ...formFeriado.value, descricao: formFeriado.value.descricao.trim() }
+    let novo
+    try {
+      novo = await pontoApi.cadastrarFeriado(enviado)
+    } catch (e) {
+      erroCadastroFeriado.value = mensagemDe(e)
+      return
+    }
+    // cadastrou: o que vem depois (recarregar a lista e o mês) não pode parecer falha do cadastro
+    const data = novo?.data ?? enviado.data
+    mostrarAviso(`${novo?.descricao ?? enviado.descricao} (${dataBR(data)}) cadastrado: o dia não gera débito.`)
+    const ano = Number(data.slice(0, 4))
     formFeriado.value = { data: '', descricao: '', abrangencia: formFeriado.value.abrangencia }
     tentouFeriado.value = false
-    if (ano !== anoFeriados.value) anoFeriados.value = ano
-    await carregarFeriados()
+    if (ano !== anoFeriados.value) await mostrarFeriadosDe(ano)
+    else await carregarFeriados()
     ponto.recarregarMes().catch(() => {})
-  } catch (e) {
-    erro.value = e.message
   } finally {
     salvandoFeriado.value = false
   }
 }
 
 async function excluirFeriado(f) {
+  limparErrosDeAcao()
   if (confirmandoFeriado.value !== f.data) {
     confirmandoFeriado.value = f.data
-    setTimeout(() => confirmandoFeriado.value === f.data && (confirmandoFeriado.value = null), 4000)
+    clearTimeout(timerConfirmacaoFeriado)
+    timerConfirmacaoFeriado = setTimeout(() => (confirmandoFeriado.value = null), 4000)
     return
   }
+  clearTimeout(timerConfirmacaoFeriado)
   confirmandoFeriado.value = null
   try {
     await pontoApi.excluirFeriado(f.data)
-    mostrarAviso(`${f.descricao} (${dataBR(f.data)}) removido: o dia voltou a ser útil.`)
-    await carregarFeriados()
-    ponto.recarregarMes().catch(() => {})
   } catch (e) {
-    erro.value = e.message
+    falhaNaLinha.value = { chave: `feriado-${f.data}`, mensagem: mensagemDe(e) }
+    return
   }
+  mostrarAviso(`${f.descricao} (${dataBR(f.data)}) removido: o dia voltou a ser útil.`)
+  await carregarFeriados()
+  ponto.recarregarMes().catch(() => {})
 }
 </script>
 
@@ -205,8 +266,6 @@ async function excluirFeriado(f) {
         <RouterLink :to="{ name: 'conciliacao' }" class="font-semibold text-tinta underline underline-offset-4">Conciliação</RouterLink>.
       </p>
     </header>
-
-    <p v-if="erro" role="alert" class="cartao mt-4 border-carimbo/50 px-5 py-3 text-sm text-carimbo">{{ erro }}</p>
 
     <!-- Feriados -->
     <section class="cartao mt-8 overflow-hidden" aria-label="Feriados">
@@ -246,10 +305,19 @@ async function excluirFeriado(f) {
           <button type="submit" class="botao-primario w-full" :disabled="salvandoFeriado">{{ salvandoFeriado ? 'Salvando…' : 'Cadastrar' }}</button>
         </div>
         <p v-if="tentouFeriado && erroFeriado" class="text-sm text-carimbo sm:col-span-4">{{ erroFeriado }}</p>
+        <p v-if="erroCadastroFeriado" role="alert" class="text-sm text-carimbo sm:col-span-4">{{ erroCadastroFeriado }}</p>
       </form>
 
-      <p v-if="carregandoFeriados && !feriados.length" class="px-5 py-6 text-center text-sm text-tinta-suave">Carregando…</p>
-      <p v-else-if="!feriados.length" class="px-5 py-6 text-center text-sm text-tinta-suave">Nenhum feriado cadastrado em {{ anoFeriados }}.</p>
+      <!-- Carregando, falhou (com "Tentar de novo") ou sem feriados no ano: três situações diferentes -->
+      <div v-if="erroFeriados || !feriados.length" class="px-5" :class="{ 'py-3': erroFeriados }">
+        <EstadoDaTela
+          :carregando="carregandoFeriados || (!feriadosCarregados && !erroFeriados)"
+          :erro="erroFeriados"
+          vazio
+          :vazio-texto="`Nenhum feriado cadastrado em ${anoFeriados}.`"
+          @tentar="carregarFeriados"
+        />
+      </div>
       <ul class="divide-y divide-linha/70">
         <li v-for="f in feriados" :key="f.data" class="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-2.5">
           <span class="carimbo w-28 font-semibold">{{ diaSemanaCurto(f.data) }} {{ dataBR(f.data).slice(0, 5) }}</span>
@@ -262,6 +330,7 @@ async function excluirFeriado(f) {
             :class="confirmandoFeriado === f.data ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
             @click="excluirFeriado(f)"
           >{{ confirmandoFeriado === f.data ? 'Confirmar remoção?' : 'Remover' }}</button>
+          <p v-if="falhaNaLinha?.chave === `feriado-${f.data}`" role="alert" class="w-full text-sm text-carimbo">{{ falhaNaLinha.mensagem }}</p>
         </li>
       </ul>
     </section>
@@ -299,13 +368,22 @@ async function excluirFeriado(f) {
         </button>
       </div>
       <p v-if="tentou && erroForm" class="text-sm text-carimbo sm:col-span-3">{{ erroForm }}</p>
+      <p v-if="erroCadastro" role="alert" class="text-sm text-carimbo sm:col-span-3">{{ erroCadastro }}</p>
     </form>
 
 
     <section class="cartao mt-6 overflow-hidden" aria-label="Períodos cadastrados">
       <h2 class="rotulo border-b border-linha px-5 py-3">Períodos cadastrados</h2>
-      <p v-if="carregando && !lista.length" class="px-5 py-8 text-center text-sm text-tinta-suave">Carregando…</p>
-      <p v-else-if="!lista.length" class="px-5 py-8 text-center text-sm text-tinta-suave">Nenhuma ausência cadastrada.</p>
+      <!-- Carregando, falhou (com "Tentar de novo") ou nenhum período: três situações diferentes -->
+      <div v-if="erroLista || !lista.length" class="px-5" :class="{ 'py-3': erroLista }">
+        <EstadoDaTela
+          :carregando="carregando || (!listaCarregada && !erroLista)"
+          :erro="erroLista"
+          vazio
+          vazio-texto="Nenhuma ausência cadastrada."
+          @tentar="carregar"
+        />
+      </div>
       <ul class="divide-y divide-linha/70">
         <li v-for="a in lista" :key="a.id" class="flex flex-wrap items-center gap-x-4 gap-y-2 px-5 py-3">
           <span class="rounded-[2px] px-1.5 py-0.5 text-[0.68rem] font-bold uppercase tracking-wide" :class="corTipo[a.tipo]">{{ a.tipoRotulo }}</span>
@@ -322,6 +400,7 @@ async function excluirFeriado(f) {
             :class="confirmando === a.id ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
             @click="excluir(a)"
           >{{ confirmando === a.id ? 'Confirmar remoção?' : 'Remover' }}</button>
+          <p v-if="falhaNaLinha?.chave === `ausencia-${a.id}`" role="alert" class="w-full text-sm text-carimbo">{{ falhaNaLinha.mensagem }}</p>
         </li>
       </ul>
     </section>

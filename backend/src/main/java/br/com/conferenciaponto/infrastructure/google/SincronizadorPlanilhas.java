@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.infrastructure.google;
 
+import br.com.conferenciaponto.infrastructure.log.DonoDoLog;
+import br.com.conferenciaponto.infrastructure.log.ContextoDeLog;
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
@@ -59,6 +61,7 @@ public class SincronizadorPlanilhas {
     private static final Logger log = LoggerFactory.getLogger(SincronizadorPlanilhas.class);
 
     private final GerenciarPlanilhaUseCase planilhas;
+    private final DonoDoLog dono;
     private final Duration espera;
     private final Duration primeiraEsperaAposFalha;
     private final Map<UUID, Pendencia> pendentes = new HashMap<>();
@@ -69,12 +72,18 @@ public class SincronizadorPlanilhas {
     });
 
     @Autowired
-    public SincronizadorPlanilhas(GerenciarPlanilhaUseCase planilhas, GoogleProperties properties) {
-        this(planilhas, properties.espera(), Duration.ofSeconds(30));
+    public SincronizadorPlanilhas(GerenciarPlanilhaUseCase planilhas, GoogleProperties properties, DonoDoLog dono) {
+        this(planilhas, properties.espera(), Duration.ofSeconds(30), dono);
     }
 
     SincronizadorPlanilhas(GerenciarPlanilhaUseCase planilhas, Duration espera, Duration primeiraEsperaAposFalha) {
+        this(planilhas, espera, primeiraEsperaAposFalha, null);
+    }
+
+    private SincronizadorPlanilhas(GerenciarPlanilhaUseCase planilhas, Duration espera,
+                                   Duration primeiraEsperaAposFalha, DonoDoLog dono) {
         this.planilhas = planilhas;
+        this.dono = dono;
         this.espera = espera;
         this.primeiraEsperaAposFalha = primeiraEsperaAposFalha;
     }
@@ -167,18 +176,21 @@ public class SincronizadorPlanilhas {
                 return true;
             });
         }
-        vencidas.forEach((usuario, pendencia) -> {
-            Resultado resultado;
-            try {
-                resultado = planilhas.sincronizar(usuario, pendencia.meses());
-            } catch (RuntimeException e) {
-                log.error("Falha ao sincronizar a planilha do usuário {}", usuario, e);
-                return;
-            }
-            if (resultado == Resultado.TENTAR_DE_NOVO && pendencia.tentativas() < TENTATIVAS) {
-                tentarDeNovo(usuario, pendencia.tentativas() + 1);
-            }
-        });
+        vencidas.forEach((usuario, pendencia) -> ContextoDeLog.comUsuario(
+                dono == null ? null : dono.loginDe(usuario), () -> gravar(usuario, pendencia)));
+    }
+
+    private void gravar(UUID usuario, Pendencia pendencia) {
+        Resultado resultado;
+        try {
+            resultado = planilhas.sincronizar(usuario, pendencia.meses());
+        } catch (RuntimeException e) {
+            log.error("Falha ao gravar a planilha do Google do usuário {}", usuario, e);
+            return;
+        }
+        if (resultado == Resultado.TENTAR_DE_NOVO && pendencia.tentativas() < TENTATIVAS) {
+            tentarDeNovo(usuario, pendencia.tentativas() + 1);
+        }
     }
 
     private void tentarDeNovo(UUID usuario, int tentativa) {

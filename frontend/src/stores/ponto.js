@@ -5,6 +5,7 @@ import { conectarEventos } from '@/api/eventos'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import { cargaTipica, dataISO, deISO, ehFimDeSemana, JORNADA_BASE_PADRAO } from '@/utils/tempo'
+import { relatar } from '@/utils/erros'
 
 const proximoDia = (iso) => {
   const d = deISO(iso)
@@ -50,9 +51,26 @@ export const usePontoStore = defineStore('ponto', () => {
   const ultimaAlteracaoUsuarios = ref(null)
   /** Planilha do Google da pessoa em tela: { situacao, emailServico, url, titulo, sincronizadaEm, erro }. */
   const planilha = ref(null)
+  /** A situação da planilha não pôde ser lida (a tela mostra o erro e oferece tentar de novo). */
+  const erroPlanilha = ref(null)
+  /**
+   * Uma alteração foi salva, mas a tela não conseguiu se atualizar em seguida: os números em exibição podem
+   * estar velhos. Um aviso global oferece "Atualizar agora" — o que NÃO pode acontecer é a gravação parecer
+   * ter falhado e a pessoa repetir (duplicaria o lançamento).
+   */
+  const desatualizado = ref(false)
+  /** Alguém bateu o ponto hoje (ou o dia de hoje mudou para alguém): o painel da equipe consulta de novo. */
+  const presencaMudouEm = ref(null)
+  /** Momento da última reconexão do tempo real (as telas recarregam o que podem ter perdido). */
+  const reconectouEm = ref(null)
   let encerrarEventos = null
   let timerSaldos = null
   let timerMes = null
+  let timerDia = null
+  let diaDoNavegador = dataISO()
+  let jaConectou = false
+  let pedidoMes = 0
+  let aoPerderSessao = () => {}
 
   // -------------------------------------------------------------- getters
   const hoje = computed(() => configuracao.value?.hoje ?? dataISO())
@@ -122,6 +140,9 @@ export const usePontoStore = defineStore('ponto', () => {
     return ano.value ? `${ano.value}-${String(mes.value).padStart(2, '0')}` : null
   }
 
+  /** Já existe um mês carregado (antes disso, saldos e totais não são zero: são desconhecidos). */
+  const temDados = computed(() => ano.value !== null)
+
   const ehMesAtual = computed(() => {
     const [a, m] = hoje.value.split('-').map(Number)
     return ano.value === a && mes.value === m
@@ -148,11 +169,15 @@ export const usePontoStore = defineStore('ponto', () => {
 
   /** Carrega dias + resumo do mês e a série anual de saldos. */
   async function fetchMes(anoAlvo, mesAlvo) {
+    const pedido = ++pedidoMes
     return executar(async () => {
       const [dadosMes, dadosSaldos] = await Promise.all([
         pontoApi.mes(anoAlvo, mesAlvo),
         pontoApi.saldos(anoAlvo, mesAlvo),
       ])
+      // outro mês (ou outra pessoa) foi pedido enquanto este carregava: a resposta velha não entra na tela
+      if (pedido !== pedidoMes) return dadosMes
+      desatualizado.value = false
       ano.value = dadosMes.ano
       mes.value = dadosMes.mes
       dias.value = dadosMes.dias
@@ -172,19 +197,32 @@ export const usePontoStore = defineStore('ponto', () => {
     })
   }
 
-  /** Mês corrente segundo o relógio do servidor. */
+  /** Mês corrente segundo o relógio do servidor (relido a cada vez: o "hoje" muda com a aba aberta). */
   async function fetchMesAtual() {
-    if (!configuracao.value) {
-      await executar(fetchConfiguracao)
-    }
+    await executar(fetchConfiguracao)
     const [a, m] = hoje.value.split('-').map(Number)
     return fetchMes(a, m)
   }
 
   async function navegarMes(deslocamento) {
+    if (!ano.value) return fetchMesAtual()
     const alvo = new Date(ano.value, mes.value - 1 + deslocamento, 1)
-    dataSelecionada.value = null
+    // a seleção só muda quando o mês novo chega (se falhar, a tela continua como estava)
     return fetchMes(alvo.getFullYear(), alvo.getMonth() + 1)
+  }
+
+  /**
+   * Atualiza a tela depois de uma gravação que DEU CERTO. Se a atualização falhar, a ação continua sendo um
+   * sucesso (o dado está salvo): fica só o aviso de tela desatualizada.
+   */
+  async function atualizarAposGravar(recarga) {
+    try {
+      await recarga()
+      desatualizado.value = false
+    } catch {
+      erro.value = null
+      desatualizado.value = true
+    }
   }
 
   /** Recarrega o mês da data afetada e a seleciona. */
@@ -200,7 +238,7 @@ export const usePontoStore = defineStore('ponto', () => {
    */
   async function postBatida(batida = {}) {
     const registro = await executar(() => pontoApi.registrarBatida(batida), { indicador: salvando })
-    await recarregarPara(registro.data)
+    await atualizarAposGravar(() => recarregarPara(registro.data))
     return registro
   }
 
@@ -210,7 +248,7 @@ export const usePontoStore = defineStore('ponto', () => {
    */
   async function postRegistroManual(lancamento) {
     const registro = await executar(() => pontoApi.lancarManual(lancamento), { indicador: salvando })
-    await recarregarPara(registro.data)
+    await atualizarAposGravar(() => recarregarPara(registro.data))
     return registro
   }
 
@@ -218,7 +256,7 @@ export const usePontoStore = defineStore('ponto', () => {
   async function ajustarBatidas({ data, horarios, justificativa }) {
     const registro = await executar(() => pontoApi.ajustarBatidas(data, { horarios, justificativa }),
       { indicador: salvando })
-    await recarregarPara(registro.data)
+    await atualizarAposGravar(() => recarregarPara(registro.data))
     return registro
   }
 
@@ -233,13 +271,13 @@ export const usePontoStore = defineStore('ponto', () => {
    */
   async function lancarNoBanco(lancamento) {
     const salvo = await executar(() => pontoApi.lancarNoBanco(lancamento), { indicador: salvando })
-    await recarregarMes()
+    await atualizarAposGravar(recarregarMes)
     return salvo
   }
 
   async function excluirLancamentoBanco(lancamento) {
     await executar(() => pontoApi.excluirLancamentoBanco(lancamento.id), { indicador: salvando })
-    await recarregarMes()
+    await atualizarAposGravar(recarregarMes)
   }
 
   /**
@@ -252,7 +290,7 @@ export const usePontoStore = defineStore('ponto', () => {
       ? pontoApi.cadastrarFeriado({ data: dataInicio, descricao, abrangencia })
       : pontoApi.cadastrarAusencia({ dataInicio, dataFim: dataFim || dataInicio, tipo, descricao: descricao || null })),
     { indicador: salvando })
-    await recarregarMes()
+    await atualizarAposGravar(recarregarMes)
     return salvo
   }
 
@@ -261,13 +299,13 @@ export const usePontoStore = defineStore('ponto', () => {
     await executar(() => (marcador.tipo === 'feriado'
       ? pontoApi.excluirFeriado(marcador.feriado.data)
       : pontoApi.excluirAusencia(marcador.ausencia.id)), { indicador: salvando })
-    await recarregarMes()
+    await atualizarAposGravar(recarregarMes)
   }
 
   async function excluirRegistro(data) {
     await executar(() => pontoApi.excluir(data), { indicador: salvando })
     dataSelecionada.value = null
-    await fetchMes(ano.value, mes.value)
+    await atualizarAposGravar(recarregarMes)
   }
 
   function selecionarDia(data) {
@@ -294,9 +332,18 @@ export const usePontoStore = defineStore('ponto', () => {
       onConectado: (estado) => {
         if (auth.vendoOsProprios && auth.ehTitular) monitoramento.value = estado
         else carregarMonitor()
+        // voltou depois de uma queda: o que mudou nesse meio-tempo não chegou por evento
+        if (jaConectou) {
+          reconectouEm.value = Date.now()
+          recarregarConfiguracao()
+          agendarRecargaMes()
+        }
+        jaConectou = true
       },
       onMonitor: (estado) => daTela(estado) && (monitoramento.value = estado), // pasta dos PDFs caiu/voltou
-      onJornadaAtualizada: (evento) => daTela(evento) && aplicarAtualizacao(evento),
+      onJornadaAtualizada: (evento) => {
+        if (daTela(evento)) aplicarAtualizacao(evento).catch((e) => relatar(e, 'tempo real'))
+      },
       onComprovanteNaoImportado: (comprovante) => {
         if (daTela(comprovante)) {
           ultimoEvento.value = { tipo: 'comprovante-nao-importado', ...comprovante, recebidoEm: Date.now() }
@@ -331,16 +378,31 @@ export const usePontoStore = defineStore('ponto', () => {
         ultimaAlteracaoUsuarios.value = Date.now()
       },
       onPlanilha: (estado) => daTela(estado) && (planilha.value = estado), // gravada no Google (ou falhou)
-      onNaoAutorizado: () => useAuthStore().logout(),
+      onPresenca: () => (presencaMudouEm.value = Date.now()),
+      // sessão vencida (ou senha provisória): o mesmo caminho de uma requisição recusada
+      onNaoAutorizado: (status, codigo) => aoPerderSessao(status, codigo),
     })
+    // virou o dia com a aba aberta: o "hoje" (e o que dá para bater) vem do servidor de novo
+    clearInterval(timerDia)
+    timerDia = setInterval(() => {
+      if (dataISO() === diaDoNavegador) return
+      diaDoNavegador = dataISO()
+      recarregarConfiguracao().then(agendarRecargaMes)
+    }, 30_000)
+  }
+
+  /** Registrado no main.js: o tempo real descobriu que a sessão acabou. */
+  function definirAoPerderSessao(acao) {
+    aoPerderSessao = acao
   }
 
   /** Situação da planilha do Google da pessoa em tela (depois, o tempo real mantém em dia). */
   async function carregarPlanilha() {
     try {
       planilha.value = await pontoApi.planilha()
-    } catch {
-      // sem a situação, as telas só deixam de mostrar o atalho para a planilha
+      erroPlanilha.value = null
+    } catch (e) {
+      erroPlanilha.value = e
     }
     return planilha.value
   }
@@ -381,17 +443,22 @@ export const usePontoStore = defineStore('ponto', () => {
     dataSelecionada.value = null
     monitoramento.value = null
     planilha.value = null
+    erroPlanilha.value = null
+    desatualizado.value = false
     ultimoEvento.value = null
     ultimaConciliacao.value = null
     erro.value = null
+    pedidoMes++ // respostas da pessoa anterior que ainda estão a caminho são descartadas
     carregarMonitor()
   }
 
   function desconectarTempoReal() {
     encerrarEventos?.()
     encerrarEventos = null
+    jaConectou = false
     clearTimeout(timerSaldos)
     clearTimeout(timerMes)
+    clearInterval(timerDia)
   }
 
   function afetaMesExibido(inicio, fim) {
@@ -422,9 +489,13 @@ export const usePontoStore = defineStore('ponto', () => {
     dataSelecionada.value = null
     monitoramento.value = null
     planilha.value = null
+    erroPlanilha.value = null
+    desatualizado.value = false
+    reconectouEm.value = null
     ultimoEvento.value = null
     ultimaConciliacao.value = null
     erro.value = null
+    pedidoMes++
   }
 
   /**
@@ -459,14 +530,20 @@ export const usePontoStore = defineStore('ponto', () => {
     timerSaldos = setTimeout(atualizarSaldos, 400)
   }
 
+  /** @returns {Promise<boolean>} os saldos em tela estão em dia */
   async function atualizarSaldos() {
-    if (!ano.value) return
+    if (!ano.value) return true
+    const [anoPedido, mesPedido, pedido] = [ano.value, mes.value, pedidoMes]
     try {
-      const dadosSaldos = await pontoApi.saldos(ano.value, mes.value)
+      const dadosSaldos = await pontoApi.saldos(anoPedido, mesPedido)
+      // a tela mudou de mês (ou de pessoa) enquanto isto carregava: esses saldos não são mais os dela
+      if (pedido !== pedidoMes || ano.value !== anoPedido || mes.value !== mesPedido) return true
       saldos.value = dadosSaldos
-      resumo.value = dadosSaldos.meses[mes.value - 1]
+      resumo.value = dadosSaldos.meses?.[mesPedido - 1] ?? resumo.value
+      return true
     } catch {
-      // silencioso: o próximo evento ou recarga corrige os totais
+      desatualizado.value = true // o aviso global oferece "Atualizar agora"
+      return false
     }
   }
 
@@ -475,15 +552,16 @@ export const usePontoStore = defineStore('ponto', () => {
     configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
     dataSelecionada, carregando, salvando,
     erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
+    erroPlanilha, desatualizado, reconectouEm, presencaMudouEm,
     // getters
     hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
-    saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual,
+    saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual, temDados,
     temExpediente, periodosDoDia, cargaDoDia,
     // actions
     carregarMonitor, carregarPlanilha, recarregarConfiguracao, trocarPessoa,
     fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,
     ajustarBatidas, excluirRegistro, selecionarDia, limparErro, recarregarMes, lancarNoBanco, excluirLancamentoBanco,
     marcarDias, removerMarcacao,
-    conectarTempoReal, desconectarTempoReal, aplicarAtualizacao, atualizarSaldos, limpar,
+    conectarTempoReal, desconectarTempoReal, definirAoPerderSessao, aplicarAtualizacao, atualizarSaldos, limpar,
   }
 })

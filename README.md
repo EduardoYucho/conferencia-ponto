@@ -61,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 224 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha)
+.\iniciar.ps1 -Testes    # 255 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -139,7 +139,9 @@ num único processo, em **http://localhost:8080**. Depois:
 | `ponto` | Situação: rodando?, endereço, configuração e logs |
 | `ponto abrir` | Abre no navegador |
 | `ponto iniciar` · `ponto parar` · `ponto reiniciar` | Sobe · para (e não sobe sozinho até `iniciar`) · reinicia |
-| `ponto logs` | Acompanha o log (`Ctrl+C` para sair) |
+| `ponto logs` | Log **ao vivo** no terminal, colorido por gravidade (`Ctrl+C` para sair) |
+| `ponto logs maria` · `ponto logs -Erros` | Ao vivo só de um usuário (ou `sistema`) · só avisos e erros (combinam: `ponto logs maria -Erros`) |
+| `ponto logs pasta` | Abre a pasta dos logs por usuário e por hora |
 | `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
 | `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto e troca a versão (a configuração é mantida) |
 | `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
@@ -176,6 +178,62 @@ lançamentos, notificações, relatórios do RH e divergências. **Feriados vale
 - **Atualização a partir da versão de um usuário só:** a migração `V12` passa todos os dados existentes para
   o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
   passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
+
+## Equipe agora (quem está online)
+
+A tela **Equipe** (`/equipe`, para todos os perfis) lista **todos os usuários ativos** e diz quem está
+trabalhando agora. A regra fica no servidor (`ConsultarPresencaUseCase`); a tela só mostra:
+
+| Situação hoje | Aparece como |
+|---|---|
+| Dia marcado como férias, folga, licença, atestado ou abono | **Offline** · o motivo (e "até dd/mm"), mesmo que haja batida |
+| Entrada batida e saída ainda não | **Online** · "Trabalhando desde 08:02" (avisa quando é fora do horário cadastrado) |
+| Saída batida e o horário ainda tem período pela frente | Offline · "Em intervalo desde 12:01" |
+| Saída do último período (ou depois do fim do horário) | Offline · "Encerrou o expediente às 17:50" |
+| Sem batida: feriado · dia sem expediente · antes do horário | Offline · "Feriado: …" · "Sem expediente hoje" · "O expediente começa às 08:00" |
+| Sem batida com o horário já começado · já terminado | Offline, em destaque · "Ainda não bateu o ponto" · "Não registrou ponto hoje" |
+| Coordenação (perfil `VIEWER`) | Offline · "não registra ponto" |
+
+Todos veem a situação de todos. O detalhe é reservado: para colegas, **atestado e abono aparecem só como
+"Ausência justificada"**; a justificativa, as batidas e o atalho "ver o ponto de…" ficam com o administrador, a
+coordenação e a própria pessoa. A tela se atualiza sozinha quando alguém bate o ponto (evento
+`presenca-atualizada`, que não carrega dado nenhum) e a cada minuto. Quem importa o ponto por comprovante (PDF)
+aparece online assim que o comprovante da entrada chega ao sistema.
+
+## Erros, protocolo e logs
+
+**Mensagens.** Nenhuma falha chega à tela como texto técnico. O servidor responde sempre com uma frase em
+português dizendo o que aconteceu e o que fazer (`GlobalExceptionHandler`): recusas previsíveis (regra,
+validação, permissão, formato de data/horário, opção inexistente) dizem o campo e o formato esperado; problemas
+de ambiente (banco fora do ar, sistema ocupado) pedem para tentar de novo; e o que não era esperado vira
+"Aconteceu um erro inesperado… informe ao administrador o protocolo **K7M2QX**".
+
+**Protocolo.** Toda requisição da API recebe um código de 6 caracteres (cabeçalho `X-Protocolo`; nos erros,
+também o campo `protocolo` do envelope) que aparece em todas as linhas de log daquela requisição. Com ele o
+administrador acha a linha exata: tela **Logs → Buscar**.
+
+**Telas.** O front-end tem uma rede de segurança única (`utils/erros.js`, `AvisosGlobais.vue`,
+`EstadoDaTela.vue`): aviso de "sem conexão com o sistema" que some sozinho quando ele volta; "a alteração foi
+salva, mas a tela não pôde ser atualizada" (nunca um erro que leve a pessoa a repetir a operação); "carregando",
+"não foi possível carregar · Tentar de novo" e "vazio" como estados distintos (nada de zeros inventados);
+sessão vencida leva ao login com a explicação e volta para a tela em que a pessoa estava; depois de uma
+atualização do sistema, a aba aberta se recarrega sozinha. Um defeito da própria tela mostra uma frase genérica
+e é relatado ao servidor (`POST /erros-de-tela`), caindo no log do usuário.
+
+**Logs.** Três lugares, a mesma informação:
+
+| Onde | O quê |
+|---|---|
+| Console | Ao vivo: `ponto logs [usuario] [-Erros]` (serviço) ou a própria saída do `.\iniciar.ps1` / Eclipse |
+| `logs/conferencia-ponto.log` | Tudo, com `[usuario\|protocolo]` em cada linha |
+| `logs/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log` | **Um arquivo por usuário e por hora** (`sistema` = o que não é de uma pessoa: subida, tarefas agendadas); guardados por `ponto.logs.dias` (30) dias |
+| Tela **Logs** (ADMIN) | "Ao vivo" (atualiza a cada 2 s; filtros por pessoa, gravidade e texto/protocolo; pausar) e "Arquivos por pessoa e hora" |
+
+Cada requisição da API vira uma linha de acesso (`GET /api/v1/jornadas?ano=…  -> 200 (12 ms)`) no arquivo de
+quem a fez; entradas no sistema e tentativas de login recusadas também ficam registradas (a senha, nunca). O
+que roda em segundo plano por causa de uma pessoa (leitura da pasta de PDFs, conferência do relatório do RH,
+gravação da planilha do Google) cai no arquivo dela. A pasta padrão é `~/.conferencia-ponto/logs`
+(`PONTO_LOGS_DIR`); no serviço do Windows, `%USERPROFILE%\.conferencia-ponto\servico\logs`.
 
 ## Planilha de conferência (Excel e Google Sheets)
 
@@ -246,7 +304,8 @@ Na subida, todos os dias gravados são recalculados com a regra atual (`Recalcul
 
 ## API (`/api/v1`)
 
-Toda resposta JSON usa o envelope `{ sucesso, dados, erros[{codigo, mensagem, campo}], timestamp }`.
+Toda resposta JSON usa o envelope `{ sucesso, dados, erros[{codigo, mensagem, campo}], timestamp }` (nos erros,
+também `protocolo`); toda resposta leva o cabeçalho `X-Protocolo`.
 Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 
 | Método | Rota | Descrição |
@@ -290,6 +349,10 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | POST | `/planilha/sincronizar` · DELETE `/planilha` | Regrava agora · deixa de gravar (ADMIN: `?usuario=login`) |
 | GET/PUT/DELETE | `/integracoes/google` | (ADMIN) conta de serviço: consulta · envia a chave `{chave: "<conteúdo do .json>"}` · desliga |
 | GET | `/comprovantes/{id}/download` | PDF original (`attachment`); também em `/api/comprovantes/{id}/download` |
+| GET | `/presenca` | Equipe agora: todos os usuários ativos com `{online, situacao, situacaoRotulo, motivo, desde, horario, ...}` |
+| GET | `/logs/ao-vivo?depois=&nivel=&login=&texto=&semConsultas=` | (ADMIN) últimas linhas de log, para a tela consultar a cada 2 s |
+| GET | `/logs/arquivos` · `/logs/arquivo?login=&data=&hora=` | (ADMIN) pastas por usuário → dias → horas · o log daquela hora |
+| POST | `/erros-de-tela` | `{mensagem, tela, detalhe}` — a tela relata um defeito dela (qualquer perfil) → `202` |
 | GET | `/eventos` | Stream SSE (`text/event-stream`) com as atualizações em tempo real |
 | GET | `/importacoes?limite=` | Monitor da pasta da pessoa (`situacao`: ATIVO, INDISPONIVEL, SEM_PASTA...) + últimos comprovantes |
 | POST | `/importacoes/reprocessar` | Relê a pasta da pessoa (`202 Accepted`, roda em segundo plano) |
@@ -298,10 +361,11 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 Nos `GET`, `?usuario=login` consulta outra pessoa (ADMIN e coordenação). Dias, mês e saldos trazem a grade
 (`grade` do dia e `expedientes` do mês) pelo horário da pessoa.
 
-Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas · `403` perfil sem permissão
-(`ACESSO_NEGADO`, `ALTERAR_DADOS_DE_OUTRO`, `TROCAR_SENHA`) ·
-`404` não encontrado · `409` conflito · `422` regra de negócio · `500 COMPROVANTE_CORROMPIDO` (arquivo
-alterado em disco).
+Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas (`ACESSO_DESATIVADO` quando o
+administrador desativou o usuário) · `403` perfil sem permissão (`ACESSO_NEGADO`, `ALTERAR_DADOS_DE_OUTRO`,
+`TROCAR_SENHA`) · `404` não encontrado · `409` conflito (`REGISTRO_REPETIDO`, `REGISTRO_JA_ALTERADO`,
+`SISTEMA_OCUPADO`) · `422` regra de negócio · `503 BANCO_INDISPONIVEL` · `500 ERRO_INTERNO` (com o protocolo na
+mensagem) e `500 COMPROVANTE_CORROMPIDO` (arquivo alterado em disco). Ver "Erros, protocolo e logs".
 
 ## Perfis de acesso (RBAC)
 
@@ -311,7 +375,7 @@ escrita já nasce protegida:
 
 | Perfil | Leitura (`GET`) | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | Tela inicial |
 |---|---|---|---|
-| `ROLE_ADMIN` | ✔ os próprios dados e os de todos | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Painel |
+| `ROLE_ADMIN` | ✔ os próprios dados e os de todos, e os **logs** | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Painel |
 | `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Painel |
 | `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
 
@@ -520,8 +584,9 @@ sem recompilar.
 | `conciliacao-atualizada` | relatório do RH conferido ou divergência resolvida | `{descricao, pendentes}` |
 | `calendario-atualizado` | feriado, ausência ou horário alterado | `{inicio, fim}` |
 | `banco-atualizado` | lançamento no banco de horas criado ou removido | `{data, descricao}` |
-| `usuarios-atualizados` | usuário cadastrado ou alterado (perfil, situação, pasta) | `{alterado, descricao}` |
+| `usuarios-atualizados` | usuário cadastrado ou alterado (perfil, situação, pasta) | `{alterado}` (só o id; as conexões de quem mudou são reabertas) |
 | `planilha-atualizada` | a planilha do Google foi gravada, falhou, foi vinculada ou desvinculada | `{situacao, url, titulo, sincronizadaEm, erro}` |
+| `presenca-atualizada` | alguém bateu o ponto hoje, ou o dia de hoje mudou para alguém (folga, feriado, cadastro) | vazio: vai para **todos**, só para a tela Equipe consultar de novo |
 
 Todo evento leva `usuarioId`, o dono dos dados (`null` = vale para todos, como um feriado). Cada pessoa
 recebe os eventos dos próprios dados; administrador e coordenação recebem os de todos, e a tela ignora o que
@@ -531,7 +596,8 @@ No front-end, `usePontoStore().conectarTempoReal()` abre o stream assim que há 
 afetado direto no estado (sem recarregar a página) e recarrega só os saldos — uma vez só depois de uma
 rajada de eventos, como na primeira leitura de uma pasta cheia. Como o `EventSource` nativo
 não envia cabeçalhos, o stream usa `@microsoft/fetch-event-source` com o `Authorization: Bearer`,
-reconexão com *backoff* e parada definitiva em `401`/`403`; as demais chamadas seguem pelo Axios.
+reconexão com *backoff* e parada definitiva só em `401` (sessão vencida → login) e `403 TROCAR_SENHA`; as
+demais chamadas seguem pelo Axios. Ao reconectar depois de uma queda, a tela recarrega o que pode ter perdido.
 
 ## Observações
 

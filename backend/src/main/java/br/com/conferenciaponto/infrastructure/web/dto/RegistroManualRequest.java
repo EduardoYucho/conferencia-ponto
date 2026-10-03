@@ -15,8 +15,8 @@ public record RegistroManualRequest(
         LocalDate data,
 
         @NotEmpty(message = "Informe ao menos um intervalo.")
-        @Size(max = 2, message = "Informe no máximo 2 intervalos.")
-        List<@Valid @NotNull IntervaloRequest> intervalos) {
+        @Size(max = 3, message = "Informe no máximo 3 intervalos.")
+        List<@Valid @NotNull(message = "Há um intervalo sem horários.") IntervaloRequest> intervalos) {
 
     public record IntervaloRequest(
             @NotNull(message = "Informe o horário de entrada.") LocalTime entrada,

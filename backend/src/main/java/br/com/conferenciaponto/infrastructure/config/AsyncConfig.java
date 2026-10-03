@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.config;
 
+import br.com.conferenciaponto.infrastructure.log.ContextoNasTarefas;
 import br.com.conferenciaponto.infrastructure.importacao.GerenciadorMonitoresPdf;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -31,6 +32,7 @@ public class AsyncConfig {
         executor.setQueueCapacity(5_000);
         executor.setThreadNamePrefix("conciliacao-");
         executor.setDaemon(true);
+        executor.setTaskDecorator(new ContextoNasTarefas());
         return executor;
     }
 
@@ -43,6 +45,7 @@ public class AsyncConfig {
         executor.setQueueCapacity(2);
         executor.setThreadNamePrefix("reprocessamento-");
         executor.setDaemon(true);
+        executor.setTaskDecorator(new ContextoNasTarefas());
         return executor;
     }
 }

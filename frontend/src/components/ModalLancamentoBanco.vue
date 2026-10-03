@@ -1,6 +1,7 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { usePontoStore } from '@/stores/ponto'
+import { mensagemDe } from '@/utils/erros'
 import {
   dataBR, dataCurta, diaSemanaCurto, duracaoEmSegundos, formatarDuracao, formatarSaldo, normalizarDuracao,
 } from '@/utils/tempo'
@@ -95,18 +96,21 @@ async function enviar() {
   tentou.value = true
   erroServidor.value = ''
   if (!valido.value) return
+  let salvo
   try {
-    const salvo = await store.lancarNoBanco({
+    salvo = await store.lancarNoBanco({
       data: data.value,
       duracao: duracao.value,
       sentido: sentido.value,
       descricao: descricao.value.trim(),
     })
-    emit('salvo', salvo)
-    emit('update:modelValue', false)
   } catch (e) {
-    erroServidor.value = e.message
+    erroServidor.value = mensagemDe(e)
+    return
   }
+  // lançou: a janela fecha antes de avisar a tela (nada depois daqui pode parecer falha e levar a lançar de novo)
+  emit('update:modelValue', false)
+  emit('salvo', salvo)
 }
 </script>
 

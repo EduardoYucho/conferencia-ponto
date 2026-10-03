@@ -97,12 +97,12 @@ public class RegistroJornada {
         if (tipoDia.isUtil()) {
             throw new RegraNegocioException("LANCAMENTO_MANUAL_DIA_UTIL",
                     "Lançamento manual é permitido apenas em fins de semana e feriados (%s é dia útil)."
-                            .formatted(dataReferencia));
+                            .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(dataReferencia)));
         }
         if (!registroManual && !batidas.isVazia()) {
             throw new ConflitoException("REGISTRO_RELOGIO_EXISTENTE",
                     "Já existem batidas de relógio em %s. Exclua-as antes de lançar manualmente."
-                            .formatted(dataReferencia));
+                            .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(dataReferencia)));
         }
         if (novasBatidas.isJornadaAberta() || novasBatidas.isVazia()) {
             throw new RegraNegocioException("LANCAMENTO_MANUAL_INCOMPLETO",

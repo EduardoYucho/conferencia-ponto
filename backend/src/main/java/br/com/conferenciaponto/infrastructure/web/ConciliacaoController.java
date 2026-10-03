@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.application.usecase.ConferirConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ImportarRelatorioRhUseCase;
@@ -85,14 +86,20 @@ public class ConciliacaoController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim,
             Titular titular) {
-        StatusDivergencia filtro = "TODAS".equalsIgnoreCase(status) ? null : StatusDivergencia.valueOf(status.toUpperCase());
+        StatusDivergencia filtro;
+        try {
+            filtro = "TODAS".equalsIgnoreCase(status) ? null : StatusDivergencia.valueOf(status.strip().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new RegraNegocioException("STATUS_INVALIDO",
+                    "Situação inválida: use PENDENTE, ACEITO_RH, MANTIDO_LOCAL, RESOLVIDA ou TODAS.");
+        }
         return ApiResponse.ok(consultar.divergencias(titular.id(), filtro, inicio, fim).stream()
                 .map(DivergenciaResponse::de).toList());
     }
 
     @PostMapping("/divergencias/{id}/aceitar")
     public ApiResponse<DivergenciaResponse> aceitar(@PathVariable UUID id, Titular titular) {
-        resolver.aceitarRh(titular.id(), id, titular.quem());
+        resolver.aceitarRh(titular.id(), id, titular.quem(), titular.logado().isAdmin());
         return ApiResponse.ok(uma(titular, id));
     }
 
@@ -113,7 +120,7 @@ public class ConciliacaoController {
     @PostMapping("/divergencias/aceitar-lote")
     public ApiResponse<AceiteLoteResponse> aceitarLote(@Valid @RequestBody AceiteLoteRequest r, Titular titular) {
         return ApiResponse.ok(AceiteLoteResponse.de(resolver.aceitarEmLote(titular.id(), r.tipos(), r.inicio(),
-                r.fim(), titular.quem())));
+                r.fim(), titular.quem(), titular.logado().isAdmin())));
     }
 
     @PostMapping("/reconferir")

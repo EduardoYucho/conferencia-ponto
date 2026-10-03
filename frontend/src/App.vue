@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import SinoNotificacoes from '@/components/SinoNotificacoes.vue'
+import AvisosGlobais from '@/components/AvisosGlobais.vue'
 
 const auth = useAuthStore()
 const ponto = usePontoStore()
@@ -19,6 +20,7 @@ watch(
     if (ativo) {
       ponto.conectarTempoReal()
       // relê o usuário (uma sessão salva por uma versão anterior não tem id, titular, pasta...)
+      // (falhas daqui não derrubam a tela: sem a lista de pessoas, o seletor "Dados de" oferece tentar de novo)
       auth.atualizarUsuario().catch(() => {})
       auth.carregarTitulares().catch(() => {})
     } else {
@@ -34,7 +36,8 @@ const menu = computed(() => [
   { nome: 'auditoria', rotulo: 'Auditoria' },
   { nome: 'conciliacao', rotulo: 'Conciliação RH' },
   { nome: 'ausencias', rotulo: 'Folgas e feriados' },
-  ...(auth.ehAdmin ? [{ nome: 'usuarios', rotulo: 'Usuários' }] : []),
+  { nome: 'equipe', rotulo: 'Equipe' },
+  ...(auth.ehAdmin ? [{ nome: 'usuarios', rotulo: 'Usuários' }, { nome: 'logs', rotulo: 'Logs' }] : []),
 ])
 const iniciais = computed(() =>
   (auth.usuario?.nome ?? '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase(),
@@ -57,13 +60,28 @@ const pessoaSelecionada = computed({
  * não é remontada (iria buscar dados sem sessão).
  */
 const chaveTela = ref(0)
+// Qualquer troca da pessoa em tela passa por aqui — inclusive a que o sistema faz sozinho quando a pessoa
+// consultada é desativada: os dados da anterior saem da memória antes de as telas serem remontadas.
 watch(() => auth.visto, () => {
-  if (auth.autenticado) chaveTela.value++
+  if (!auth.autenticado) return
+  ponto.trocarPessoa()
+  chaveTela.value++
 })
 
 function trocarPessoa(login) {
   auth.verComo(login)
-  ponto.trocarPessoa()
+}
+
+const recarregandoPessoas = ref(false)
+async function recarregarPessoas() {
+  recarregandoPessoas.value = true
+  try {
+    await auth.carregarTitulares()
+  } catch {
+    // o aviso continua na barra
+  } finally {
+    recarregandoPessoas.value = false
+  }
 }
 
 function sair() {
@@ -76,17 +94,17 @@ function sair() {
 
 <template>
   <nav v-if="mostrarBarra" class="relative z-40 border-b border-linha bg-cartao/80 backdrop-blur-sm" aria-label="Navegação principal">
-    <div class="mx-auto flex max-w-6xl items-center justify-between gap-4 px-4 py-2 sm:px-6">
-      <div class="-mx-1 flex items-center gap-1 overflow-x-auto px-1 text-sm">
+    <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-2 sm:px-6">
+      <div class="-mx-1 flex min-w-0 items-center gap-0.5 overflow-x-auto px-1 text-sm">
         <RouterLink
           v-for="item in menu"
           :key="item.nome"
           :to="{ name: item.nome }"
-          class="rounded-[3px] px-3 py-1.5 font-semibold whitespace-nowrap text-tinta-suave transition hover:bg-papel-escuro hover:text-tinta"
+          class="rounded-[3px] px-2.5 py-1.5 font-semibold whitespace-nowrap text-tinta-suave transition hover:bg-papel-escuro hover:text-tinta"
           active-class="bg-tinta! text-cartao! hover:bg-tinta!"
         >{{ item.rotulo }}</RouterLink>
       </div>
-      <div class="flex items-center gap-3 text-sm">
+      <div class="flex shrink-0 items-center gap-3 text-sm">
         <label v-if="auth.podeVerTodos && opcoesPessoa.length > 1" class="flex items-center gap-2">
           <span class="rotulo hidden whitespace-nowrap xl:inline">Dados de</span>
           <select
@@ -117,6 +135,16 @@ function sair() {
       </div>
     </div>
     <div
+      v-if="auth.podeVerTodos && auth.erroTitulares"
+      class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm text-carimbo"
+      role="alert"
+    >
+      Não foi possível carregar a lista de pessoas.
+      <button type="button" class="ml-2 font-semibold underline underline-offset-4" :disabled="recarregandoPessoas" @click="recarregarPessoas">
+        {{ recarregandoPessoas ? 'tentando…' : 'tentar de novo' }}
+      </button>
+    </div>
+    <div
       v-if="!auth.vendoOsProprios && auth.ehTitular"
       class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm"
       role="status"
@@ -126,4 +154,5 @@ function sair() {
     </div>
   </nav>
   <RouterView :key="chaveTela" />
+  <AvisosGlobais />
 </template>

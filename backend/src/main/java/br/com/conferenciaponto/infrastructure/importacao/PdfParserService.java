@@ -80,7 +80,7 @@ public class PdfParserService {
         Optional<LocalDateTime> dataHora;
         try {
             dataHora = extrairDataHora(extrairTexto(lido.conteudo()));
-        } catch (IOException pdfInvalido) {
+        } catch (IOException | RuntimeException pdfInvalido) {
             dataHora = Optional.empty();
         }
         return new ComprovanteLido(lido.nomeArquivo(), lido.hashSha256(), dataHora, lido.conteudo());
@@ -89,15 +89,16 @@ public class PdfParserService {
     /** PDF recebido pela tela (upload): mesmo tratamento do lido da pasta. */
     public ComprovanteLido lerConteudo(String nomeArquivo, byte[] conteudo) throws IOException {
         if (conteudo == null || conteudo.length == 0) {
-            throw new IOException("arquivo vazio");
+            throw new IOException("O arquivo está vazio. Baixe o comprovante de novo.");
         }
         if (conteudo.length > tamanhoMaximoBytes) {
-            throw new IOException("o arquivo passa do tamanho máximo de %d MB".formatted(tamanhoMaximoBytes / 1024 / 1024));
+            throw new IOException("O arquivo passa do tamanho máximo de %d MB: não parece um comprovante de ponto."
+                    .formatted(tamanhoMaximoBytes / 1024 / 1024));
         }
         Optional<LocalDateTime> dataHora;
         try {
             dataHora = extrairDataHora(extrairTexto(conteudo));
-        } catch (IOException pdfInvalido) {
+        } catch (IOException | RuntimeException pdfInvalido) {
             dataHora = Optional.empty();
         }
         return new ComprovanteLido(nomeArquivo, HashSha256.de(conteudo), dataHora, conteudo);
@@ -120,7 +121,8 @@ public class PdfParserService {
                     throw new ArquivoEmUsoException(arquivo, "arquivo vazio (download em andamento?)");
                 }
                 if (tamanho > tamanhoMaximoBytes) {
-                    throw new IOException("%s excede o tamanho máximo de %d bytes".formatted(arquivo, tamanhoMaximoBytes));
+                    throw new ArquivoRecusadoException("O arquivo passa do tamanho máximo de %d MB: não parece um "
+                            .formatted(tamanhoMaximoBytes / 1024 / 1024) + "comprovante de ponto.");
                 }
                 ByteBuffer buffer = ByteBuffer.allocate((int) tamanho);
                 while (buffer.hasRemaining() && canal.read(buffer) >= 0) {

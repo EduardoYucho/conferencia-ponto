@@ -140,4 +140,23 @@ export const pontoApi = {
   aceitarEmLote: (tipos) => http.post('/conciliacoes/divergencias/aceitar-lote', { tipos }, { timeout: 180000 }),
   reconferir: () => http.post('/conciliacoes/reconferir', null, { timeout: 120000 }),
   excluirRelatorioRh: (id) => http.delete(`/conciliacoes/relatorios/${id}`),
+
+  // ---------------------------------------------------------------- equipe (quem está trabalhando agora)
+
+  /** Todos os usuários ativos com a situação de agora: { hoje, agora, total, online, emIntervalo, offline, pessoas }. */
+  presenca: () => http.get('/presenca'),
+
+  // ---------------------------------------------------------------- logs (administrador)
+
+  /**
+   * Linhas de log depois da sequência `depois` (0 = as mais recentes).
+   * @param {{ depois?: number, nivel?: string, login?: string, texto?: string, limite?: number }} filtro
+   */
+  logsAoVivo: (filtro = {}) => http.get('/logs/ao-vivo', { params: filtro }),
+
+  /** Arquivos de log guardados: { pasta, diasGuardados, usuarios: [{ login, dias: [{ data, horas: [{ hora, bytes }] }] }] }. */
+  arquivosDeLog: () => http.get('/logs/arquivos'),
+
+  /** O log de uma pessoa (ou do "sistema") numa hora: { login, data, hora, bytes, cortado, texto }. */
+  arquivoDeLog: (login, data, hora) => http.get('/logs/arquivo', { params: { login, data, hora }, timeout: 30000 }),
 }

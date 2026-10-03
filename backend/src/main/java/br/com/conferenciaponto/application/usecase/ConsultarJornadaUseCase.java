@@ -53,7 +53,7 @@ public class ConsultarJornadaUseCase {
         return repository.buscarPorData(usuarioId, data)
                 .map(registro -> RegistroJornadaView.de(registro, regras.motor(registro)))
                 .orElseThrow(() -> new RecursoNaoEncontradoException("REGISTRO_NAO_ENCONTRADO",
-                        "Não há registro de jornada em %s.".formatted(data)));
+                        "Não há registro de jornada em %s.".formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(data))));
     }
 
     public MesJornadaView mes(UUID usuarioId, YearMonth referencia) {

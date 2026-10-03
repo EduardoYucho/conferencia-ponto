@@ -29,6 +29,7 @@ import java.util.HashSet;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -109,6 +110,16 @@ public class ConferirConciliacaoUseCase {
         eventos.publishEvent(new ConciliacaoAtualizadaEvento(usuarioId,
                 "Relatório do RH (%s) conferido".formatted(periodo), totalPendentes(usuarioId)));
         return resultado;
+    }
+
+    /** Relatórios recebidos que ainda não foram conferidos (o sistema foi desligado antes de terminar). */
+    @Transactional(readOnly = true)
+    public List<UUID> relatoriosPorConferir() {
+        return usuarios.listar().stream()
+                .flatMap(u -> relatorios.listar(u.id()).stream())
+                .filter(r -> r.status() == StatusRelatorioRh.PROCESSANDO)
+                .map(RelatorioRh::id)
+                .toList();
     }
 
     /** Falha no processamento em segundo plano: marca o relatório (transação própria). */

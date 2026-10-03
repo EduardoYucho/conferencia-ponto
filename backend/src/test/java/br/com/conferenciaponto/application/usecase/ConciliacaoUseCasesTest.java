@@ -182,7 +182,7 @@ class ConciliacaoUseCasesTest {
     @DisplayName("Aceite em lote: histórico só do RH, feriado e férias (o período inteiro de uma vez)")
     void aceiteEmLote() {
         ResolverDivergenciaUseCase.ResultadoLote r = resolver.aceitarEmLote(DONO, 
-                Set.of(TipoDivergencia.SOMENTE_RH, TipoDivergencia.TIPO_DIA), null, null, USUARIO);
+                Set.of(TipoDivergencia.SOMENTE_RH, TipoDivergencia.TIPO_DIA), null, null, USUARIO, true);
 
         assertThat(r.falhas()).isEmpty();
         assertThat(r.aceitas()).isEqualTo(4); // 20, 23, 24 (leva 25 a 27 junto) e 31
@@ -202,7 +202,7 @@ class ConciliacaoUseCasesTest {
     @Test
     @DisplayName("Aceitar a batida que o RH corrigiu: o dia fecha igual ao RH e só a batida nova fica marcada")
     void aceitarBatidaFaltando() {
-        Divergencia aceita = resolver.aceitarRh(DONO, divergencia(21).id(), USUARIO);
+        Divergencia aceita = resolver.aceitarRh(DONO, divergencia(21).id(), USUARIO, true);
 
         assertThat(aceita.status()).isEqualTo(StatusDivergencia.ACEITO_RH);
         RegistroJornada dia = registros.buscarPorData(DONO, d(21)).orElseThrow();
@@ -210,7 +210,7 @@ class ConciliacaoUseCasesTest {
         assertThat(dia.getHorariosAjustados()).containsExactly(LocalTime.of(13, 0));
         assertThat(ajustes.listarPorData(DONO, d(21))).singleElement()
                 .satisfies(a -> assertThat(a.justificativa()).contains("relatório do RH emitido em 17/08/2026"));
-        assertThatThrownBy(() -> resolver.aceitarRh(DONO, aceita.id(), USUARIO)).isInstanceOf(ConflitoException.class);
+        assertThatThrownBy(() -> resolver.aceitarRh(DONO, aceita.id(), USUARIO, true)).isInstanceOf(ConflitoException.class);
     }
 
     @Test
@@ -239,7 +239,7 @@ class ConciliacaoUseCasesTest {
         enviar(LocalDateTime.of(2026, 8, 18, 9, 0), List.of(
                 util(29, 61, "08:04:59", "12:00:20", "13:02:49", "17:49:01", "17:49:46")), new byte[]{2});
 
-        assertThatThrownBy(() -> resolver.aceitarRh(DONO, divergencia(29).id(), USUARIO))
+        assertThatThrownBy(() -> resolver.aceitarRh(DONO, divergencia(29).id(), USUARIO, true))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("ímpar");
     }
 
@@ -264,7 +264,7 @@ class ConciliacaoUseCasesTest {
             assertThat(v.rh().horarios()).hasSize(4);
             assertThat(v.tipoDiaLocal()).isEqualTo(TipoDia.UTIL);
         });
-        resolver.aceitarEmLote(DONO, Set.of(TipoDivergencia.values()), null, null, USUARIO);
+        resolver.aceitarEmLote(DONO, Set.of(TipoDivergencia.values()), null, null, USUARIO, true);
         var comparativo = consultar.resumo(DONO).relatorios().get(0);
         assertThat(comparativo.saldoRhSegundos()).isZero();
         assertThat(comparativo.diasConferidos()).isEqualTo(10);

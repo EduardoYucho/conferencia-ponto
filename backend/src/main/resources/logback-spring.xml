@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Logs da aplicação:
+    * CONSOLE      ao vivo no terminal (iniciar.ps1, Eclipse, "ponto console"); no serviço fica desligado por
+                   logging.threshold.console=OFF e o acompanhamento é pelo comando "ponto logs";
+    * FILE         o log geral (tudo, de todos), com rotação por tamanho;
+    * POR_USUARIO  um arquivo por usuário e por hora: <pasta>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log
+                   (o que não é de uma pessoa vai para "sistema");
+    * MEMORIA      as últimas linhas, para a tela "Logs" do administrador.
+  A pasta vem de ponto.logs.diretorio (padrão: ~/.conferencia-ponto/logs).
+-->
+<configuration>
+    <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
+
+    <springProperty scope="context" name="PONTO_LOGS" source="ponto.logs.diretorio"
+                    defaultValue="${user.home}/.conferencia-ponto/logs"/>
+    <springProperty scope="context" name="PONTO_FUSO" source="ponto.fuso-horario" defaultValue="America/Sao_Paulo"/>
+    <property name="LOG_FILE" value="${LOG_FILE:-${PONTO_LOGS}/conferencia-ponto.log}"/>
+
+    <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
+    <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
+
+    <appender name="POR_USUARIO" class="ch.qos.logback.classic.sift.SiftingAppender">
+        <discriminator class="br.com.conferenciaponto.infrastructure.log.DiscriminadorUsuarioHora">
+            <fuso>${PONTO_FUSO}</fuso>
+        </discriminator>
+        <!-- o arquivo de uma hora é fechado 40 minutos depois da última linha -->
+        <timeout>40 minutes</timeout>
+        <maxAppenderCount>200</maxAppenderCount>
+        <sift>
+            <appender name="USUARIO-${arquivo}" class="ch.qos.logback.core.FileAppender">
+                <file>${PONTO_LOGS}/usuarios/${arquivo}.log</file>
+                <encoder>
+                    <charset>UTF-8</charset>
+                    <pattern>%d{HH:mm:ss.SSS} %-5level [%X{protocolo:--}] %logger{0} - %msg%n%ex</pattern>
+                </encoder>
+            </appender>
+        </sift>
+    </appender>
+
+    <appender name="MEMORIA" class="br.com.conferenciaponto.infrastructure.log.AppenderMemoria"/>
+
+    <root level="INFO">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+        <appender-ref ref="POR_USUARIO"/>
+        <appender-ref ref="MEMORIA"/>
+    </root>
+</configuration>

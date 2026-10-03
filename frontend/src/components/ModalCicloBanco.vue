@@ -2,6 +2,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { usePontoStore } from '@/stores/ponto'
+import { mensagemDe } from '@/utils/erros'
 import { dataBR, deISO, dataISO, formatarSaldo } from '@/utils/tempo'
 
 /**
@@ -94,51 +95,52 @@ const erroPeriodo = computed(() => {
   return null
 })
 
-async function confirmarFechamento() {
-  if (erroFechamento.value) return
+/**
+ * Grava no servidor e atualiza os saldos da tela. Só a recusa do servidor vira erro aqui: se a gravação deu
+ * certo e os saldos não puderam ser atualizados, o aviso geral da tela oferece "Atualizar agora".
+ * @returns {Promise<{ ok: boolean, dados?: any }>}
+ */
+async function gravar(chamada) {
   enviando.value = true
   erro.value = ''
   try {
-    resultado.value = await pontoApi.fecharCiclo({ ultimoDia: ultimoDia.value, observacao: observacao.value.trim() || null })
+    let dados
+    try {
+      dados = await chamada()
+    } catch (e) {
+      erro.value = mensagemDe(e)
+      return { ok: false }
+    }
     await store.atualizarSaldos()
-    emit('concluido', resultado.value)
-  } catch (e) {
-    erro.value = e.message
+    return { ok: true, dados }
   } finally {
     enviando.value = false
   }
 }
 
+async function confirmarFechamento() {
+  if (erroFechamento.value) return
+  const fechamento = await gravar(() =>
+    pontoApi.fecharCiclo({ ultimoDia: ultimoDia.value, observacao: observacao.value.trim() || null }))
+  if (!fechamento.ok) return
+  resultado.value = fechamento.dados
+  emit('concluido', resultado.value)
+}
+
 async function desfazer() {
-  enviando.value = true
-  erro.value = ''
-  try {
-    await pontoApi.desfazerFechamento()
-    await store.atualizarSaldos()
-    resultado.value = null
-    emit('update:modelValue', false)
-    emit('concluido', null)
-  } catch (e) {
-    erro.value = e.message
-  } finally {
-    enviando.value = false
-  }
+  const desfeito = await gravar(() => pontoApi.desfazerFechamento())
+  if (!desfeito.ok) return
+  resultado.value = null
+  emit('update:modelValue', false)
+  emit('concluido', null)
 }
 
 async function salvarPeriodo() {
   if (erroPeriodo.value) return
-  enviando.value = true
-  erro.value = ''
-  try {
-    await pontoApi.corrigirCiclo({ dataInicio: inicio.value, dataFimPrevista: fimPrevisto.value || null })
-    await store.atualizarSaldos()
-    emit('concluido', null)
-    emit('update:modelValue', false)
-  } catch (e) {
-    erro.value = e.message
-  } finally {
-    enviando.value = false
-  }
+  const salvo = await gravar(() => pontoApi.corrigirCiclo({ dataInicio: inicio.value, dataFimPrevista: fimPrevisto.value || null }))
+  if (!salvo.ok) return
+  emit('update:modelValue', false)
+  emit('concluido', null)
 }
 </script>
 

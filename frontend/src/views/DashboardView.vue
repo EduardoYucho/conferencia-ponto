@@ -1,5 +1,5 @@
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { storeToRefs } from 'pinia'
 import { usePontoStore } from '@/stores/ponto'
 import { useAuthStore } from '@/stores/auth'
@@ -7,6 +7,7 @@ import { useRelogio } from '@/composables/useRelogio'
 import BarraProgressoDiaria from '@/components/BarraProgressoDiaria.vue'
 import CartaoMensal from '@/components/CartaoMensal.vue'
 import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import GraficoSaldoAnual from '@/components/GraficoSaldoAnual.vue'
 import ModalAjusteBatidas from '@/components/ModalAjusteBatidas.vue'
 import ModalCicloBanco from '@/components/ModalCicloBanco.vue'
@@ -17,15 +18,16 @@ import TimelineDiaria from '@/components/TimelineDiaria.vue'
 import {
   dataBR, dataCurta, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes, paraSegundos, segundosAgora,
 } from '@/utils/tempo'
+import { mensagemDe } from '@/utils/erros'
 
 const store = usePontoStore()
 /** ROLE_VIEWER: mesma tela, sem botões de edição, inserção ou exclusão. */
 const auth = useAuthStore()
 const {
-  configuracao, ano, mes, resumo, carregando, salvando, erro,
+  configuracao, ano, mes, resumo, carregando, salvando,
   hoje, diasPorData, registroHoje, diaSelecionado, dataSelecionada,
   saldoMensal, ciclo, marcadoresDoMes, lancamentosPorData, lancamentosMes, ehMesAtual, expedientePorData,
-  tempoReal, monitoramento, ultimoEvento, cargaDiaInteiro,
+  tempoReal, monitoramento, ultimoEvento, cargaDiaInteiro, temDados,
 } = storeToRefs(store)
 
 const agora = useRelogio(1000)
@@ -48,13 +50,44 @@ const envioAberto = ref(false)
 const envio = ref(null)
 const arrastandoArquivo = ref(false)
 let timerAviso = null
-let timerConfirmacao = null
+// cada confirmação ("Confirmar exclusão?", "Confirmar remoção?") tem o próprio prazo: uma não desarma a outra
+let timerConfirmacaoExclusao = null
+let timerConfirmacaoLancamento = null
 
-onMounted(() => store.fetchMesAtual().catch(() => {}))
+// ---------------------------------------------------------- carga do mês
+/** Falha ao carregar ou ao trocar de mês: fica na tela, logo abaixo da navegação, com "Tentar de novo". */
+const erroCarga = ref(null)
+let ultimaCarga = () => store.fetchMesAtual()
+let pedidoCarga = 0
+
+/** Carrega o mês (ou repete a última carga que falhou). O que já está na tela só muda quando o mês novo chega. */
+async function carregar(acao = ultimaCarga) {
+  const pedido = ++pedidoCarga
+  ultimaCarga = acao
+  erroCarga.value = null
+  try {
+    await acao()
+  } catch (e) {
+    if (pedido === pedidoCarga) erroCarga.value = e
+  }
+}
+const irParaMes = (deslocamento) => carregar(() => store.navegarMes(deslocamento))
+const voltarParaHoje = () => carregar(() => store.fetchMesAtual())
+
+onMounted(() => carregar())
 onBeforeUnmount(() => {
   clearTimeout(timerAviso)
-  clearTimeout(timerConfirmacao)
+  clearTimeout(timerConfirmacaoExclusao)
+  clearTimeout(timerConfirmacaoLancamento)
 })
+
+/**
+ * O dia de hoje está entre os dias carregados? Antes da primeira carga (ou vendo outro mês) a tela não sabe
+ * quanto foi trabalhado hoje nem qual é a próxima batida: mostra "—", nunca zeros.
+ */
+const hojeConhecido = computed(() => temDados.value && ehMesAtual.value)
+/** Outro mês em tela: as batidas de hoje não estão carregadas, então não dá para saber qual é a próxima. */
+const vendoOutroMes = computed(() => temDados.value && !ehMesAtual.value)
 
 // ---------------------------------------------------------- tempo real
 /** Eventos vindos do SSE: avisa sobre PDFs e realça o dia alterado. */
@@ -72,7 +105,9 @@ watch(ultimoEvento, (evento) => {
 const cargaHoje = computed(() => (registroHoje.value ? registroHoje.value.jornadaPrevistaSegundos : store.cargaDoDia(hoje.value)))
 const rotuloJornada = computed(() => {
   const quem = auth.vendoOsProprios ? '' : ` de ${auth.pessoaEmTela?.nome ?? ''}`
-  return `Banco de horas${quem} · jornada ${formatarDuracao(cargaDiaInteiro.value, { curto: true })}`
+  // sem o horário da pessoa carregado, a jornada não é conhecida (não mostra uma suposta)
+  const jornada = configuracao.value ? ` · jornada ${formatarDuracao(cargaDiaInteiro.value, { curto: true })}` : ''
+  return `Banco de horas${quem}${jornada}`
 })
 
 // ------------------------------------------------- envio dos comprovantes pela tela
@@ -104,8 +139,9 @@ async function aoSoltarNaPagina(evento) {
   evento.preventDefault()
   const arquivos = [...evento.dataTransfer.files]
   envioAberto.value = true
-  await new Promise((r) => setTimeout(r, 0))
-  envio.value?.enviar(arquivos)
+  await nextTick() // a janela de envio precisa existir para receber os arquivos
+  if (envio.value) envio.value.enviar(arquivos)
+  else mostrarAviso('Os arquivos não foram enviados. Solte-os de novo na janela de envio.', 'erro')
 }
 function fecharEnvio() {
   envioAberto.value = false
@@ -125,7 +161,8 @@ const pastaMonitorada = computed(() => {
 
 const indicadorTempoReal = computed(() => {
   if (tempoReal.value !== 'conectado') {
-    return { cor: 'bg-amber-500 animate-pulse', texto: tempoReal.value === 'desconectado' ? 'Offline' : 'Reconectando…' }
+    const texto = { desconectado: 'Sem conexão', conectando: 'Conectando…' }[tempoReal.value] ?? 'Reconectando…'
+    return { cor: 'bg-amber-500 animate-pulse', texto }
   }
   const monitor = monitoramento.value
   if (monitor?.ativo) return { cor: 'bg-credito', texto: `Importando PDFs de ${pastaMonitorada.value}` }
@@ -139,7 +176,7 @@ const indicadorTempoReal = computed(() => {
 
 const dicaMonitor = computed(() => {
   const monitor = monitoramento.value
-  if (!monitor?.diretorio) return 'Conexão em tempo real (SSE)'
+  if (!monitor?.diretorio) return 'A tela se atualiza sozinha quando chega uma batida nova.'
   const base = `Pasta monitorada: ${monitor.diretorio}`
   return monitor.mensagem ? `${base}\nMotivo: ${monitor.mensagem}` : base
 })
@@ -196,23 +233,37 @@ function aoConcluirCiclo(resultado) {
 const relogio = computed(() => agora.value.toLocaleTimeString('pt-BR', { hour12: false }))
 
 // ------------------------------------------------------------- ações
+/** Aviso no canto da tela. O de erro fica até ser fechado (ou até a próxima ação); os outros somem sozinhos. */
 function mostrarAviso(texto, tipo = 'ok') {
   aviso.value = { texto, tipo }
   clearTimeout(timerAviso)
-  timerAviso = setTimeout(() => (aviso.value = null), 5000)
+  if (tipo !== 'erro') timerAviso = setTimeout(() => (aviso.value = null), 5000)
+}
+
+function fecharAviso() {
+  clearTimeout(timerAviso)
+  aviso.value = null
 }
 
 async function baterPonto() {
+  fecharAviso() // o erro da tentativa anterior sai antes da nova
+  let registro
   try {
-    const registro = await store.postBatida()
-    const b = [...registro.batidas].reverse().find((x) => x.real)
-    const detalhe = b.considerado && b.considerado !== b.real
-      ? ` → considerado ${b.considerado}${b.toleranciaAplicada ? ' (tolerância)' : ''}`
-      : ''
-    mostrarAviso(`${b.rotulo} registrada às ${b.real}${detalhe}`)
+    registro = await store.postBatida()
   } catch (e) {
-    mostrarAviso(e.message, 'erro')
+    mostrarAviso(mensagemDe(e), 'erro')
+    return
   }
+  // a batida está registrada: daqui para baixo é só o texto do aviso
+  const b = [...(registro?.batidas ?? [])].reverse().find((x) => x.real)
+  if (!b) {
+    mostrarAviso('Batida registrada.')
+    return
+  }
+  const detalhe = b.considerado && b.considerado !== b.real
+    ? ` → considerado ${b.considerado}${b.toleranciaAplicada ? ' (tolerância)' : ''}`
+    : ''
+  mostrarAviso(`${b.rotulo} registrada às ${b.real}${detalhe}`)
 }
 
 function abrirLancamento(data = null) {
@@ -238,17 +289,19 @@ function aoLancarNoBanco(l) {
 async function removerLancamento(l) {
   if (confirmandoLancamento.value !== l.id) {
     confirmandoLancamento.value = l.id
-    clearTimeout(timerConfirmacao)
-    timerConfirmacao = setTimeout(() => (confirmandoLancamento.value = null), 4000)
+    clearTimeout(timerConfirmacaoLancamento)
+    timerConfirmacaoLancamento = setTimeout(() => (confirmandoLancamento.value = null), 4000)
     return
   }
+  clearTimeout(timerConfirmacaoLancamento)
   confirmandoLancamento.value = null
   try {
     await store.excluirLancamentoBanco(l)
-    mostrarAviso(`Lançamento de ${dataCurta(l.data)} (${formatarSaldo(l.segundos)}) removido do banco`)
   } catch (e) {
-    mostrarAviso(e.message, 'erro')
+    mostrarAviso(mensagemDe(e), 'erro')
+    return
   }
+  mostrarAviso(`Lançamento de ${dataCurta(l.data)} (${formatarSaldo(l.segundos)}) removido do banco`)
 }
 
 /** Folga, feriado ou justificativa no dia (ou ver/remover a marcação existente). */
@@ -281,18 +334,20 @@ function aoSalvarManual(registro) {
 async function excluirSelecionado() {
   if (!confirmandoExclusao.value) {
     confirmandoExclusao.value = true
-    clearTimeout(timerConfirmacao)
-    timerConfirmacao = setTimeout(() => (confirmandoExclusao.value = false), 4000)
+    clearTimeout(timerConfirmacaoExclusao)
+    timerConfirmacaoExclusao = setTimeout(() => (confirmandoExclusao.value = false), 4000)
     return
   }
+  clearTimeout(timerConfirmacaoExclusao)
   confirmandoExclusao.value = false
   const data = dataSelecionada.value
   try {
     await store.excluirRegistro(data)
-    mostrarAviso(`Registro de ${dataCurta(data)} excluído`)
   } catch (e) {
-    mostrarAviso(e.message, 'erro')
+    mostrarAviso(mensagemDe(e), 'erro')
+    return
   }
+  mostrarAviso(`Registro de ${dataCurta(data)} excluído`)
 }
 
 function classeSaldo(seg) {
@@ -333,13 +388,14 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         <button
           type="button"
           class="botao-primario"
-          :disabled="salvando || jornadaCompleta || !configuracao"
+          :disabled="salvando || jornadaCompleta || !configuracao || vendoOutroMes"
+          :title="vendoOutroMes ? 'Volte para o mês atual para bater o ponto (a tela precisa saber as batidas de hoje)' : undefined"
           @click="baterPonto"
         >
           <svg viewBox="0 0 20 20" class="size-4" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
             <circle cx="10" cy="10" r="7.5" /><path d="M10 6v4l2.5 2" stroke-linecap="round" />
           </svg>
-          {{ jornadaCompleta ? 'Jornada completa' : `Bater ${proximaBatida.rotulo}` }}
+          {{ jornadaCompleta ? 'Jornada completa' : hojeConhecido ? `Bater ${proximaBatida.rotulo}` : 'Bater ponto' }}
         </button>
         <button type="button" class="botao-secundario" @click="abrirLancamento()">Lançamento manual</button>
         <button type="button" class="botao-secundario" title="Abater ou creditar horas no banco (compensação, horas pagas...)" @click="abrirBanco()">Lançar no banco</button>
@@ -350,7 +406,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
 
     <!-- Navegação de mês -->
     <nav class="flex items-center justify-between py-4" aria-label="Navegação entre meses">
-      <button type="button" class="botao-secundario px-3!" :disabled="carregando || !ano" aria-label="Mês anterior" @click="store.navegarMes(-1)">‹</button>
+      <button type="button" class="botao-secundario px-3!" :disabled="carregando || !ano" aria-label="Mês anterior" @click="irParaMes(-1)">‹</button>
       <p class="text-center">
         <span class="font-sans text-xl font-bold uppercase tracking-[0.2em] [font-stretch:90%]">{{ mes ? nomeMes(mes) : '—' }}</span>
         <span class="carimbo ml-2 text-xl text-tinta-suave">{{ ano }}</span>
@@ -358,15 +414,17 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           v-if="ano && !ehMesAtual"
           type="button"
           class="ml-3 text-xs font-semibold text-carimbo underline underline-offset-4"
-          @click="store.fetchMesAtual()"
+          :disabled="carregando"
+          @click="voltarParaHoje"
         >voltar para hoje</button>
       </p>
-      <button type="button" class="botao-secundario px-3!" :disabled="carregando || !ano" aria-label="Próximo mês" @click="store.navegarMes(1)">›</button>
+      <button type="button" class="botao-secundario px-3!" :disabled="carregando || !ano" aria-label="Próximo mês" @click="irParaMes(1)">›</button>
     </nav>
 
-    <p v-if="erro && !configuracao" role="alert" class="cartao border-carimbo/50 px-5 py-4 text-carimbo">
-      {{ erro.message }}
-    </p>
+    <!-- Falha ao carregar ou ao trocar de mês (o que já estava na tela continua) -->
+    <div v-if="erroCarga" class="mb-4">
+      <EstadoDaTela :erro="erroCarga" :carregando="carregando" manter @tentar="carregar()" />
+    </div>
 
     <!-- Aviso de prazo do banco de horas (30/15 dias ou previsão vencida) -->
     <p
@@ -401,6 +459,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           :jornada-base="cargaHoje"
           :em-andamento="registroHoje?.status === 'EM_ANDAMENTO'"
           :sem-jornada="cargaHoje === 0"
+          :sem-dados="!hojeConhecido"
         />
         <p class="mt-1 text-sm text-tinta-suave">
           Saldo do dia
@@ -411,8 +470,8 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
 
       <article class="cartao animate-surgir px-5 py-5 [animation-delay:80ms]">
         <h2 class="rotulo">Saldo de {{ mes ? nomeMes(mes).toLowerCase() : '—' }}</h2>
-        <p class="carimbo mt-3 text-4xl font-semibold sm:text-5xl" :class="classeSaldo(saldoMensal)">
-          {{ formatarSaldo(saldoMensal) }}
+        <p class="carimbo mt-3 text-4xl font-semibold sm:text-5xl" :class="temDados ? classeSaldo(saldoMensal) : 'text-tinta-apagada'">
+          {{ formatarSaldo(temDados ? saldoMensal : null) }}
         </p>
         <dl v-if="resumo" class="mt-4 grid grid-cols-2 gap-y-1 text-sm">
           <dt class="text-tinta-suave">Trabalhado</dt>
@@ -446,8 +505,11 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
             {{ formatarSaldo(ciclo.saldoSegundos) }}
           </p>
           <p class="mt-1 text-xs text-tinta-suave">
-            desde {{ dataBR(ciclo.dataInicio) }} · fecha em {{ dataBR(ciclo.dataFimPrevista) }}
-            <span :class="prazoCiclo?.urgente ? 'font-semibold text-carimbo' : ''">({{ prazoCiclo?.texto }})</span>
+            desde {{ dataBR(ciclo.dataInicio) }}
+            <template v-if="ciclo.dataFimPrevista">
+              · fecha em {{ dataBR(ciclo.dataFimPrevista) }}
+              <span v-if="prazoCiclo" :class="prazoCiclo.urgente ? 'font-semibold text-carimbo' : ''">({{ prazoCiclo.texto }})</span>
+            </template>
           </p>
           <GraficoSaldoAnual class="mt-3" :meses="ciclo.meses" :destaque="{ ano, mes }" rotulo-acumulado="no ciclo" />
           <button
@@ -458,7 +520,9 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
             @click="abrirCiclo('fechar')"
           >Fechar banco de horas</button>
         </template>
-        <p v-else class="mt-3 text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'Ciclo não encontrado.' }}</p>
+        <p v-else-if="carregando" class="mt-3 text-sm text-tinta-suave">Carregando…</p>
+        <p v-else-if="!temDados" class="carimbo mt-3 text-4xl font-semibold text-tinta-apagada sm:text-5xl">—</p>
+        <p v-else class="mt-3 text-sm text-tinta-suave">Ciclo não encontrado.</p>
       </article>
     </section>
 
@@ -514,7 +578,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         :agora="agora"
       />
       <p v-else class="py-8 text-center text-sm text-tinta-suave">
-        {{ carregando ? 'Carregando…' : auth.podeEscrever
+        {{ carregando ? 'Carregando…' : !temDados ? 'O mês ainda não foi carregado.' : auth.podeEscrever
           ? 'Selecione um dia com registro no cartão abaixo, ou bata o ponto para começar.'
           : 'Selecione um dia com registro no cartão abaixo.' }}
       </p>
@@ -526,7 +590,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         <h2 class="rotulo">Cartão de ponto · {{ mes ? nomeMes(mes) : '' }} {{ ano }}</h2>
         <p class="text-xs text-tinta-suave">
           <span class="carimbo text-tinta">08:02:10</span> tolerado ·
-          <span class="carimbo font-semibold text-carimbo">08:05:22</span> fora da tolerância de {{ configuracao?.toleranciaMinutos ?? 5 }}:00
+          <span class="carimbo font-semibold text-carimbo">08:05:22</span> fora da tolerância<template v-if="configuracao?.toleranciaMinutos != null"> de {{ configuracao.toleranciaMinutos }}:00</template>
         </p>
       </div>
       <CartaoMensal
@@ -546,6 +610,9 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         @ajustar="abrirAjuste"
         @marcar="abrirDiaEspecial"
       />
+      <p v-else class="py-8 pl-2 text-center text-sm text-tinta-suave">
+        {{ carregando ? 'Carregando…' : 'O mês ainda não foi carregado.' }}
+      </p>
     </section>
 
     <!-- Lançamentos avulsos no banco de horas do mês -->
@@ -641,8 +708,8 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
     >
       <div
         v-if="aviso"
-        role="status"
-        class="fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-[3px] px-4 py-3 text-sm font-medium shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
+        :role="aviso.tipo === 'erro' ? 'alert' : 'status'"
+        class="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-md items-start gap-3 rounded-[3px] px-4 py-3 text-sm font-medium shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
         :class="{
           'bg-carimbo text-cartao': aviso.tipo === 'erro',
           'bg-tinta text-cartao': aviso.tipo === 'ok',
@@ -650,7 +717,9 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           'border border-tinta bg-cartao text-tinta': aviso.tipo === 'info',
         }"
       >
-        {{ aviso.texto }}
+        <span class="min-w-0 flex-1">{{ aviso.texto }}</span>
+        <!-- o erro não some sozinho: fica até a pessoa ler e fechar -->
+        <button v-if="aviso.tipo === 'erro'" type="button" class="shrink-0 font-semibold underline underline-offset-4" @click="fecharAviso">fechar</button>
       </div>
     </Transition>
   </div>

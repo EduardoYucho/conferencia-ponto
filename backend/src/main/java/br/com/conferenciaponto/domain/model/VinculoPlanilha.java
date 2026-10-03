@@ -20,6 +20,7 @@ public record VinculoPlanilha(UUID usuarioId, String planilhaId, String titulo, 
                               String vinculadaPor, Instant sincronizadaEm, String erro) {
 
     public static final int TAMANHO_ERRO = 600;
+    public static final int TAMANHO_TITULO = 300;
 
     private static final Pattern LINK = Pattern.compile("/spreadsheets/d/([A-Za-z0-9_-]{20,})");
     private static final Pattern ID = Pattern.compile("[A-Za-z0-9_-]{20,}");
@@ -29,6 +30,9 @@ public record VinculoPlanilha(UUID usuarioId, String planilhaId, String titulo, 
         Objects.requireNonNull(planilhaId, "planilhaId");
         Objects.requireNonNull(vinculadaEm, "vinculadaEm");
         titulo = titulo == null || titulo.isBlank() ? null : titulo.strip();
+        if (titulo != null && titulo.length() > TAMANHO_TITULO) {
+            titulo = titulo.substring(0, TAMANHO_TITULO);
+        }
         erro = erro == null || erro.isBlank() ? null
                 : erro.length() > TAMANHO_ERRO ? erro.substring(0, TAMANHO_ERRO) : erro;
     }

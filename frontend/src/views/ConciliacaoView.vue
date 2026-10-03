@@ -5,6 +5,8 @@ import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import ModalAjusteBatidas from '@/components/ModalAjusteBatidas.vue'
+import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import { mensagemDe } from '@/utils/erros'
 import { dataBR, diaSemanaCurto, formatarDuracao, formatarSaldo, paraSegundos } from '@/utils/tempo'
 
 /**
@@ -14,7 +16,7 @@ import { dataBR, diaSemanaCurto, formatarDuracao, formatarSaldo, paraSegundos } 
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const { ultimaConciliacao, ultimoEvento } = storeToRefs(ponto)
+const { ultimaConciliacao, ultimoEvento, reconectouEm } = storeToRefs(ponto)
 
 const PADRAO_LOTE = ['SOMENTE_RH', 'TIPO_DIA', 'DIFERENCA_SEGUNDOS']
 const DICAS_TIPO = {
@@ -34,11 +36,14 @@ const MESMA_BATIDA = 60
 // ------------------------------------------------------------------ estado
 const resumo = ref(null)
 const divergencias = ref([])
+/** A lista da aba em tela já chegou (antes disso não dá para dizer "nenhuma divergência": é desconhecido). */
+const listaCarregada = ref(false)
 const status = ref('PENDENTE')
 const filtroTipo = ref(null)
 const limite = ref(40)
 const carregando = ref(false)
-const erro = ref('')
+const reconferindo = ref(false)
+const erro = ref(null)
 const aviso = ref(null)
 const ocupado = ref(new Set()) // ids com ação em andamento
 const mantendo = ref(null) // { id, observacao }
@@ -51,18 +56,23 @@ const campoArquivo = ref(null)
 const ajuste = ref({ aberto: false, data: null, registro: null, sugestao: null })
 let timerRecarga = null
 let timerAviso = null
+let pedido = 0
 
 async function carregar() {
+  // trocando de aba depressa, as respostas podem chegar fora de ordem: só a do último pedido entra na tela
+  const meu = ++pedido
   carregando.value = true
-  erro.value = ''
+  erro.value = null
   try {
     const [r, d] = await Promise.all([pontoApi.resumoConciliacao(), pontoApi.divergencias(status.value)])
+    if (meu !== pedido) return
     resumo.value = r
     divergencias.value = d
+    listaCarregada.value = true
   } catch (e) {
-    erro.value = e.message
+    if (meu === pedido) erro.value = e
   } finally {
-    carregando.value = false
+    if (meu === pedido) carregando.value = false
   }
 }
 
@@ -73,6 +83,9 @@ onBeforeUnmount(() => {
 })
 watch(status, () => {
   limite.value = 40
+  // a lista da aba anterior não fica sob a aba nova
+  divergencias.value = []
+  listaCarregada.value = false
   carregar()
 })
 
@@ -83,11 +96,32 @@ function agendarRecarga() {
 }
 watch(ultimaConciliacao, (e) => e && agendarRecarga())
 watch(ultimoEvento, (e) => e?.tipo === 'jornada-atualizada' && agendarRecarga())
+// A conexão voltou depois de uma queda: um relatório que ficou em "conferindo…" pode já ter terminado
+watch(reconectouEm, (momento) => momento && agendarRecarga())
 
+/** Aviso no canto da tela. O de erro fica até ser fechado (ou até o próximo aviso); os outros somem sozinhos. */
 function mostrarAviso(texto, tipo = 'ok') {
   aviso.value = { texto, tipo }
   clearTimeout(timerAviso)
-  timerAviso = setTimeout(() => (aviso.value = null), 6000)
+  if (tipo !== 'erro') timerAviso = setTimeout(() => (aviso.value = null), 6000)
+}
+
+function fecharAviso() {
+  clearTimeout(timerAviso)
+  aviso.value = null
+}
+
+/**
+ * Faz um pedido de alteração ao servidor. Devolve { ok, dados }; se o servidor recusar, o motivo já sai no aviso.
+ * O que vem depois de um pedido que deu certo (mensagem, recarga) fica fora daqui: não pode parecer falha dele.
+ */
+async function pedir(chamada) {
+  try {
+    return { ok: true, dados: await chamada() }
+  } catch (e) {
+    mostrarAviso(mensagemDe(e), 'erro')
+    return { ok: false }
+  }
 }
 
 // ------------------------------------------------------------------ envio
@@ -104,7 +138,7 @@ async function enviarArquivos(arquivos) {
       const r = await pontoApi.enviarRelatorioRh(arquivo)
       Object.assign(item, { estado: 'ok', mensagem: `Período ${dataBR(r.periodoInicio)} a ${dataBR(r.ultimoDiaConferido)} · ${r.diasLidos} dias · enviado` })
     } catch (e) {
-      Object.assign(item, { estado: 'erro', mensagem: e.message })
+      Object.assign(item, { estado: 'erro', mensagem: mensagemDe(e) })
     }
     enviando.value = [...enviando.value]
   }
@@ -122,27 +156,20 @@ function aoEscolher(evento) {
 }
 
 async function reconferir() {
-  carregando.value = true
-  try {
-    resumo.value = await pontoApi.reconferir()
-    divergencias.value = await pontoApi.divergencias(status.value)
-    mostrarAviso('Conferência refeita com todos os relatórios enviados.')
-  } catch (e) {
-    mostrarAviso(e.message, 'erro')
-  } finally {
-    carregando.value = false
-  }
+  reconferindo.value = true
+  const refeita = await pedir(() => pontoApi.reconferir())
+  reconferindo.value = false
+  if (!refeita.ok) return
+  mostrarAviso('Conferência refeita com todos os relatórios enviados.')
+  await carregar()
 }
 
 async function excluirRelatorio(r) {
   if (!window.confirm(`Remover o relatório "${r.nomeArquivo}"? As divergências dele somem; o que já foi aceito continua na conferência.`)) return
-  try {
-    await pontoApi.excluirRelatorioRh(r.id)
-    mostrarAviso('Relatório removido.')
-    carregar()
-  } catch (e) {
-    mostrarAviso(e.message, 'erro')
-  }
+  const removido = await pedir(() => pontoApi.excluirRelatorioRh(r.id))
+  if (!removido.ok) return
+  mostrarAviso('Relatório removido.')
+  carregar()
 }
 
 // ------------------------------------------------------------------ listas
@@ -190,11 +217,10 @@ const formatarMomento = (iso) =>
 async function executar(d, acao, mensagem) {
   ocupado.value = new Set(ocupado.value).add(d.id)
   try {
-    const atualizada = await acao()
-    mostrarAviso(typeof mensagem === 'function' ? mensagem(atualizada) : mensagem)
+    const feito = await pedir(acao)
+    if (!feito.ok) return
+    mostrarAviso(typeof mensagem === 'function' ? mensagem(feito.dados) : mensagem)
     await carregar()
-  } catch (e) {
-    mostrarAviso(e.message, 'erro')
   } finally {
     const resto = new Set(ocupado.value)
     resto.delete(d.id)
@@ -205,7 +231,7 @@ async function executar(d, acao, mensagem) {
 function aceitar(d) {
   executar(d, () => pontoApi.aceitarDivergencia(d.id), (a) =>
     a && a.status === 'PENDENTE'
-      ? `${dataBR(d.data)}: dados do RH aplicados, mas ainda há diferença (${a.tipoRotulo.toLowerCase()}).`
+      ? `${dataBR(d.data)}: dados do RH aplicados, mas ainda há diferença (${(a.tipoRotulo ?? '').toLowerCase()}).`
       : `${dataBR(d.data)}: conferência igual ao RH.`)
 }
 
@@ -243,14 +269,15 @@ async function aceitarLote() {
   aceitandoLote.value = true
   falhasLote.value = []
   try {
-    const r = await pontoApi.aceitarEmLote(loteTipos.value)
-    falhasLote.value = r.falhas
-    mostrarAviso(`${r.aceitas} dia(s) atualizados com os dados do RH${r.falhas.length ? ` · ${r.falhas.length} não puderam ser aceitos` : ''}.`,
-      r.falhas.length ? 'info' : 'ok')
+    const lote = await pedir(() => pontoApi.aceitarEmLote(loteTipos.value))
+    if (!lote.ok) return
+    const falhas = lote.dados?.falhas ?? []
+    falhasLote.value = falhas
+    mostrarAviso(`${lote.dados?.aceitas ?? 0} dia(s) atualizados com os dados do RH${falhas.length ? ` · ${falhas.length} não puderam ser aceitos` : ''}.`,
+      falhas.length ? 'info' : 'ok')
     await carregar()
+    // se os saldos não atualizarem agora, o aviso geral da tela oferece "Atualizar agora" (o aceite continua valendo)
     ponto.atualizarSaldos()
-  } catch (e) {
-    mostrarAviso(e.message, 'erro')
   } finally {
     aceitandoLote.value = false
   }
@@ -273,7 +300,7 @@ function alternarLote(tipo) {
           Nada é alterado sem a sua decisão.
         </p>
       </div>
-      <button v-if="auth.podeEscrever" type="button" class="botao-secundario" :disabled="carregando || !resumo?.relatorios.length" @click="reconferir">Reconferir tudo</button>
+      <button v-if="auth.podeEscrever" type="button" class="botao-secundario" :disabled="carregando || reconferindo || !resumo?.relatorios.length" @click="reconferir">{{ reconferindo ? 'Reconferindo…' : 'Reconferir tudo' }}</button>
     </header>
 
     <!-- Envio -->
@@ -302,8 +329,6 @@ function alternarLote(tipo) {
         </li>
       </ul>
     </section>
-
-    <p v-if="erro" role="alert" class="cartao mt-4 border-carimbo/50 px-5 py-3 text-sm text-carimbo">{{ erro }}</p>
 
     <!-- Relatórios -->
     <section v-if="resumo?.relatorios.length" class="cartao mt-6 overflow-hidden" aria-label="Relatórios do RH enviados">
@@ -357,7 +382,7 @@ function alternarLote(tipo) {
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div class="flex gap-1 rounded-[3px] border border-linha bg-cartao p-1 text-sm" role="tablist">
           <button
-            v-for="s in [{ v: 'PENDENTE', r: `Pendentes (${resumo?.pendentes ?? 0})` }, { v: 'RESOLVIDAS', r: 'Decididas' }, { v: 'TODAS', r: 'Todas' }]"
+            v-for="s in [{ v: 'PENDENTE', r: resumo ? `Pendentes (${resumo.pendentes})` : 'Pendentes' }, { v: 'RESOLVIDAS', r: 'Decididas' }, { v: 'TODAS', r: 'Todas' }]"
             :key="s.v"
             type="button"
             role="tab"
@@ -377,7 +402,7 @@ function alternarLote(tipo) {
             <option value="RESOLVIDA">Resolvidas (ajuste/novo PDF)</option>
           </select>
         </div>
-        <p class="text-sm text-tinta-suave" aria-live="polite">{{ filtradas.length }} dia(s)</p>
+        <p v-if="listaCarregada" class="text-sm text-tinta-suave" aria-live="polite">{{ filtradas.length }} dia(s)</p>
       </div>
 
       <!-- Filtro por tipo -->
@@ -420,7 +445,11 @@ function alternarLote(tipo) {
         </ul>
       </div>
 
-      <p v-if="carregando && !divergencias.length" class="mt-6 text-center text-sm text-tinta-suave">Carregando…</p>
+      <!-- Falha ao carregar (numa recarga, o que já estava na tela continua) -->
+      <div v-if="erro" class="mt-4">
+        <EstadoDaTela :erro="erro" :carregando="carregando" manter @tentar="carregar" />
+      </div>
+      <p v-else-if="!listaCarregada" class="mt-6 text-center text-sm text-tinta-suave">Carregando…</p>
       <p v-else-if="!filtradas.length" class="cartao mt-4 px-5 py-8 text-center text-sm text-tinta-suave">
         {{ resumo?.relatorios.length
           ? status === 'PENDENTE' ? 'Nenhuma divergência pendente: a conferência bate com o RH. ✓' : 'Nada por aqui.'
@@ -533,10 +562,14 @@ function alternarLote(tipo) {
     <Transition enter-active-class="transition duration-200" enter-from-class="translate-y-3 opacity-0" leave-active-class="transition duration-150" leave-to-class="opacity-0">
       <div
         v-if="aviso"
-        role="status"
-        class="fixed inset-x-4 bottom-4 z-40 mx-auto max-w-md rounded-[3px] px-4 py-3 text-sm font-medium shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
+        :role="aviso.tipo === 'erro' ? 'alert' : 'status'"
+        class="fixed inset-x-4 bottom-4 z-40 mx-auto flex max-w-md items-start gap-3 rounded-[3px] px-4 py-3 text-sm font-medium shadow-lg sm:inset-x-auto sm:right-6 sm:bottom-6"
         :class="{ 'bg-carimbo text-cartao': aviso.tipo === 'erro', 'bg-tinta text-cartao': aviso.tipo === 'ok', 'border border-tinta bg-cartao text-tinta': aviso.tipo === 'info' }"
-      >{{ aviso.texto }}</div>
+      >
+        <span class="min-w-0 flex-1">{{ aviso.texto }}</span>
+        <!-- o erro não some sozinho: fica até a pessoa ler e fechar -->
+        <button v-if="aviso.tipo === 'erro'" type="button" class="shrink-0 font-semibold underline underline-offset-4" @click="fecharAviso">fechar</button>
+      </div>
     </Transition>
   </div>
 </template>

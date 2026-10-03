@@ -19,6 +19,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class BaixarComprovanteUseCase {
 
+    private static final org.slf4j.Logger log = org.slf4j.LoggerFactory.getLogger(BaixarComprovanteUseCase.class);
+
     private final ComprovanteArquivadoRepository arquivos;
     private final ArmazenamentoComprovantes armazenamento;
     private final RegistroJornadaRepository registros;
@@ -37,20 +39,23 @@ public class BaixarComprovanteUseCase {
                         .map(r -> r.getUsuarioId().equals(usuarioId))
                         .orElse(false))
                 .orElseThrow(() -> new RecursoNaoEncontradoException("COMPROVANTE_NAO_ENCONTRADO",
-                        "Comprovante %s não encontrado.".formatted(id)));
+                        "Este comprovante não foi encontrado. Recarregue a tela e tente de novo."));
         byte[] conteudo;
         try {
             conteudo = armazenamento.ler(comprovante.caminhoArquivo());
         } catch (NoSuchFileException e) {
+            log.error("Comprovante {} sem o arquivo no armazenamento: {}", id, comprovante.caminhoArquivo());
             throw new ComprovanteCorrompidoException("ARQUIVO_AUSENTE",
-                    "O arquivo do comprovante não está mais no armazenamento (%s).".formatted(comprovante.caminhoArquivo()));
+                    "O PDF deste comprovante não está mais guardado no sistema. Avise o administrador.");
         } catch (IOException e) {
+            log.error("Comprovante {} ilegível em {}", id, comprovante.caminhoArquivo(), e);
             throw new ComprovanteCorrompidoException("ARQUIVO_ILEGIVEL",
-                    "Falha ao ler o comprovante: " + e.getMessage());
+                    "Não foi possível abrir o PDF deste comprovante agora. Tente de novo; se continuar, avise o administrador.");
         }
         if (!comprovante.integro(conteudo)) {
+            log.error("Comprovante {} não confere com o hash registrado: {}", id, comprovante.caminhoArquivo());
             throw new ComprovanteCorrompidoException("COMPROVANTE_CORROMPIDO",
-                    "O arquivo armazenado não confere com o hash registrado; o comprovante pode ter sido alterado.");
+                    "O PDF guardado deste comprovante foi alterado depois de arquivado e não é confiável. Avise o administrador.");
         }
         return new ArquivoComprovanteView(comprovante, conteudo);
     }

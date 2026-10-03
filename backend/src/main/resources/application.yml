@@ -17,11 +17,13 @@ spring:
     locations: classpath:db/migration
   servlet:
     multipart:
-      max-file-size: 10MB        # relatório de banco de horas do RH (conciliação)
-      max-request-size: 11MB
+      max-file-size: 10MB        # por arquivo: relatório do RH (conciliação) e comprovantes enviados pela tela
+      max-request-size: 40MB     # vários comprovantes numa mesma requisição
 
 server:
   port: ${PORT:8080}
+  tomcat:
+    max-swallow-size: -1         # envio grande demais recebe a resposta 413 em vez de a conexão cair
 
 ponto:
   fuso-horario: America/Sao_Paulo
@@ -70,6 +72,12 @@ ponto:
     credencial: ${PONTO_GOOGLE_CREDENCIAL:}   # vazio = ~/.conferencia-ponto/google/conta-de-servico.json
     espera: 4s                                # junta mudanças seguidas (vários PDFs) numa gravação só
 
+  # Logs: além do log geral (logging.file.name), cada linha vai para um arquivo por usuário e por hora em
+  # <diretorio>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log ("sistema" = o que não é de uma pessoa).
+  logs:
+    diretorio: ${PONTO_LOGS_DIR:${user.home}/.conferencia-ponto/logs}
+    dias: 30                        # os arquivos por usuário mais antigos são apagados
+
   seguranca:
     jwt:
       segredo: ${PONTO_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida
@@ -88,5 +96,7 @@ ponto:
         perfis: [ROLE_VIEWER]
 
 logging:
+  pattern:
+    correlation: "[%X{usuario:-sistema}|%X{protocolo:--}] "   # de quem é a linha e o protocolo da requisição
   level:
     br.com.conferenciaponto.infrastructure.importacao: INFO

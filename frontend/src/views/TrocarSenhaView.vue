@@ -3,10 +3,13 @@ import { computed, nextTick, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
+import { useNotificacoesStore } from '@/stores/notificacoes'
+import { mensagemDe } from '@/utils/erros'
 
 /** Primeiro acesso (ou senha redefinida pelo administrador): a senha provisória precisa ser trocada. */
 const auth = useAuthStore()
 const ponto = usePontoStore()
+const notificacoes = useNotificacoesStore()
 const router = useRouter()
 
 const atual = ref('')
@@ -37,14 +40,16 @@ async function trocar() {
     await auth.alterarSenha(atual.value, nova.value)
     router.replace(auth.rotaInicial())
   } catch (e) {
-    erro.value = e.message
+    erro.value = mensagemDe(e)
   } finally {
     enviando.value = false
   }
 }
 
 function sair() {
+  // outra pessoa pode entrar na mesma aba: nada de quem saiu fica na memória
   ponto.limpar()
+  notificacoes.limpar()
   auth.logout()
   router.replace({ name: 'login' })
 }

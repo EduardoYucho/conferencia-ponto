@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.domain.exception.DominioException;
 import br.com.conferenciaponto.application.evento.PlanilhaAtualizadaEvento;
 import br.com.conferenciaponto.application.planilha.Aba;
 import br.com.conferenciaponto.application.planilha.MontadorPlanilhaConferencia;
@@ -112,6 +113,12 @@ public class GerenciarPlanilhaUseCase {
                         .sincronizada(titulo, clock.instant()));
             } catch (PlanilhaRemotaException e) {
                 throw new RegraNegocioException(e.getCodigo(), e.getMessage());
+            } catch (DominioException e) {
+                throw e;
+            } catch (RuntimeException e) {
+                log.error("Erro ao montar a planilha do usuário {} para vincular", usuarioId, e);
+                throw new RegraNegocioException("PLANILHA_ERRO_INTERNO",
+                        "Não foi possível montar a planilha agora (erro interno). Tente de novo; se continuar, avise o administrador.");
             }
         }
         log.info("Planilha do Google vinculada ao usuário {} por {}", usuarioId, quem);
@@ -171,7 +178,11 @@ public class GerenciarPlanilhaUseCase {
     }
 
     public Integracao desconfigurar() {
-        remotas.desconfigurar();
+        try {
+            remotas.desconfigurar();
+        } catch (PlanilhaRemotaException e) {
+            throw new RegraNegocioException(e.getCodigo(), e.getMessage());
+        }
         return integracao();
     }
 
@@ -183,15 +194,16 @@ public class GerenciarPlanilhaUseCase {
             try {
                 String titulo = remotas.publicar(vinculo.planilhaId(), montador.montar(usuarioId), tudo ? null : abas(meses));
                 gravar(vinculo.sincronizada(titulo, clock.instant()));
+                log.info("Planilha do Google gravada ({})", tudo ? "todas as abas" : "resumo e " + meses.size() + " mês(es)");
             } catch (PlanilhaRemotaException e) {
                 log.warn("Planilha do Google do usuário {} não foi gravada ({}): {}", usuarioId, e.getCodigo(), e.getMessage());
                 gravar(vinculo.comErro(e.getMessage()));
                 throw e;
             } catch (RuntimeException e) {
                 log.error("Erro ao montar a planilha do usuário {}", usuarioId, e);
-                gravar(vinculo.comErro("Erro inesperado ao montar a planilha. Consulte os logs do servidor."));
+                gravar(vinculo.comErro("Não foi possível montar a planilha (erro interno). Tente \"Atualizar agora\"; se continuar, avise o administrador."));
                 throw new PlanilhaRemotaException("PLANILHA_ERRO_INTERNO",
-                        "Erro inesperado ao montar a planilha. Consulte os logs do servidor.", false, e);
+                        "Não foi possível montar a planilha (erro interno). Tente \"Atualizar agora\"; se continuar, avise o administrador.", false, e);
             }
         }
     }

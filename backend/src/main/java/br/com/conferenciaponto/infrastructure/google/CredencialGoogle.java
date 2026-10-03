@@ -111,8 +111,10 @@ public class CredencialGoogle {
             somenteDoDono(temporario);
             Files.move(temporario, arquivo, StandardCopyOption.REPLACE_EXISTING);
         } catch (IOException e) {
+            log.error("Não foi possível gravar a chave do Google em {}", arquivo, e);
             throw new PlanilhaRemotaException("GOOGLE_CHAVE_NAO_GRAVADA",
-                    "Não foi possível gravar a chave em %s: %s".formatted(arquivo, e.getMessage()), false, e);
+                    "Não foi possível guardar a chave no computador do servidor (pasta sem permissão de escrita ou "
+                            + "disco cheio). Confira e envie a chave de novo.", false, e);
         }
         chave = nova;
         carregada = true;
@@ -124,7 +126,9 @@ public class CredencialGoogle {
         try {
             Files.deleteIfExists(arquivo);
         } catch (IOException e) {
-            log.warn("Não foi possível apagar {}: {}", arquivo, e.getMessage());
+            log.error("Não foi possível apagar a chave do Google em {}", arquivo, e);
+            throw new PlanilhaRemotaException("GOOGLE_CHAVE_NAO_REMOVIDA", "Não foi possível apagar o arquivo da chave "
+                    + "no computador do sistema (está aberto em outro programa?). A integração continua ligada.", false, e);
         }
         chave = null;
         carregada = true;
@@ -158,8 +162,9 @@ public class CredencialGoogle {
             assinatura.update(conteudo.getBytes(StandardCharsets.US_ASCII));
             return conteudo + "." + B64.encodeToString(assinatura.sign());
         } catch (IOException | GeneralSecurityException e) {
-            throw new PlanilhaRemotaException("GOOGLE_CHAVE_INVALIDA", "Não foi possível assinar com a chave do Google: "
-                    + e.getMessage(), false, e);
+            log.error("Não foi possível assinar com a chave do Google", e);
+            throw new PlanilhaRemotaException("GOOGLE_CHAVE_INVALIDA", "A chave do Google não pôde ser usada (o arquivo "
+                    + "parece danificado). Crie uma chave nova na conta de serviço e envie de novo.", false, e);
         }
     }
 

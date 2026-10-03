@@ -41,7 +41,7 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
                             :dias, :status, :mensagem, :divergencias, :enviado, :por, :processado)
                         """)
                 .param("id", r.id()).param("usuario", r.usuarioId()).param("nome", r.nomeArquivo()).param("hash", r.hashSha256())
-                .param("funcionario", r.funcionario()).param("emitido", r.emitidoEm())
+                .param("funcionario", cortar(r.funcionario(), 120)).param("emitido", r.emitidoEm())
                 .param("inicio", r.periodoInicio()).param("fim", r.periodoFim())
                 .param("previsto", r.totalPrevistoSegundos()).param("trabalhado", r.totalTrabalhadoSegundos())
                 .param("saldo", r.totalSaldoSegundos()).param("dias", r.diasLidos())
@@ -56,7 +56,7 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
                             VALUES (:relatorio, :data, :horarios, :ocorrencia, :prevista, :trabalhados, :saldo)
                             """)
                     .param("relatorio", r.id()).param("data", d.data()).param("horarios", horariosTexto(d.horarios()))
-                    .param("ocorrencia", d.ocorrencia()).param("prevista", d.jornadaPrevistaSegundos())
+                    .param("ocorrencia", cortar(d.ocorrencia(), 80)).param("prevista", d.jornadaPrevistaSegundos())
                     .param("trabalhados", d.segundosTrabalhados()).param("saldo", d.saldoSegundos())
                     .update();
         }
@@ -174,6 +174,11 @@ class RelatorioRhRepositoryJdbc implements RelatorioRhRepository {
     static Instant instante(ResultSet rs, String coluna) throws SQLException {
         OffsetDateTime valor = rs.getObject(coluna, OffsetDateTime.class);
         return valor == null ? null : valor.toInstant();
+    }
+
+    /** Texto vindo do PDF: nunca maior do que a coluna (um relatório estranho não vira erro de banco). */
+    static String cortar(String texto, int maximo) {
+        return texto == null || texto.length() <= maximo ? texto : texto.substring(0, maximo);
     }
 
     static OffsetDateTime utc(Instant instante) {
