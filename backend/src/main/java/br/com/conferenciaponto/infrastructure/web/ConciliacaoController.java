@@ -1,10 +1,12 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
+import br.com.conferenciaponto.application.tela.MontadorDeDias.Quem;
 import br.com.conferenciaponto.application.usecase.ConferirConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ImportarRelatorioRhUseCase;
 import br.com.conferenciaponto.application.usecase.ResolverDivergenciaUseCase;
+import br.com.conferenciaponto.application.view.DivergenciaView;
 import br.com.conferenciaponto.domain.model.StatusDivergencia;
 import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.AceiteLoteRequest;
@@ -39,11 +41,13 @@ import java.util.UUID;
  * Conciliação com o relatório de banco de horas do RH.
  * <pre>
  * POST   /api/v1/conciliacoes                               envia o PDF (campo "arquivo") → 202; confere em 2º plano
- * GET    /api/v1/conciliacoes/resumo                        relatórios (com comparativo de saldo) e pendências por tipo
- * GET    /api/v1/conciliacoes/divergencias?status=&inicio=&fim=   status: PENDENTE (padrão), ACEITO_RH, MANTIDO_LOCAL,
- *                                                           RESOLVIDA ou TODAS
- * POST   /api/v1/conciliacoes/divergencias/{id}/aceitar     "Aceitar dados do RH"
- * POST   /api/v1/conciliacoes/divergencias/{id}/manter      "Manter dados locais" {observacao?}
+ * GET    /api/v1/conciliacoes/resumo                        relatórios (com comparativo de saldo), resultado da
+ *                                                           comparação e pendências por tipo
+ * GET    /api/v1/conciliacoes/divergencias?status=&inicio=&fim=   status: PENDENTE (padrão), DECIDIDAS (as três
+ *                                                           seguintes juntas), ACEITO_RH, MANTIDO_LOCAL, RESOLVIDA
+ *                                                           ou TODAS
+ * POST   /api/v1/conciliacoes/divergencias/{id}/aceitar     "Usar o do RH"
+ * POST   /api/v1/conciliacoes/divergencias/{id}/manter      "Manter o meu" {observacao?}
  * POST   /api/v1/conciliacoes/divergencias/{id}/reabrir     volta a decisão para pendente
  * POST   /api/v1/conciliacoes/divergencias/aceitar-lote     {tipos[], inicio?, fim?}
  * POST   /api/v1/conciliacoes/reconferir                    confere de novo todas as datas
@@ -86,15 +90,21 @@ public class ConciliacaoController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate inicio,
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate fim,
             Titular titular) {
-        StatusDivergencia filtro;
-        try {
-            filtro = "TODAS".equalsIgnoreCase(status) ? null : StatusDivergencia.valueOf(status.strip().toUpperCase());
-        } catch (IllegalArgumentException e) {
-            throw new RegraNegocioException("STATUS_INVALIDO",
-                    "Situação inválida: use PENDENTE, ACEITO_RH, MANTIDO_LOCAL, RESOLVIDA ou TODAS.");
+        String situacao = status.strip().toUpperCase();
+        List<DivergenciaView> lista;
+        if ("DECIDIDAS".equals(situacao)) {
+            lista = consultar.decididas(titular.id(), inicio, fim, quem(titular));
+        } else {
+            StatusDivergencia filtro;
+            try {
+                filtro = "TODAS".equals(situacao) ? null : StatusDivergencia.valueOf(situacao);
+            } catch (IllegalArgumentException e) {
+                throw new RegraNegocioException("STATUS_INVALIDO",
+                        "Situação inválida: use PENDENTE, DECIDIDAS, ACEITO_RH, MANTIDO_LOCAL, RESOLVIDA ou TODAS.");
+            }
+            lista = consultar.divergencias(titular.id(), filtro, inicio, fim, quem(titular));
         }
-        return ApiResponse.ok(consultar.divergencias(titular.id(), filtro, inicio, fim).stream()
-                .map(DivergenciaResponse::de).toList());
+        return ApiResponse.ok(lista.stream().map(DivergenciaResponse::de).toList());
     }
 
     @PostMapping("/divergencias/{id}/aceitar")
@@ -135,8 +145,13 @@ public class ConciliacaoController {
         return ApiResponse.ok(null);
     }
 
+    /** Quem está olhando: só mexe nas diferenças quem vê os próprios dados e registra ponto. */
+    private static Quem quem(Titular titular) {
+        return new Quem(titular.proprio() && titular.logado().isTitular(), titular.logado().isAdmin());
+    }
+
     private DivergenciaResponse uma(Titular titular, UUID id) {
-        return consultar.divergencias(titular.id(), null, null, null).stream()
+        return consultar.divergencias(titular.id(), null, null, null, quem(titular)).stream()
                 .filter(v -> v.divergencia().id().equals(id))
                 .findFirst().map(DivergenciaResponse::de).orElse(null);
     }

@@ -24,6 +24,7 @@ class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
 
     private final Map<Chave, RegistroJornada> registros = new LinkedHashMap<>();
     private final List<SaldoMensal> consolidacao = new ArrayList<>();
+    private boolean consolidacaoDefinida;
 
     @Override
     public Optional<RegistroJornada> buscarPorData(UUID usuarioId, LocalDate data) {
@@ -67,7 +68,10 @@ class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
 
     @Override
     public List<SaldoMensal> consolidarAno(UUID usuarioId, int ano) {
-        return consolidacao.stream().filter(s -> s.ano() == ano).toList();
+        if (consolidacaoDefinida) { // o teste ditou os saldos
+            return consolidacao.stream().filter(s -> s.ano() == ano).toList();
+        }
+        return consolidarPeriodo(usuarioId, LocalDate.of(ano, 1, 1), LocalDate.of(ano, 12, 31));
     }
 
     @Override
@@ -90,6 +94,7 @@ class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
     }
 
     void definirConsolidacao(List<SaldoMensal> saldos) {
+        consolidacaoDefinida = true;
         consolidacao.clear();
         consolidacao.addAll(saldos);
     }

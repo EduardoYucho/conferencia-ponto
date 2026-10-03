@@ -202,12 +202,21 @@ function Compilar([string] $repositorio) {
     New-Item -ItemType Directory -Force -Path $PastaLogs | Out-Null
     Set-Content -LiteralPath $LogBuild -Value "Compilação de $(Get-Date -Format 's') a partir de $repositorio" -Encoding UTF8
 
-    Passo 'Front-end: npm run build'
-    if (-not (Test-Path -LiteralPath (Join-Path $frontend 'node_modules'))) {
+    # As dependências são reinstaladas quando faltam ou quando a lista delas (package-lock.json) mudou desde a
+    # última instalação (o npm grava node_modules\.package-lock.json ao instalar).
+    $trava     = Join-Path $frontend 'package-lock.json'
+    $instalado = Join-Path $frontend 'node_modules\.package-lock.json'
+    $instalar  = -not (Test-Path -LiteralPath $instalado)
+    if (-not $instalar -and (Test-Path -LiteralPath $trava)) {
+        $instalar = (Get-Item -LiteralPath $trava).LastWriteTimeUtc -gt (Get-Item -LiteralPath $instalado).LastWriteTimeUtc
+    }
+    if ($instalar) {
+        Passo 'Front-end: npm ci (dependências novas ou alteradas)'
         if ((Executar-NoLog $frontend $npm.Source 'ci --no-audit --no-fund') -ne 0) {
             Mostrar-FimDoLog $LogBuild; Falhar "Falhou o npm ci. Log completo: $LogBuild"
         }
     }
+    Passo 'Front-end: npm run build'
     if ((Executar-NoLog $frontend $npm.Source 'run build') -ne 0) {
         Mostrar-FimDoLog $LogBuild; Falhar "Falhou o build do front-end. Log completo: $LogBuild"
     }

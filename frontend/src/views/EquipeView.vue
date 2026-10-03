@@ -5,11 +5,13 @@ import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import Icone from '@/components/Icone.vue'
 
 /**
- * Equipe agora: todos os usuários, quem está trabalhando e, de quem não está, o motivo.
+ * Equipe: todos os usuários, separados em quem está trabalhando agora, quem está em intervalo e quem está
+ * fora (com o motivo).
  *
- * A tela não decide nada: situação, rótulo e motivo de cada pessoa vêm prontos do servidor (GET /presenca).
+ * A tela não decide nada: a situação, o motivo e os totais de cada grupo vêm prontos do servidor (GET /presenca).
  * Atualiza sozinha quando alguém bate o ponto (aviso em tempo real) e a cada minuto (o horário avança:
  * "antes do expediente" vira "ainda não bateu o ponto").
  */
@@ -20,20 +22,23 @@ const router = useRouter()
 const painel = ref(null)
 const erro = ref(null)
 const carregando = ref(false)
-const filtro = ref('todos') // 'todos' | 'online' | 'offline'
+/** 'todos' ou a chave de um dos grupos. */
+const filtro = ref('todos')
 let pedido = 0
 let timerMinuto = null
 let timerAviso = null
 
-async function carregar() {
+/** @param {{ silencioso?: boolean }} [opcoes] silencioso: atualização automática (o botão não fica "Atualizando…") */
+async function carregar({ silencioso = false } = {}) {
   const meu = ++pedido
-  carregando.value = true
+  if (!silencioso) carregando.value = true
   try {
     const dados = await pontoApi.presenca()
     if (meu !== pedido) return
     painel.value = dados
     erro.value = null
   } catch (e) {
+    // a falha aparece mesmo na atualização automática: o que está na tela ficou parado no horário mostrado
     if (meu === pedido) erro.value = e
   } finally {
     if (meu === pedido) carregando.value = false
@@ -42,9 +47,10 @@ async function carregar() {
 
 onMounted(() => {
   carregar()
-  timerMinuto = setInterval(carregar, 60_000)
+  timerMinuto = setInterval(() => carregar({ silencioso: true }), 60_000)
 })
 onBeforeUnmount(() => {
+  pedido++ // uma resposta que ainda está a caminho não entra numa tela que já saiu
   clearInterval(timerMinuto)
   clearTimeout(timerAviso)
 })
@@ -52,154 +58,177 @@ onBeforeUnmount(() => {
 // várias batidas seguidas (uma pasta de PDFs sendo lida) viram uma consulta só
 watch(() => [ponto.presencaMudouEm, ponto.reconectouEm], () => {
   clearTimeout(timerAviso)
-  timerAviso = setTimeout(carregar, 600)
+  timerAviso = setTimeout(() => carregar({ silencioso: true }), 600)
 })
 
-const pessoas = computed(() => {
-  const lista = painel.value?.pessoas ?? []
-  if (filtro.value === 'online') return lista.filter((p) => p.online)
-  if (filtro.value === 'offline') return lista.filter((p) => !p.online)
-  return lista
-})
+/**
+ * Os três grupos da tela. Em qual deles a pessoa entra sai do que o servidor diz dela (`online`, `situacao`);
+ * o total de cada um também vem do servidor.
+ */
+const GRUPOS = [
+  {
+    chave: 'trabalhando',
+    titulo: 'Trabalhando agora',
+    selo: 'Trabalhando',
+    classeSelo: 'selo-positivo',
+    vazio: 'Ninguém está trabalhando neste momento.',
+    total: (p) => p.online,
+    pertence: (p) => p.online,
+  },
+  {
+    chave: 'intervalo',
+    titulo: 'Em intervalo',
+    selo: 'Em intervalo',
+    classeSelo: 'selo-info',
+    vazio: 'Ninguém está em intervalo agora.',
+    total: (p) => p.emIntervalo,
+    pertence: (p) => !p.online && p.situacao === 'INTERVALO',
+  },
+  {
+    chave: 'fora',
+    titulo: 'Fora',
+    selo: 'Fora',
+    classeSelo: 'selo-neutro',
+    vazio: 'Ninguém está fora agora.',
+    total: (p) => p.offline,
+    pertence: (p) => !p.online && p.situacao !== 'INTERVALO',
+  },
+]
+
+const grupos = computed(() => GRUPOS.map((g) => ({
+  ...g,
+  total: painel.value ? g.total(painel.value) : 0,
+  pessoas: (painel.value?.pessoas ?? []).filter(g.pertence),
+})))
+
+/** Com "Todos", os grupos vazios não ocupam a tela (menos o primeiro: é a pergunta que a tela responde). */
+const gruposVisiveis = computed(() => grupos.value.filter((g) => (filtro.value === 'todos'
+  ? g.pessoas.length > 0 || g.chave === 'trabalhando'
+  : g.chave === filtro.value)))
 
 const filtros = computed(() => [
   { valor: 'todos', rotulo: 'Todos', total: painel.value?.total },
-  { valor: 'online', rotulo: 'Online', total: painel.value?.online },
-  { valor: 'offline', rotulo: 'Offline', total: painel.value ? painel.value.total - painel.value.online : undefined },
+  ...grupos.value.map((g) => ({ valor: g.chave, rotulo: g.titulo, total: g.total })),
 ])
 
 const iniciais = (nome) => (nome ?? '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase()
 const hhmm = (hora) => (hora ?? '').slice(0, 5)
 
-/** Cor do ponto de situação: verde trabalhando, âmbar intervalo ou atenção, cinza o resto. */
-function corDo(p) {
-  if (p.online) return 'bg-credito'
-  if (p.situacao === 'INTERVALO') return 'bg-amber-500'
-  if (p.atencao) return 'bg-carimbo'
-  return 'bg-tinta-apagada'
-}
-
 /** Administração e coordenação abrem o ponto da pessoa a partir do cartão dela. */
 const podeAbrir = (p) => auth.podeVerTodos && p.login && p.situacao !== 'NAO_REGISTRA_PONTO'
 function abrir(p) {
   auth.verComo(p.login)
-  router.push(auth.ehTitular ? { name: 'painel' } : { name: 'auditoria' })
+  router.push({ name: 'meu-ponto' })
 }
 </script>
 
 <template>
-  <main class="mx-auto max-w-6xl px-4 py-6 sm:px-6">
+  <main class="pagina">
     <header class="flex flex-wrap items-end justify-between gap-x-6 gap-y-3">
       <div>
-        <p class="rotulo">Quem está trabalhando</p>
-        <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%]">Equipe agora</h1>
-        <p class="mt-2 text-sm text-tinta-suave">
-          Online é quem bateu a entrada e ainda não bateu a saída. Quem está offline aparece com o motivo.
-        </p>
+        <h1 class="titulo-pagina">Equipe agora</h1>
+        <p class="subtitulo-pagina">Quem está trabalhando neste momento. Quem não está aparece com o motivo.</p>
       </div>
-      <p v-if="painel" class="text-sm text-tinta-suave" role="status">
-        Situação das <span class="carimbo font-semibold text-tinta">{{ hhmm(painel.agora) }}</span>
-        <button type="button" class="ml-2 font-semibold text-tinta underline underline-offset-4" :disabled="carregando" @click="carregar">
-          {{ carregando ? 'atualizando…' : 'atualizar' }}
+      <div v-if="painel" class="flex flex-wrap items-center gap-x-4 gap-y-2">
+        <p class="text-[0.95rem] text-texto-3" role="status">
+          Atualizado às <b class="text-texto">{{ hhmm(painel.agora) }}</b> · atualiza sozinho
+        </p>
+        <button type="button" class="botao-secundario min-h-11" :disabled="carregando" @click="carregar()">
+          <Icone nome="atualizar" tamanho="18" /> {{ carregando ? 'Atualizando…' : 'Atualizar agora' }}
         </button>
-      </p>
+      </div>
     </header>
 
-    <!-- Resumo: o número que importa primeiro -->
-    <section v-if="painel" class="mt-5 grid grid-cols-3 gap-3" aria-label="Resumo da equipe">
-      <div class="cartao px-4 py-3">
-        <p class="rotulo">Online</p>
-        <p class="carimbo mt-1 text-3xl font-semibold text-credito">{{ painel.online }}</p>
-      </div>
-      <div class="cartao px-4 py-3">
-        <p class="rotulo">Em intervalo</p>
-        <p class="carimbo mt-1 text-3xl font-semibold text-amber-700">{{ painel.emIntervalo }}</p>
-      </div>
-      <div class="cartao px-4 py-3">
-        <p class="rotulo">Offline</p>
-        <p class="carimbo mt-1 text-3xl font-semibold text-tinta-suave">{{ painel.offline }}</p>
-      </div>
-    </section>
+    <EstadoDaTela
+      :carregando="carregando"
+      :erro="erro"
+      :manter="!!painel"
+      carregando-texto="Consultando a situação da equipe…"
+      @tentar="carregar()"
+    />
 
-    <div v-if="painel" class="mt-5 flex flex-wrap gap-1.5" role="group" aria-label="Filtrar a lista">
-      <button
-        v-for="f in filtros"
-        :key="f.valor"
-        type="button"
-        class="rounded-full border px-3 py-1 text-sm font-semibold transition"
-        :class="filtro === f.valor ? 'border-tinta bg-tinta text-cartao' : 'border-linha bg-cartao text-tinta-suave hover:border-tinta hover:text-tinta'"
-        :aria-pressed="filtro === f.valor"
-        @click="filtro = f.valor"
-      >{{ f.rotulo }} <span class="carimbo ml-0.5 font-normal opacity-80">{{ f.total }}</span></button>
-    </div>
+    <template v-if="painel">
+      <!-- Contadores: no celular, um por linha (nome à esquerda, número à direita); em tela larga, lado a lado -->
+      <section class="grid gap-3 sm:grid-cols-3 sm:gap-4" aria-label="Resumo da equipe">
+        <div
+          v-for="g in grupos"
+          :key="g.chave"
+          class="flex items-center justify-between gap-3 rounded-2xl border px-5 py-3 sm:flex-col sm:items-start sm:justify-start sm:gap-0 sm:py-4"
+          :class="g.chave === 'trabalhando' ? 'border-positivo-borda bg-positivo-suave text-positivo' : 'border-borda bg-superficie'"
+        >
+          <h2 class="text-[0.95rem] font-semibold" :class="{ 'text-texto-3': g.chave !== 'trabalhando' }">{{ g.titulo }}</h2>
+          <p class="text-[2rem] leading-tight font-extrabold tracking-tight">{{ g.total }}</p>
+        </div>
+      </section>
 
-    <div class="mt-4">
-      <EstadoDaTela
-        :carregando="carregando"
-        :erro="erro"
-        :manter="!!painel"
-        :vazio="!!painel && !pessoas.length"
-        carregando-texto="Consultando a situação da equipe…"
-        @tentar="carregar"
-      >
-        <p v-if="painel && !pessoas.length" class="py-6 text-center text-sm text-tinta-suave">
-          {{ filtro === 'online' ? 'Ninguém está trabalhando neste momento.' : 'Ninguém nesta situação agora.' }}
-        </p>
-        <ul v-else class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <div class="flex flex-wrap gap-2" role="group" aria-label="Mostrar">
+        <button
+          v-for="f in filtros"
+          :key="f.valor"
+          type="button"
+          class="pilula"
+          :class="{ 'pilula-ativa': filtro === f.valor }"
+          :aria-pressed="filtro === f.valor"
+          @click="filtro = f.valor"
+        >{{ f.rotulo }} ({{ f.total }})</button>
+      </div>
+
+      <section v-for="g in gruposVisiveis" :key="g.chave" :aria-labelledby="`grupo-${g.chave}`" class="flex flex-col gap-3">
+        <h2 :id="`grupo-${g.chave}`" class="titulo-secao">
+          {{ g.titulo }} <span class="text-[0.95rem] font-semibold text-texto-3">({{ g.total }})</span>
+        </h2>
+
+        <p v-if="!g.pessoas.length" class="cartao px-5 py-6 text-center text-[0.95rem] text-texto-3">{{ g.vazio }}</p>
+
+        <ul v-else class="grid grid-cols-[repeat(auto-fill,minmax(18.5rem,1fr))] gap-4">
           <li
-            v-for="p in pessoas"
+            v-for="p in g.pessoas"
             :key="p.id"
-            class="cartao flex gap-3 px-4 py-3"
-            :class="{ 'border-credito/50': p.online, 'border-carimbo/50': p.atencao }"
+            class="flex gap-3.5 rounded-2xl border px-5 py-4"
+            :class="p.atencao ? 'border-atencao-borda bg-atencao-suave'
+              : p.online ? 'border-positivo-borda bg-superficie' : 'border-borda bg-superficie'"
           >
-            <span class="relative mt-0.5 size-11 shrink-0 self-start">
-              <span
-                class="grid size-11 place-items-center rounded-full text-sm font-bold"
-                :class="p.online ? 'bg-credito text-white' : 'bg-papel-escuro text-tinta-suave'"
-                aria-hidden="true"
-              >{{ iniciais(p.nome) }}</span>
-              <span class="absolute -right-0.5 -bottom-0.5 size-3.5 rounded-full border-2 border-cartao" :class="corDo(p)" aria-hidden="true" />
-            </span>
+            <span
+              class="grid size-12 shrink-0 place-items-center rounded-full font-bold"
+              :class="p.online ? 'bg-positivo-solido text-white'
+                : p.atencao ? 'bg-atencao-borda text-atencao' : 'bg-neutro text-texto-2'"
+              aria-hidden="true"
+            >{{ iniciais(p.nome) }}</span>
 
-            <div class="min-w-0 flex-1">
-              <p class="flex flex-wrap items-baseline gap-x-2">
-                <span class="truncate font-semibold">{{ p.nome }}</span>
-                <span v-if="p.euMesmo" class="text-xs text-tinta-suave">você</span>
-              </p>
-              <p class="mt-0.5 text-sm font-bold tracking-wide uppercase" :class="p.online ? 'text-credito' : 'text-tinta-suave'">
-                {{ p.online ? 'Online' : 'Offline' }}
-              </p>
-              <p class="mt-1 text-sm" :class="p.atencao ? 'font-semibold text-carimbo' : 'text-tinta'">{{ p.motivo }}</p>
-              <p v-if="p.detalhe" class="mt-0.5 text-sm text-tinta-suave">{{ p.detalhe }}</p>
-              <p v-if="p.alemDoHorario && p.horario" class="mt-0.5 text-sm text-tinta-suave">Fora do horário de hoje</p>
+            <div class="flex min-w-0 flex-1 flex-col items-start gap-1">
+              <h3 class="max-w-full text-[1.05rem] font-bold break-words">
+                {{ p.nome }} <span v-if="p.euMesmo" class="text-sm font-medium text-texto-3">você</span>
+              </h3>
+              <span class="selo" :class="p.atencao ? 'bg-superficie text-atencao' : g.classeSelo">{{ g.selo }}</span>
 
-              <dl class="mt-2 space-y-0.5 text-xs text-tinta-suave">
-                <div v-if="p.horario">
-                  <dt class="inline">Horário de hoje:</dt>
-                  <dd class="carimbo ml-1 inline">{{ p.horario }}</dd>
-                </div>
-                <div v-if="p.batidas?.length">
-                  <dt class="inline">Batidas de hoje:</dt>
-                  <dd class="carimbo ml-1 inline">{{ p.batidas.map(hhmm).join(' · ') }}</dd>
-                </div>
-              </dl>
+              <p class="text-[0.95rem]" :class="p.atencao ? 'font-semibold text-atencao' : 'text-texto'">{{ p.motivo }}</p>
+              <p v-if="p.detalhe" class="text-sm text-texto-2">{{ p.detalhe }}</p>
+              <p v-if="p.alemDoHorario && p.horario" class="text-sm text-texto-2">Fora do horário de hoje</p>
+              <p v-if="p.horario" class="text-sm" :class="p.atencao ? 'text-atencao' : 'text-texto-3'">Horário de hoje: {{ p.horario }}</p>
+              <p v-if="p.batidas?.length" class="text-sm" :class="p.atencao ? 'text-atencao' : 'text-texto-3'">
+                Batidas de hoje: {{ p.batidas.map(hhmm).join(' · ') }}
+              </p>
 
               <button
                 v-if="podeAbrir(p) && !p.euMesmo"
                 type="button"
-                class="mt-2 text-xs font-semibold underline underline-offset-4 hover:text-carimbo"
+                class="botao-linha mt-1.5"
+                :aria-label="`Ver o ponto de ${p.nome}`"
                 @click="abrir(p)"
-              >ver o ponto de {{ p.nome.split(' ')[0] }}</button>
+              ><Icone nome="calendario" tamanho="18" /> Ver o ponto</button>
             </div>
           </li>
         </ul>
-      </EstadoDaTela>
-    </div>
+      </section>
 
-    <p v-if="painel" class="mt-6 text-xs text-tinta-suave">
-      A situação vem das batidas de hoje e das folgas, férias e feriados cadastrados. Quem importa o ponto por
-      comprovante (PDF) aparece online assim que o comprovante da entrada chega ao sistema.
-      <template v-if="!auth.podeVerTodos">Atestados e abonos de colegas aparecem só como "Ausência justificada".</template>
-    </p>
+      <section class="cartao px-5 py-4 sm:px-6" aria-labelledby="titulo-como-equipe">
+        <h2 id="titulo-como-equipe" class="text-base font-extrabold">De onde vem esta situação</h2>
+        <p class="mt-1.5 text-[0.95rem] leading-relaxed text-texto-2">
+          Das batidas de hoje e das folgas, férias e feriados cadastrados. Quem recebe o ponto por comprovante (PDF)
+          aparece trabalhando assim que o comprovante da entrada chega ao sistema.
+          <template v-if="!auth.podeVerTodos">Atestados e outras justificativas de colegas aparecem só como "Ausência justificada".</template>
+        </p>
+      </section>
+    </template>
   </main>
 </template>

@@ -40,7 +40,7 @@ public class ExcluirRegistroUseCase {
         long comprovantes = arquivos.contarPorRegistro(registro.getId());
         if (comprovantes > 0) {
             throw new ConflitoException("REGISTRO_COM_COMPROVANTES",
-                    "O dia %s tem %d comprovante(s) PDF arquivado(s) e não pode ser excluído (trilha de auditoria)."
+                    "O dia %s tem %d comprovante(s) arquivado(s) e não pode ser apagado: os comprovantes são a prova das batidas."
                             .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(data), comprovantes));
         }
         repository.excluir(registro);

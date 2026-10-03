@@ -1,49 +1,44 @@
 import { defineStore } from 'pinia'
-import { computed, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { conectarEventos } from '@/api/eventos'
 import { useAuthStore } from '@/stores/auth'
 import { useNotificacoesStore } from '@/stores/notificacoes'
-import { cargaTipica, dataISO, deISO, ehFimDeSemana, JORNADA_BASE_PADRAO } from '@/utils/tempo'
+import { dataISO, deISO } from '@/utils/tempo'
 import { relatar } from '@/utils/erros'
 
-const proximoDia = (iso) => {
-  const d = deISO(iso)
-  d.setDate(d.getDate() + 1)
-  return dataISO(d)
-}
+const SIGLAS = ['DOM', 'SEG', 'TER', 'QUA', 'QUI', 'SEX', 'SAB']
 
 /**
- * Estado central do ponto da pessoa em tela: horário de trabalho, dias do mês em exibição,
- * saldos consolidados (mensal e ciclo do banco de horas) e a conexão em tempo real (SSE)
- * que aplica na tela as batidas importadas dos PDFs. Durações em SEGUNDOS, como no RH.
+ * O que é comum a todas as telas da pessoa em exibição: o relógio e o horário de trabalho vindos do servidor,
+ * o banco de horas, as gravações (bater ponto, ajustar, lançar, marcar) e a conexão em tempo real.
+ *
+ * Cada tela busca o próprio conteúdo já pronto na API (Início: /inicio; Meu ponto: /ponto ...). Quando algo
+ * muda — uma gravação daqui ou um evento do servidor — `mudouEm` é atualizado e a tela em exibição se
+ * recarrega. Nenhuma conta de jornada é feita aqui: saldos, situações e ações vêm decididos do servidor.
  */
 export const usePontoStore = defineStore('ponto', () => {
-  // ---------------------------------------------------------------- state
+  // ---------------------------------------------------------------- estado
+  /** Relógio do servidor e horário da pessoa: { hoje, agora, horario, semana, cargaDiaInteiroSegundos, limites... } */
   const configuracao = ref(null)
-  const ano = ref(null)
-  const mes = ref(null)
-  const dias = ref([])
-  /** Férias/atestados/folgas e feriados que tocam o mês (rotulam os dias sem registro). */
-  const ausenciasMes = ref([])
-  const feriadosMes = ref([])
-  /** Débitos/créditos avulsos no banco de horas com data no mês (segundos negativos = abatidos). */
-  const lancamentosMes = ref([])
-  /** Expediente previsto de cada dia do mês pelo horário da pessoa: [{ data, previstoSegundos, periodos }]. */
-  const expedientesMes = ref(null)
-  const resumo = ref(null)
+  /** Saldos do mês corrente e o ciclo aberto do banco de horas: { ciclo, meses, ... } */
   const saldos = ref(null)
-  const dataSelecionada = ref(null)
-
-  const carregando = ref(false)
+  /** Uma gravação está em andamento (os botões de salvar esperam). */
   const salvando = ref(false)
-  const erro = ref(null)
+  /** Os dados de ponto da pessoa em tela mudaram (gravação ou evento): as telas recarregam. */
+  const mudouEm = ref(0)
+  /** O que mudou por último: { tipo: 'jornada'|'calendario'|'banco'|'ciclo'|'conciliacao', data? } */
+  const ultimaMudanca = ref(null)
+  /** Diferenças com o RH esperando decisão (o número ao lado de "Conferir com o RH" no menu). */
+  const pendentesRh = ref(null)
+  /** Dias que alguma tela já carregou: data → { previstoSegundos, periodos } (as janelas consultam). */
+  const diasConhecidos = reactive({})
 
   /** 'desconectado' | 'conectando' | 'conectado' | 'reconectando' */
   const tempoReal = ref('desconectado')
   /** { habilitado, ativo, situacao, diretorio, mensagem } — estado do monitor de PDFs no servidor */
   const monitoramento = ref(null)
-  /** Último evento recebido pelo SSE (a view decide se mostra aviso/realce). */
+  /** Último evento recebido pelo tempo real (a tela decide se mostra aviso/realce). */
   const ultimoEvento = ref(null)
   /** Último aviso de mudança na conciliação com o RH (a tela de conciliação recarrega). */
   const ultimaConciliacao = ref(null)
@@ -51,270 +46,207 @@ export const usePontoStore = defineStore('ponto', () => {
   const ultimaAlteracaoUsuarios = ref(null)
   /** Planilha do Google da pessoa em tela: { situacao, emailServico, url, titulo, sincronizadaEm, erro }. */
   const planilha = ref(null)
-  /** A situação da planilha não pôde ser lida (a tela mostra o erro e oferece tentar de novo). */
   const erroPlanilha = ref(null)
   /**
-   * Uma alteração foi salva, mas a tela não conseguiu se atualizar em seguida: os números em exibição podem
-   * estar velhos. Um aviso global oferece "Atualizar agora" — o que NÃO pode acontecer é a gravação parecer
-   * ter falhado e a pessoa repetir (duplicaria o lançamento).
+   * Uma alteração foi salva, mas algo da tela não conseguiu se atualizar em seguida. Um aviso global oferece
+   * "Atualizar agora" — o que NÃO pode acontecer é a gravação parecer ter falhado e a pessoa repetir.
    */
   const desatualizado = ref(false)
   /** Alguém bateu o ponto hoje (ou o dia de hoje mudou para alguém): o painel da equipe consulta de novo. */
   const presencaMudouEm = ref(null)
   /** Momento da última reconexão do tempo real (as telas recarregam o que podem ter perdido). */
   const reconectouEm = ref(null)
+
   let encerrarEventos = null
-  let timerSaldos = null
-  let timerMes = null
+  let timerMudanca = null
   let timerDia = null
   let diaDoNavegador = dataISO()
   let jaConectou = false
-  let pedidoMes = 0
+  let pessoa = 0 // muda a cada troca de pessoa: respostas da anterior são descartadas
   let aoPerderSessao = () => {}
 
-  // -------------------------------------------------------------- getters
+  // -------------------------------------------------------------- consultas
   const hoje = computed(() => configuracao.value?.hoje ?? dataISO())
-  const jornadaBaseSegundos = computed(() => configuracao.value?.jornadaBaseSegundos ?? JORNADA_BASE_PADRAO)
-  /** Horário semanal vigente: { vigenteDesde, toleranciaMinutos, dias: { SEG: '08:00-12:00 13:00-17:48', ... } }. */
   const horario = computed(() => configuracao.value?.horario ?? null)
-  /** Carga do dia mais comum no horário (ex.: "folga compensada" = um dia inteiro). */
-  const cargaDiaInteiro = computed(() => cargaTipica(horario.value?.dias))
-  const expedientePorData = computed(() =>
-    Object.fromEntries((expedientesMes.value ?? []).map((e) => [e.data, e])))
-
-  const diasPorData = computed(() => Object.fromEntries(dias.value.map((d) => [d.data, d])))
-  const registroHoje = computed(() => diasPorData.value[hoje.value] ?? null)
-  const diaSelecionado = computed(() => diasPorData.value[dataSelecionada.value] ?? null)
-
-  const saldoMensal = computed(() => resumo.value?.saldoMensalSegundos ?? 0)
-  const saldoAnualAcumulado = computed(() => resumo.value?.saldoAnualAcumuladoSegundos ?? 0)
-  const serieAnual = computed(() => saldos.value?.meses ?? [])
+  /** "Um dia inteiro" no horário da pessoa (o mais comum entre os dias com expediente), calculado no servidor. */
+  const cargaDiaInteiro = computed(() => configuracao.value?.cargaDiaInteiroSegundos ?? null)
+  const limites = computed(() => configuracao.value?.limites ?? null)
   /** Ciclo aberto do banco de horas: o saldo "de verdade", que o RH zera a cada fechamento. */
   const ciclo = computed(() => saldos.value?.ciclo ?? null)
 
-  /**
-   * data -> marcador do dia: { tipo: 'feriado', rotulo, feriado } ou { tipo: 'ausencia', rotulo, descricao, ausencia }.
-   * Rotula os dias sem registro e permite remover a marcação pelo próprio dia.
-   */
-  const marcadoresDoMes = computed(() => {
-    const mapa = {}
-    for (const f of feriadosMes.value) mapa[f.data] = { tipo: 'feriado', rotulo: f.descricao || 'Feriado', feriado: f }
-    for (const a of ausenciasMes.value) {
-      for (let d = a.dataInicio; d <= a.dataFim; d = proximoDia(d)) {
-        if (!mapa[d]) mapa[d] = { tipo: 'ausencia', rotulo: a.tipoRotulo, descricao: a.descricao, ausencia: a }
-      }
-    }
-    return mapa
-  })
+  /** Expediente do dia da semana no horário vigente (do servidor): { periodos, cargaSegundos } ou undefined. */
+  const expedienteDaSemana = (data) => configuracao.value?.semana?.[SIGLAS[deISO(data).getDay()]]
 
-  /** data -> lançamentos no banco daquele dia. */
-  const lancamentosPorData = computed(() => {
-    const mapa = {}
-    for (const l of lancamentosMes.value) (mapa[l.data] ??= []).push(l)
-    return mapa
-  })
-
-  /** O horário da pessoa prevê trabalho no dia (fora do mês carregado: segunda a sexta). */
+  /** O horário da pessoa prevê trabalho no dia. */
   function temExpediente(data) {
-    if (expedientesMes.value && data?.slice(0, 7) === mesCarregado()) return !!expedientePorData.value[data]
-    return !ehFimDeSemana(data)
+    if (!data) return false
+    const conhecido = diasConhecidos[data]
+    return conhecido ? conhecido.previstoSegundos > 0 || conhecido.periodos.length > 0 : !!expedienteDaSemana(data)
   }
 
-  /** Períodos da grade do dia ([{ entrada, saida }]): do registro, do expediente do mês ou do horário atual. */
+  /** Períodos do horário no dia: [{ entrada, saida }]. */
   function periodosDoDia(data) {
-    const registro = diasPorData.value[data]
-    if (registro?.grade?.length) return registro.grade
-    const expediente = expedientePorData.value[data]
-    if (expediente) return expediente.periodos
-    return data === hoje.value ? (configuracao.value?.periodos ?? []) : []
+    if (!data) return []
+    const conhecido = diasConhecidos[data]
+    if (conhecido?.periodos.length) return conhecido.periodos
+    return expedienteDaSemana(data)?.periodos ?? []
   }
 
   /** Carga prevista do dia pelo horário (0 = sem expediente). */
   function cargaDoDia(data) {
-    const expediente = expedientePorData.value[data]
-    if (expediente) return expediente.previstoSegundos
-    return temExpediente(data) ? cargaDiaInteiro.value : 0
+    if (!data) return 0
+    const conhecido = diasConhecidos[data]
+    if (conhecido) return conhecido.previstoSegundos
+    return expedienteDaSemana(data)?.cargaSegundos ?? 0
   }
 
-  function mesCarregado() {
-    return ano.value ? `${ano.value}-${String(mes.value).padStart(2, '0')}` : null
-  }
-
-  /** Já existe um mês carregado (antes disso, saldos e totais não são zero: são desconhecidos). */
-  const temDados = computed(() => ano.value !== null)
-
-  const ehMesAtual = computed(() => {
-    const [a, m] = hoje.value.split('-').map(Number)
-    return ano.value === a && mes.value === m
-  })
-
-  // -------------------------------------------------------------- actions
-  async function executar(acao, { indicador = carregando } = {}) {
-    indicador.value = true
-    erro.value = null
-    try {
-      return await acao()
-    } catch (e) {
-      erro.value = e
-      throw e
-    } finally {
-      indicador.value = false
+  /** As telas registram os dias que receberam da API (para as janelas de ajuste e lançamento). */
+  function registrarDias(dias) {
+    for (const d of dias ?? []) {
+      diasConhecidos[d.data] = { previstoSegundos: d.previstoSegundos ?? 0, periodos: d.registro?.grade ?? [] }
     }
   }
 
+  // -------------------------------------------------------------- carga
   async function fetchConfiguracao() {
-    configuracao.value = await pontoApi.configuracao()
-    return configuracao.value
+    const pedido = pessoa
+    const dados = await pontoApi.configuracao()
+    if (pedido === pessoa) configuracao.value = dados
+    return dados
   }
 
-  /** Carrega dias + resumo do mês e a série anual de saldos. */
-  async function fetchMes(anoAlvo, mesAlvo) {
-    const pedido = ++pedidoMes
-    return executar(async () => {
-      const [dadosMes, dadosSaldos] = await Promise.all([
-        pontoApi.mes(anoAlvo, mesAlvo),
-        pontoApi.saldos(anoAlvo, mesAlvo),
-      ])
-      // outro mês (ou outra pessoa) foi pedido enquanto este carregava: a resposta velha não entra na tela
-      if (pedido !== pedidoMes) return dadosMes
-      desatualizado.value = false
-      ano.value = dadosMes.ano
-      mes.value = dadosMes.mes
-      dias.value = dadosMes.dias
-      ausenciasMes.value = dadosMes.ausencias ?? []
-      feriadosMes.value = dadosMes.feriados ?? []
-      lancamentosMes.value = dadosMes.lancamentos ?? []
-      expedientesMes.value = dadosMes.expedientes ?? null
-      resumo.value = dadosMes.resumo
-      saldos.value = dadosSaldos
-
-      if (!diasPorData.value[dataSelecionada.value]) {
-        dataSelecionada.value = diasPorData.value[hoje.value]
-          ? hoje.value
-          : (dadosMes.dias.at(-1)?.data ?? null)
-      }
-      return dadosMes
-    })
-  }
-
-  /** Mês corrente segundo o relógio do servidor (relido a cada vez: o "hoje" muda com a aba aberta). */
-  async function fetchMesAtual() {
-    await executar(fetchConfiguracao)
-    const [a, m] = hoje.value.split('-').map(Number)
-    return fetchMes(a, m)
-  }
-
-  async function navegarMes(deslocamento) {
-    if (!ano.value) return fetchMesAtual()
-    const alvo = new Date(ano.value, mes.value - 1 + deslocamento, 1)
-    // a seleção só muda quando o mês novo chega (se falhar, a tela continua como estava)
-    return fetchMes(alvo.getFullYear(), alvo.getMonth() + 1)
+  async function recarregarConfiguracao() {
+    try {
+      await fetchConfiguracao()
+    } catch {
+      // o relógio e o horário anteriores continuam valendo; a próxima tela tenta de novo
+    }
   }
 
   /**
-   * Atualiza a tela depois de uma gravação que DEU CERTO. Se a atualização falhar, a ação continua sendo um
-   * sucesso (o dado está salvo): fica só o aviso de tela desatualizada.
+   * Saldos e ciclo do banco de horas (o que as janelas de lançar e fechar o banco consultam).
+   * @param {{ silencioso?: boolean }} [opcoes] silencioso: uma falha não vira aviso de "tela desatualizada"
+   * @returns {Promise<boolean>} estão em dia
    */
-  async function atualizarAposGravar(recarga) {
+  async function atualizarSaldos({ silencioso = false } = {}) {
+    const pedido = pessoa
     try {
-      await recarga()
-      desatualizado.value = false
+      const dados = await pontoApi.saldos()
+      if (pedido === pessoa) saldos.value = dados
+      return true
     } catch {
-      erro.value = null
-      desatualizado.value = true
+      if (!silencioso) desatualizado.value = true // o aviso global oferece "Atualizar agora"
+      return false
     }
   }
 
-  /** Recarrega o mês da data afetada e a seleciona. */
-  async function recarregarPara(data) {
-    const [a, m] = data.split('-').map(Number)
-    dataSelecionada.value = data
-    await fetchMes(a, m)
+  /** Quantas diferenças com o RH esperam decisão (o número no menu). */
+  async function carregarPendentesRh() {
+    const pedido = pessoa
+    try {
+      const resumo = await pontoApi.resumoConciliacao()
+      if (pedido === pessoa) pendentesRh.value = resumo?.pendentes ?? 0
+    } catch {
+      // o menu fica sem o número; a tela "Conferir com o RH" mostra o erro, se houver
+    }
+  }
+
+  /** O que é comum a todas as telas, ao entrar e ao trocar a pessoa em tela. */
+  function carregarBase() {
+    return Promise.all([recarregarConfiguracao(), atualizarSaldos({ silencioso: true }), carregarPendentesRh()])
+  }
+
+  /** Avisa as telas de que os dados da pessoa mudaram (elas recarregam o que mostram). */
+  function sinalizarMudanca(mudanca = null) {
+    if (mudanca) ultimaMudanca.value = { ...mudanca, em: Date.now() }
+    mudouEm.value = Date.now()
+  }
+
+  /** Vários eventos seguidos (uma pasta de PDFs sendo lida) viram um aviso só. */
+  function agendarMudanca(mudanca) {
+    if (mudanca) ultimaMudanca.value = { ...mudanca, em: Date.now() }
+    clearTimeout(timerMudanca)
+    timerMudanca = setTimeout(() => {
+      mudouEm.value = Date.now()
+      atualizarSaldos({ silencioso: true })
+      carregarPendentesRh()
+    }, 400)
+  }
+
+  /** "Atualizar agora" do aviso global: relê o que é comum e manda as telas recarregarem. */
+  async function atualizarTudo() {
+    await recarregarConfiguracao()
+    const ok = await atualizarSaldos()
+    if (ok) desatualizado.value = false // só some o aviso quando a atualização deu certo
+    carregarPendentesRh()
+    sinalizarMudanca()
+    return ok
+  }
+
+  // -------------------------------------------------------------- gravações
+  /**
+   * Faz a gravação e, se deu certo, avisa as telas. O que vem depois (reler saldos) nunca transforma uma
+   * gravação bem-sucedida em erro: no máximo liga o aviso de "tela desatualizada".
+   */
+  async function gravar(chamada, mudanca) {
+    salvando.value = true
+    let resultado
+    try {
+      resultado = await chamada()
+    } finally {
+      salvando.value = false
+    }
+    sinalizarMudanca(typeof mudanca === 'function' ? mudanca(resultado) : mudanca)
+    atualizarSaldos()
+    return resultado
   }
 
   /**
    * Insere a próxima batida do dia. Sem parâmetros, o servidor usa o relógio dele.
    * @param {{ data?: string, horario?: string }} [batida]
    */
-  async function postBatida(batida = {}) {
-    const registro = await executar(() => pontoApi.registrarBatida(batida), { indicador: salvando })
-    await atualizarAposGravar(() => recarregarPara(registro.data))
-    return registro
-  }
+  const postBatida = (batida = {}) =>
+    gravar(() => pontoApi.registrarBatida(batida), (r) => ({ tipo: 'jornada', data: r?.data }))
 
   /**
-   * Lançamento manual de fim de semana/feriado (100% crédito).
+   * Lançamento de horas em dia sem expediente ou feriado (conta inteiro a favor).
    * @param {{ data: string, intervalos: { entrada: string, saida: string }[] }} lancamento
    */
-  async function postRegistroManual(lancamento) {
-    const registro = await executar(() => pontoApi.lancarManual(lancamento), { indicador: salvando })
-    await atualizarAposGravar(() => recarregarPara(registro.data))
-    return registro
-  }
+  const postRegistroManual = (lancamento) =>
+    gravar(() => pontoApi.lancarManual(lancamento), (r) => ({ tipo: 'jornada', data: r?.data }))
 
-  /** Ajuste manual das batidas de um dia (falha no relógio corrigida pelo RH). */
-  async function ajustarBatidas({ data, horarios, justificativa }) {
-    const registro = await executar(() => pontoApi.ajustarBatidas(data, { horarios, justificativa }),
-      { indicador: salvando })
-    await atualizarAposGravar(() => recarregarPara(registro.data))
-    return registro
-  }
-
-  /** Recarrega o mês em exibição (dias, marcações, lançamentos) e os saldos. */
-  async function recarregarMes() {
-    if (ano.value) await fetchMes(ano.value, mes.value)
-  }
+  /** Ajuste das batidas de um dia (falha no relógio, batida esquecida). */
+  const ajustarBatidas = ({ data, horarios, justificativa }) =>
+    gravar(() => pontoApi.ajustarBatidas(data, { horarios, justificativa }), { tipo: 'jornada', data })
 
   /**
    * Débito (abater) ou crédito avulso no banco de horas.
    * @param {{ data: string, duracao: string, sentido: 'DEBITO'|'CREDITO', descricao: string }} lancamento
    */
-  async function lancarNoBanco(lancamento) {
-    const salvo = await executar(() => pontoApi.lancarNoBanco(lancamento), { indicador: salvando })
-    await atualizarAposGravar(recarregarMes)
-    return salvo
-  }
+  const lancarNoBanco = (lancamento) =>
+    gravar(() => pontoApi.lancarNoBanco(lancamento), { tipo: 'banco', data: lancamento.data })
 
-  async function excluirLancamentoBanco(lancamento) {
-    await executar(() => pontoApi.excluirLancamentoBanco(lancamento.id), { indicador: salvando })
-    await atualizarAposGravar(recarregarMes)
-  }
+  const excluirLancamentoBanco = (lancamento) =>
+    gravar(() => pontoApi.excluirLancamentoBanco(lancamento.id), { tipo: 'banco', data: lancamento.data })
 
   /**
    * Marca dias sem jornada: feriado (um dia) ou férias/folga/atestado/licença/abono (período).
    * @param {{ tipo: 'FERIADO'|'FERIAS'|'FOLGA'|'ATESTADO'|'LICENCA'|'ABONO', dataInicio: string, dataFim?: string,
    *           descricao?: string, abrangencia?: string }} marcacao
    */
-  async function marcarDias({ tipo, dataInicio, dataFim, descricao, abrangencia }) {
-    const salvo = await executar(() => (tipo === 'FERIADO'
+  const marcarDias = ({ tipo, dataInicio, dataFim, descricao, abrangencia }) =>
+    gravar(() => (tipo === 'FERIADO'
       ? pontoApi.cadastrarFeriado({ data: dataInicio, descricao, abrangencia })
       : pontoApi.cadastrarAusencia({ dataInicio, dataFim: dataFim || dataInicio, tipo, descricao: descricao || null })),
-    { indicador: salvando })
-    await atualizarAposGravar(recarregarMes)
-    return salvo
-  }
+    { tipo: 'calendario', data: dataInicio })
 
   /** Remove a marcação de um dia (o feriado, ou o período de ausência inteiro). */
-  async function removerMarcacao(marcador) {
-    await executar(() => (marcador.tipo === 'feriado'
+  const removerMarcacao = (marcador) =>
+    gravar(() => (marcador.tipo === 'feriado'
       ? pontoApi.excluirFeriado(marcador.feriado.data)
-      : pontoApi.excluirAusencia(marcador.ausencia.id)), { indicador: salvando })
-    await atualizarAposGravar(recarregarMes)
-  }
+      : pontoApi.excluirAusencia(marcador.ausencia.id)), { tipo: 'calendario' })
 
-  async function excluirRegistro(data) {
-    await executar(() => pontoApi.excluir(data), { indicador: salvando })
-    dataSelecionada.value = null
-    await atualizarAposGravar(recarregarMes)
-  }
-
-  function selecionarDia(data) {
-    dataSelecionada.value = data
-  }
-
-  function limparErro() {
-    erro.value = null
-  }
+  const excluirRegistro = (data) => gravar(() => pontoApi.excluir(data), { tipo: 'jornada', data })
 
   // ------------------------------------------------------- tempo real (SSE)
   /**
@@ -336,13 +268,19 @@ export const usePontoStore = defineStore('ponto', () => {
         if (jaConectou) {
           reconectouEm.value = Date.now()
           recarregarConfiguracao()
-          agendarRecargaMes()
+          agendarMudanca()
         }
         jaConectou = true
       },
       onMonitor: (estado) => daTela(estado) && (monitoramento.value = estado), // pasta dos PDFs caiu/voltou
       onJornadaAtualizada: (evento) => {
-        if (daTela(evento)) aplicarAtualizacao(evento).catch((e) => relatar(e, 'tempo real'))
+        if (!daTela(evento)) return
+        try {
+          ultimoEvento.value = { tipo: 'jornada-atualizada', ...evento, recebidoEm: Date.now() }
+          agendarMudanca({ tipo: 'jornada', data: evento.data })
+        } catch (e) {
+          relatar(e, 'tempo real')
+        }
       },
       onComprovanteNaoImportado: (comprovante) => {
         if (daTela(comprovante)) {
@@ -351,26 +289,22 @@ export const usePontoStore = defineStore('ponto', () => {
       },
       onCiclo: (payload) => {
         // banco de horas fechado/corrigido: saldos novos e avisos de prazo do ciclo antigo arquivados
-        if (daTela(payload)) agendarSaldos()
+        if (daTela(payload)) agendarMudanca({ tipo: 'ciclo' })
         if (meu(payload)) useNotificacoesStore().carregar().catch(() => {})
       },
       onNotificacao: (payload) => meu(payload) && useNotificacoesStore().receber(payload),
       onConciliacao: (payload) => {
         if (!daTela(payload)) return
         ultimaConciliacao.value = { ...payload, recebidoEm: Date.now() }
-        agendarSaldos()
+        agendarMudanca({ tipo: 'conciliacao' })
       },
-      // feriado/ausência/horário ou lançamento no banco feito em outra aba (ou pela conciliação): recarrega o mês
+      // feriado, ausência, horário ou lançamento no banco feito em outra aba (ou pela conciliação)
       onCalendario: (payload) => {
-        if (!daTela(payload) || !afetaMesExibido(payload.inicio, payload.fim)) return
-        if (payload.usuarioId) recarregarConfiguracao() // pode ter sido o horário
-        agendarRecargaMes()
-      },
-      onBanco: (payload) => {
         if (!daTela(payload)) return
-        if (afetaMesExibido(payload.data, payload.data)) agendarRecargaMes()
-        else agendarSaldos()
+        if (payload.usuarioId) recarregarConfiguracao() // pode ter sido o horário
+        agendarMudanca({ tipo: 'calendario' })
       },
+      onBanco: (payload) => daTela(payload) && agendarMudanca({ tipo: 'banco', data: payload.data }),
       onUsuarios: ({ alterado }) => {
         auth.carregarTitulares().catch(() => {})
         if (alterado === auth.usuario?.id) auth.atualizarUsuario().catch(() => {})
@@ -387,7 +321,7 @@ export const usePontoStore = defineStore('ponto', () => {
     timerDia = setInterval(() => {
       if (dataISO() === diaDoNavegador) return
       diaDoNavegador = dataISO()
-      recarregarConfiguracao().then(agendarRecargaMes)
+      recarregarConfiguracao().then(() => agendarMudanca())
     }, 30_000)
   }
 
@@ -417,12 +351,19 @@ export const usePontoStore = defineStore('ponto', () => {
     }
   }
 
-  async function recarregarConfiguracao() {
-    try {
-      await fetchConfiguracao()
-    } catch {
-      // silencioso
-    }
+  function zerarDadosDaPessoa() {
+    pessoa++
+    configuracao.value = null
+    saldos.value = null
+    pendentesRh.value = null
+    monitoramento.value = null
+    planilha.value = null
+    erroPlanilha.value = null
+    desatualizado.value = false
+    ultimoEvento.value = null
+    ultimaConciliacao.value = null
+    ultimaMudanca.value = null
+    for (const data of Object.keys(diasConhecidos)) delete diasConhecidos[data]
   }
 
   /**
@@ -430,138 +371,43 @@ export const usePontoStore = defineStore('ponto', () => {
    * carregam os dados da nova pessoa.
    */
   function trocarPessoa() {
-    configuracao.value = null
-    ano.value = null
-    mes.value = null
-    dias.value = []
-    ausenciasMes.value = []
-    feriadosMes.value = []
-    lancamentosMes.value = []
-    expedientesMes.value = null
-    resumo.value = null
-    saldos.value = null
-    dataSelecionada.value = null
-    monitoramento.value = null
-    planilha.value = null
-    erroPlanilha.value = null
-    desatualizado.value = false
-    ultimoEvento.value = null
-    ultimaConciliacao.value = null
-    erro.value = null
-    pedidoMes++ // respostas da pessoa anterior que ainda estão a caminho são descartadas
+    zerarDadosDaPessoa()
     carregarMonitor()
+    carregarBase()
   }
 
   function desconectarTempoReal() {
     encerrarEventos?.()
     encerrarEventos = null
     jaConectou = false
-    clearTimeout(timerSaldos)
-    clearTimeout(timerMes)
+    clearTimeout(timerMudanca)
     clearInterval(timerDia)
-  }
-
-  function afetaMesExibido(inicio, fim) {
-    if (!ano.value) return false
-    const primeiro = `${ano.value}-${String(mes.value).padStart(2, '0')}-01`
-    const ultimo = `${ano.value}-${String(mes.value).padStart(2, '0')}-31`
-    return inicio <= ultimo && fim >= primeiro
-  }
-
-  function agendarRecargaMes() {
-    clearTimeout(timerMes)
-    timerMes = setTimeout(() => recarregarMes().catch(() => {}), 500)
   }
 
   /** Limpa o estado ao sair (outro usuário pode entrar na mesma aba). */
   function limpar() {
     desconectarTempoReal()
-    configuracao.value = null
-    ano.value = null
-    mes.value = null
-    dias.value = []
-    ausenciasMes.value = []
-    feriadosMes.value = []
-    lancamentosMes.value = []
-    expedientesMes.value = null
-    resumo.value = null
-    saldos.value = null
-    dataSelecionada.value = null
-    monitoramento.value = null
-    planilha.value = null
-    erroPlanilha.value = null
-    desatualizado.value = false
+    zerarDadosDaPessoa()
     reconectouEm.value = null
-    ultimoEvento.value = null
-    ultimaConciliacao.value = null
-    erro.value = null
-    pedidoMes++
-  }
-
-  /**
-   * Push do servidor: substitui (ou remove) o dia afetado direto no estado, sem
-   * recarregar o mês, e em seguida atualiza só os saldos consolidados.
-   */
-  async function aplicarAtualizacao(evento) {
-    const { data, registro, origem } = evento
-    const [a, m] = data.split('-').map(Number)
-
-    if (a === ano.value && m === mes.value) {
-      const outros = dias.value.filter((d) => d.data !== data)
-      dias.value = registro ? [...outros, registro].sort((x, y) => x.data.localeCompare(y.data)) : outros
-
-      if (registro && origem === 'COMPROVANTE_PDF') {
-        dataSelecionada.value = data // leva a linha do tempo para o dia importado
-      } else if (!diasPorData.value[dataSelecionada.value]) {
-        dataSelecionada.value = diasPorData.value[hoje.value] ? hoje.value : (dias.value.at(-1)?.data ?? null)
-      }
-    }
-
-    ultimoEvento.value = { tipo: 'jornada-atualizada', ...evento, recebidoEm: Date.now() }
-    agendarSaldos()
-  }
-
-  /**
-   * Os saldos são recalculados uma vez só depois de uma rajada de eventos
-   * (ex.: primeira leitura de uma pasta com centenas de PDFs).
-   */
-  function agendarSaldos() {
-    clearTimeout(timerSaldos)
-    timerSaldos = setTimeout(atualizarSaldos, 400)
-  }
-
-  /** @returns {Promise<boolean>} os saldos em tela estão em dia */
-  async function atualizarSaldos() {
-    if (!ano.value) return true
-    const [anoPedido, mesPedido, pedido] = [ano.value, mes.value, pedidoMes]
-    try {
-      const dadosSaldos = await pontoApi.saldos(anoPedido, mesPedido)
-      // a tela mudou de mês (ou de pessoa) enquanto isto carregava: esses saldos não são mais os dela
-      if (pedido !== pedidoMes || ano.value !== anoPedido || mes.value !== mesPedido) return true
-      saldos.value = dadosSaldos
-      resumo.value = dadosSaldos.meses?.[mesPedido - 1] ?? resumo.value
-      return true
-    } catch {
-      desatualizado.value = true // o aviso global oferece "Atualizar agora"
-      return false
-    }
+    mudouEm.value = 0
   }
 
   return {
-    // state
-    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
-    dataSelecionada, carregando, salvando,
-    erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
-    erroPlanilha, desatualizado, reconectouEm, presencaMudouEm,
-    // getters
-    hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
-    saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual, temDados,
-    temExpediente, periodosDoDia, cargaDoDia,
-    // actions
-    carregarMonitor, carregarPlanilha, recarregarConfiguracao, trocarPessoa,
-    fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,
-    ajustarBatidas, excluirRegistro, selecionarDia, limparErro, recarregarMes, lancarNoBanco, excluirLancamentoBanco,
+    // estado
+    configuracao, saldos, salvando, mudouEm, ultimaMudanca, pendentesRh, tempoReal, monitoramento, ultimoEvento,
+    ultimaConciliacao, ultimaAlteracaoUsuarios, planilha, erroPlanilha, desatualizado, reconectouEm, presencaMudouEm,
+    // consultas
+    hoje, horario, cargaDiaInteiro, limites, ciclo, temExpediente, periodosDoDia, cargaDoDia,
+    // carga
+    fetchConfiguracao, recarregarConfiguracao, atualizarSaldos, atualizarTudo, sinalizarMudanca, registrarDias,
+    carregarBase, carregarPendentesRh,
+    carregarMonitor, carregarPlanilha, trocarPessoa,
+    // gravações
+    postBatida, postRegistroManual, ajustarBatidas, excluirRegistro, lancarNoBanco, excluirLancamentoBanco,
     marcarDias, removerMarcacao,
-    conectarTempoReal, desconectarTempoReal, definirAoPerderSessao, aplicarAtualizacao, atualizarSaldos, limpar,
+    // compatibilidade com telas que pediam "recarregar o mês": hoje basta avisar que mudou
+    recarregarMes: async () => sinalizarMudanca(),
+    // tempo real
+    conectarTempoReal, desconectarTempoReal, definirAoPerderSessao, limpar,
   }
 })

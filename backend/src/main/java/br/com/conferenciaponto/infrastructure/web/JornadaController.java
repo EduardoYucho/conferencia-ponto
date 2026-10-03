@@ -1,11 +1,13 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.usecase.AjustarBatidasUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
 import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
 import br.com.conferenciaponto.application.usecase.LancarRegistroManualUseCase;
 import br.com.conferenciaponto.application.usecase.RegistrarBatidaUseCase;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
+import br.com.conferenciaponto.domain.model.GradeHoraria;
 import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.AjusteBatidasRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
@@ -39,7 +41,7 @@ import java.time.LocalDate;
  * POST   /api/v1/jornadas/manual           lançamento manual (fim de semana/feriado)
  * DELETE /api/v1/jornadas/{data}           exclui o registro do dia
  * PUT    /api/v1/jornadas/{data}/batidas   ajuste manual (correção do RH)  {horarios[], justificativa}
- * GET    /api/v1/jornadas/{data}/ajustes   batidas com PDF (travadas) + histórico de ajustes do dia
+ * GET    /api/v1/jornadas/{data}/ajustes   batidas com PDF (travadas) + histórico de ajustes + nomes das batidas do dia
  * </pre>
  * Nos GET, {@code ?usuario=login} consulta outro titular (administrador e coordenação).
  */
@@ -52,16 +54,18 @@ public class JornadaController {
     private final LancarRegistroManualUseCase lancarManual;
     private final ExcluirRegistroUseCase excluir;
     private final AjustarBatidasUseCase ajustar;
+    private final RegrasJornada regras;
     private final Clock clock;
 
     public JornadaController(ConsultarJornadaUseCase consultar, RegistrarBatidaUseCase registrarBatida,
                              LancarRegistroManualUseCase lancarManual, ExcluirRegistroUseCase excluir,
-                             AjustarBatidasUseCase ajustar, Clock clock) {
+                             AjustarBatidasUseCase ajustar, RegrasJornada regras, Clock clock) {
         this.consultar = consultar;
         this.registrarBatida = registrarBatida;
         this.lancarManual = lancarManual;
         this.excluir = excluir;
         this.ajustar = ajustar;
+        this.regras = regras;
         this.clock = clock;
     }
 
@@ -109,10 +113,17 @@ public class JornadaController {
                 request.justificativa(), titular.quem())));
     }
 
+    /**
+     * Os nomes das batidas seguem o horário da pessoa no dia ("Saída p/ almoço", "Volta do almoço"); em dia sem
+     * expediente, feriado, folga ou férias não há horário previsto e os nomes são os simples ("Entrada", "Saída").
+     */
     @GetMapping("/{data}/ajustes")
     public ApiResponse<ContextoAjusteResponse> ajustes(
             @PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data, Titular titular) {
-        return ApiResponse.ok(ContextoAjusteResponse.de(ajustar.contexto(titular.id(), data)));
+        GradeHoraria grade = regras.classificar(titular.id(), data).isUtil()
+                ? regras.horario(titular.id(), data).gradeDo(data).orElse(null)
+                : null;
+        return ApiResponse.ok(ContextoAjusteResponse.de(ajustar.contexto(titular.id(), data), grade));
     }
 
     private static ResponseEntity<ApiResponse<RegistroJornadaResponse>> criado(RegistroJornadaView view) {

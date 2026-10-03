@@ -5,13 +5,11 @@ import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
 import br.com.conferenciaponto.application.usecase.GerenciarCicloBancoUseCase;
 import br.com.conferenciaponto.application.view.CicloBancoView;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
-import br.com.conferenciaponto.domain.model.GradeHoraria;
 import br.com.conferenciaponto.domain.model.HorarioTrabalho;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ConfiguracaoResponse;
-import br.com.conferenciaponto.infrastructure.web.dto.HorarioResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.SaldosResponse;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -64,15 +62,7 @@ public class ResumoController {
         LocalDateTime agora = LocalDateTime.now(clock).truncatedTo(ChronoUnit.SECONDS);
         HorarioTrabalho horario = regras.horario(titular.id(), agora.toLocalDate());
         MotorCalculoJornadaService motor = horario.motor(agora.toLocalDate());
-        GradeHoraria g = motor.grade();
-        return ApiResponse.ok(new ConfiguracaoResponse(
-                ConfiguracaoResponse.Grade.de(g),
-                ConfiguracaoResponse.Periodo.de(g.periodos()),
-                g.cargaHorariaSegundos(),
-                motor.toleranciaMinutos(),
-                clock.getZone().getId(),
-                agora.toLocalDate(),
-                agora.toLocalTime(),
-                HorarioResponse.de(horario)));
+        return ApiResponse.ok(ConfiguracaoResponse.de(horario, motor, clock.getZone().getId(), agora.toLocalDate(),
+                agora.toLocalTime()));
     }
 }

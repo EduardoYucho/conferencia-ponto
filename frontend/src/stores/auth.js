@@ -66,7 +66,7 @@ export const useAuthStore = defineStore('auth', () => {
   const rotuloPerfil = computed(() => {
     if (ehAdmin.value) return 'Administrador'
     if (perfis.value.includes('ROLE_USER')) return 'Usuário'
-    if (perfis.value.includes('ROLE_VIEWER')) return 'Coordenação (leitura)'
+    if (perfis.value.includes('ROLE_VIEWER')) return 'Coordenação (só consulta)'
     return ''
   })
 
@@ -176,10 +176,10 @@ export const useAuthStore = defineStore('auth', () => {
     return vendoOsProprios.value ? null : visto.value
   }
 
-  /** Rota inicial conforme o perfil: coordenação cai direto na auditoria. */
+  /** Rota inicial conforme o perfil: quem não registra ponto (coordenação) começa vendo a equipe. */
   function rotaInicial() {
     if (precisaTrocarSenha.value) return { name: 'trocar-senha' }
-    return ehTitular.value ? { name: 'painel' } : { name: 'auditoria' }
+    return ehTitular.value ? { name: 'painel' } : { name: 'equipe' }
   }
 
   return {

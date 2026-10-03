@@ -7,11 +7,14 @@ import { instalarTratamentoGlobal } from './utils/erros'
 import { useAuthStore } from './stores/auth'
 import { usePontoStore } from './stores/ponto'
 import { useNotificacoesStore } from './stores/notificacoes'
-import '@fontsource-variable/archivo/wdth.css'
+import { iniciarTema } from './utils/tema'
+import '@fontsource-variable/figtree'
 import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 import './style.css'
+
+iniciarTema() // claro, escuro ou automático: a escolha de cada pessoa, guardada no navegador
 
 const app = createApp(App)
 const pinia = createPinia()

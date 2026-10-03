@@ -101,10 +101,10 @@ public class ConferirConciliacaoUseCase {
 
         String periodo = "%s a %s".formatted(DATA.format(inicio), DATA.format(fim));
         notificacoes.notificar(usuarioId, TipoNotificacao.CONCILIACAO, "CONCILIACAO:" + relatorioId,
-                pendentes == 0 ? "Relatório do RH conferido: tudo igual" : "Relatório do RH: %d divergência(s)".formatted(pendentes),
+                pendentes == 0 ? "Relatório do RH conferido: tudo igual" : "Relatório do RH: %d dia(s) com diferença".formatted(pendentes),
                 pendentes == 0
-                        ? "Período %s: a conferência bate com o RH em todos os %d dias.".formatted(periodo, relatorio.diasLidos())
-                        : "Período %s: %d dia(s) com diferença entre a conferência e o RH. Abra a Conciliação para decidir."
+                        ? "Período %s: o sistema bate com o RH em todos os %d dias.".formatted(periodo, relatorio.diasLidos())
+                        : "Período %s: %d dia(s) com diferença entre o sistema e o RH. Abra \"Conferir com o RH\" para decidir."
                         .formatted(periodo, pendentes),
                 "/conciliacao");
         eventos.publishEvent(new ConciliacaoAtualizadaEvento(usuarioId,
