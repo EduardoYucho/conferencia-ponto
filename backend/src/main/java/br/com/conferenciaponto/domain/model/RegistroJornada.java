@@ -96,17 +96,17 @@ public class RegistroJornada {
     public ApuracaoDiaria lancarManualmente(Batidas novasBatidas, MotorCalculoJornadaService motor) {
         if (tipoDia.isUtil()) {
             throw new RegraNegocioException("LANCAMENTO_MANUAL_DIA_UTIL",
-                    "Só dá para lançar horas em dia sem expediente ou feriado (%s é dia de trabalho: use \"Corrigir horários\")."
+                    "Lançamento manual é permitido apenas em fins de semana e feriados (%s é dia útil)."
                             .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(dataReferencia)));
         }
         if (!registroManual && !batidas.isVazia()) {
             throw new ConflitoException("REGISTRO_RELOGIO_EXISTENTE",
-                    "Já existem batidas em %s. Apague o registro do dia antes de lançar as horas."
+                    "Já existem batidas de relógio em %s. Exclua-as antes de lançar manualmente."
                             .formatted(java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy").format(dataReferencia)));
         }
         if (novasBatidas.isJornadaAberta() || novasBatidas.isVazia()) {
             throw new RegraNegocioException("LANCAMENTO_MANUAL_INCOMPLETO",
-                    "Informe a entrada e a saída de cada período.");
+                    "Lançamento manual exige intervalos completos (entrada e saída).");
         }
         this.batidas = novasBatidas;
         this.registroManual = true;

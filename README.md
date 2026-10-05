@@ -8,8 +8,8 @@ do RH** (com segundos, tolerância por horário da grade, até 6 batidas; horár
 **banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
 creditar horas), **feriados, férias, folgas, atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
-PDFs**, **acesso por perfil (JWT)** com consulta para a coordenação, **conciliação com o relatório de
-banco de horas do RH** (sistema × RH, dia a dia) e **planilha de conferência** — em Excel ou numa
+PDFs**, **acesso por perfil (JWT)** com auditoria para a coordenação, **conciliação com o relatório de
+banco de horas do RH** (tela dividida conferência × RH) e **planilha de conferência** — em Excel ou numa
 planilha do **Google Sheets atualizada sozinha**, para compartilhar com quem confere.
 
 > **Licença:** [PolyForm Strict 1.0.0](LICENSE) — uso **não comercial** apenas. Veja [Licença](#licença).
@@ -24,19 +24,17 @@ conferencia-ponto/
 │   ├── iniciar.ps1 / .cmd      sobe o back-end pelo terminal (variáveis em ambiente.local.ps1)
 │   └── src/main/java/br/com/conferenciaponto/
 │       ├── domain/             regras puras (sem Spring): motor de cálculo, agregado, portas
-│       ├── application/        casos de uso (batidas, manual, importação, download, login, planilha) e
-│       │                       tela/ (o que cada tela mostra, já decidido e escrito: Início, Meu ponto, Banco)
+│       ├── application/        casos de uso (batidas, manual, importação, auditoria, download, login, planilha)
 │       └── infrastructure/     JPA, REST/SSE, monitor de PDFs, armazenamento, segurança (JWT), Excel e
 │                               Google Sheets
 └── frontend/                   Vue 3 · Vite · Pinia · Axios · Tailwind 4
     └── src/
         ├── api/                http.js (Bearer), eventos.js (SSE autenticado), pontoApi, authApi
         ├── stores/             auth.js (sessão, perfil, "dados de") · ponto.js (usePontoStore, tempo real)
-        ├── views/              Login · TrocarSenha · Inicio · MeuPonto · Banco · Conciliacao (Conferir com o RH) ·
-        │                       Ausencias (Folgas e feriados) · Equipe · MinhaConta · Usuarios e Logs (administrador)
-        ├── components/         LinhaDoDia, AcoesDoPonto (as janelas de bater, corrigir, lançar, marcar e fechar),
-        │                       EditorHorario, EditorPasta, EditorPlanilha, IntegracaoGoogle, EnvioComprovantes, ...
-        └── utils/              horas.js (durações como se fala), tema.js (claro/escuro), avisar.js, erros.js
+        ├── views/              Login · TrocarSenha · Dashboard · Auditoria · Conciliacao · Ausencias ·
+        │                       MinhaConta (senha, pasta, horário, planilha) · Usuarios (administrador)
+        └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EditorPlanilha,
+                                IntegracaoGoogle, EnvioComprovantes, ...
 ```
 
 ## Como rodar
@@ -63,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 279 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, telas)
+.\iniciar.ps1 -Testes    # 255 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -154,35 +152,6 @@ importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `pont
 estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
 (`npm run dev`) funciona com qualquer um dos dois.
 
-## Telas e tema
-
-O menu fica à esquerda no computador e numa barra embaixo no celular (o que não cabe vai em **Mais**):
-
-| Tela | Para quê |
-|---|---|
-| **Início** (`/`) | Como está o dia de hoje ("Você está trabalhando desde 13:00"), quanto falta, o botão grande **Bater a … agora**, o que pede atenção (dia com batida faltando, diferenças com o RH, prazo do banco), os saldos e os últimos dias |
-| **Meu ponto** (`/ponto`) | O mês dia a dia: batidas, saldo do dia ("+ 15 min a favor", "− 12 min devendo"), filtros (*Para corrigir*, *Com atraso ou hora a mais*, *Folgas e feriados*, *Ajustados à mão*), detalhes com comprovantes e histórico, e os botões de cada dia. O endereço antigo `/auditoria` cai aqui |
-| **Banco de horas** (`/banco`) | Saldo desde o último fechamento, prazo, mês a mês, horas usadas ou somadas à mão, fechar o banco e fechamentos anteriores |
-| **Conferir com o RH** (`/conciliacao`) | Enviar o relatório do RH, ver o que bate e decidir cada dia diferente (*Usar o do RH* / *Manter o meu*) |
-| **Folgas e feriados** (`/ausencias`) | Marcar folga, férias, atestado, licença; feriados (administrador) |
-| **Equipe** (`/equipe`) | Quem está trabalhando agora, em intervalo ou fora, com o motivo |
-| **Minha conta** (`/conta`) | Aparência, senha, horário de trabalho, pasta dos comprovantes, planilha no Google |
-| **Usuários** e **Logs do sistema** | Só o administrador |
-
-**Tema claro ou escuro.** Cada pessoa escolhe em *Aparência* (no menu, em *Mais* no celular, em *Minha conta* e na
-tela de login): **Claro**, **Escuro** ou **Automático** (acompanha o tema do computador). A escolha fica guardada
-no navegador de cada um (`localStorage`, chave `conferencia-ponto.tema`) e começa no Claro. As cores são variáveis
-CSS em `frontend/src/style.css`: o tema escuro só troca os valores (`[data-theme="dark"]`), então nenhuma tela
-precisa saber em qual tema está.
-
-**A tela não decide nada.** Início, Meu ponto, Banco de horas e Conferir com o RH recebem tudo pronto do servidor
-(`application/tela/`, `GET /inicio`, `/ponto`, `/banco` e o campo `tela` das diferenças): a situação de cada dia, a
-frase, a cor, o nome de cada batida ("Entrada", "Saída p/ almoço", "Volta do almoço", "Saída"), quanto falta, a
-próxima batida e **quais botões cada dia aceita**. O navegador só mostra — e os formulários só ajudam a digitar; quem
-aceita ou recusa é sempre o servidor, com a mensagem dele. Horas aparecem como se fala (**8h 48min**, **+ 15 min a
-favor**, **− 12 min devendo**); o valor exato com segundos fica nos detalhes do dia. Um dia de trabalho sem batidas
-(ou com batida faltando) **fica fora do saldo** até ser corrigido — não é contado como falta.
-
 ## Vários usuários
 
 Cada pessoa tem o próprio acesso e os próprios dados: batidas, horário, banco de horas (ciclo), ausências,
@@ -204,32 +173,32 @@ lançamentos, notificações, relatórios do RH e divergências. **Feriados vale
 - **Comprovantes (*Minha conta*):** cada pessoa escolhe a **pasta** onde os PDFs chegam — no computador onde
   o sistema roda, uma pasta compartilhada na rede (`\\NOME-DO-PC\Ponto`) ou uma pasta sincronizada da
   nuvem. O botão *Testar acesso* confere se o servidor enxerga a pasta, e duas pessoas não podem usar a mesma.
-  Também dá para **enviar os PDFs pela tela** (botão *Enviar comprovantes* no Início e no Meu ponto, ou arrastando os arquivos para a
+  Também dá para **enviar os PDFs pela tela** (botão *Enviar PDFs* no painel ou arrastando os arquivos para a
   página), com as mesmas regras de duplicidade.
 - **Atualização a partir da versão de um usuário só:** a migração `V12` passa todos os dados existentes para
   o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
   passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
 
-## Equipe agora (quem está trabalhando)
+## Equipe agora (quem está online)
 
 A tela **Equipe** (`/equipe`, para todos os perfis) lista **todos os usuários ativos** e diz quem está
 trabalhando agora. A regra fica no servidor (`ConsultarPresencaUseCase`); a tela só mostra:
 
 | Situação hoje | Aparece como |
 |---|---|
-| Dia marcado como férias, folga, licença, atestado ou abono | **Fora** · o motivo (e "até dd/mm"), mesmo que haja batida |
-| Entrada batida e saída ainda não | **Trabalhando agora** · "Trabalhando desde 08:02" (avisa quando é fora do horário cadastrado) |
-| Saída batida e o horário ainda tem período pela frente | **Em intervalo** · "Em intervalo desde 12:01" |
-| Saída do último período (ou depois do fim do horário) | Fora · "Encerrou o expediente às 17:50" |
-| Sem batida: feriado · dia sem expediente · antes do horário | Fora · "Feriado: …" · "Sem expediente hoje" · "O expediente começa às 08:00" |
-| Sem batida com o horário já começado · já terminado | Fora, em destaque · "Ainda não bateu o ponto" · "Não registrou ponto hoje" |
-| Coordenação (perfil `VIEWER`) | Fora · "não registra ponto" |
+| Dia marcado como férias, folga, licença, atestado ou abono | **Offline** · o motivo (e "até dd/mm"), mesmo que haja batida |
+| Entrada batida e saída ainda não | **Online** · "Trabalhando desde 08:02" (avisa quando é fora do horário cadastrado) |
+| Saída batida e o horário ainda tem período pela frente | Offline · "Em intervalo desde 12:01" |
+| Saída do último período (ou depois do fim do horário) | Offline · "Encerrou o expediente às 17:50" |
+| Sem batida: feriado · dia sem expediente · antes do horário | Offline · "Feriado: …" · "Sem expediente hoje" · "O expediente começa às 08:00" |
+| Sem batida com o horário já começado · já terminado | Offline, em destaque · "Ainda não bateu o ponto" · "Não registrou ponto hoje" |
+| Coordenação (perfil `VIEWER`) | Offline · "não registra ponto" |
 
 Todos veem a situação de todos. O detalhe é reservado: para colegas, **atestado e abono aparecem só como
-"Ausência justificada"**; a justificativa, as batidas e o botão "Ver o ponto" ficam com o administrador, a
+"Ausência justificada"**; a justificativa, as batidas e o atalho "ver o ponto de…" ficam com o administrador, a
 coordenação e a própria pessoa. A tela se atualiza sozinha quando alguém bate o ponto (evento
 `presenca-atualizada`, que não carrega dado nenhum) e a cada minuto. Quem importa o ponto por comprovante (PDF)
-aparece trabalhando assim que o comprovante da entrada chega ao sistema.
+aparece online assim que o comprovante da entrada chega ao sistema.
 
 ## Erros, protocolo e logs
 
@@ -284,7 +253,7 @@ A conferência de cada pessoa numa planilha, para quem confere não precisar ent
   saldo do sistema, só entram nos totais os dias fechados: dia em andamento ou incompleto fica com as horas em
   branco e o que foi trabalhado até a última batida vai nas observações.
 
-**Excel:** botão *Baixar planilha (Excel)* no Início e no Meu ponto (`GET /api/v1/planilha/exportar`) baixa o `.xlsx` com todas as
+**Excel:** botão *Exportar Excel* na Auditoria (`GET /api/v1/planilha/exportar`) baixa o `.xlsx` com todas as
 abas — o arquivo é gerado pelo próprio sistema, sem bibliotecas. A pasta de trabalho usa o sistema de datas de
 1904, o único em que o Excel mostra horas negativas.
 
@@ -369,14 +338,11 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | GET/POST/DELETE | `/lancamentos-banco` · `/{id}` | Lançamentos avulsos no banco `{data, duracao: "04:00", sentido: DEBITO\|CREDITO, descricao}` |
 | POST | `/conciliacoes` | Envia o PDF do relatório do RH (multipart, campo `arquivo`) → `202`, confere em segundo plano |
 | GET | `/conciliacoes/resumo` | Relatórios enviados com comparativo de saldo + pendências por tipo |
-| GET | `/conciliacoes/divergencias?status=` | `PENDENTE` (padrão), `DECIDIDAS`, `ACEITO_RH`, `MANTIDO_LOCAL`, `RESOLVIDA` ou `TODAS`, com os dois lados e `tela` (frase, impacto, o que cada lado tem e quais botões o dia aceita) |
+| GET | `/conciliacoes/divergencias?status=` | `PENDENTE` (padrão), `ACEITO_RH`, `MANTIDO_LOCAL`, `RESOLVIDA` ou `TODAS`, com os dois lados |
 | POST | `/conciliacoes/divergencias/{id}/aceitar` · `/manter` · `/reabrir` | Decisões por dia |
 | POST | `/conciliacoes/divergencias/aceitar-lote` | `{tipos[], inicio?, fim?}` |
 | POST | `/conciliacoes/reconferir` · DELETE `/conciliacoes/relatorios/{id}` | Reconfere tudo · remove um relatório |
-| GET | `/inicio` | Tela Início pronta: o dia de hoje (situação, frases, próxima batida, botão), pendências, saldos e últimos dias |
-| GET | `/ponto?ano=&mes=` | Tela Meu ponto pronta: cada dia com batidas nomeadas, situação, frase, filtros e ações; totais do mês |
-| GET | `/banco` | Tela Banco de horas pronta: saldo e prazo escritos, meses do período, horas usadas ou somadas, fechamentos |
-| GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo (as telas usam `/ponto`) |
+| GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo |
 | GET | `/planilha/exportar` | Planilha de conferência em Excel (`.xlsx`): resumo + uma aba por mês |
 | GET | `/planilha` | Planilha do Google da pessoa: `{situacao, emailServico, url, titulo, sincronizadaEm, erro}` |
 | PUT | `/planilha` | `{link}` vincula a planilha do Google e grava tudo nela (ADMIN: `?usuario=login`) |
@@ -409,15 +375,22 @@ escrita já nasce protegida:
 
 | Perfil | Leitura (`GET`) | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | Tela inicial |
 |---|---|---|---|
-| `ROLE_ADMIN` | ✔ os próprios dados e os de todos, e os **logs** | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Início |
-| `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Início |
-| `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Equipe |
+| `ROLE_ADMIN` | ✔ os próprios dados e os de todos, e os **logs** | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Painel |
+| `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Painel |
+| `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
 
 Fora de `/api/**`, só `GET`/`HEAD` são liberados: são as telas empacotadas no jar (HTML/JS/CSS, sem dados —
-`FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, quem só consulta
-(perfil `VIEWER`, ou o administrador olhando os dados de outra pessoa) vê o selo "Somente consulta" e nenhum
-botão de alterar — as ações de cada dia vêm do servidor (`dia.acoes`) já desligadas —, mas a garantia é do
+`FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, o perfil `VIEWER` vê o selo "somente leitura" e
+os botões de bater ponto, lançamento manual e exclusão nem são renderizados — mas a garantia é do
 back-end, não da tela.
+
+**Tela de auditoria (`/auditoria`).** Pensada para a coordenação (perfil `VIEWER`):
+filtro por mês/ano, tipo de dia e situação (débito, crédito, fora da tolerância, em andamento,
+com/sem comprovante);
+para cada batida, o horário real e o considerado, minutos abonados pela tolerância, trabalhado,
+previsto e saldo do dia; botão **PDF ⤓** por batida e **n PDFs** por dia; totais do período;
+**Exportar Excel** (a planilha de conferência completa) e o atalho para a planilha do Google da pessoa, quando
+há uma; e atualização ao vivo quando um comprovante novo chega.
 
 ## Banco de dados
 
@@ -446,7 +419,7 @@ Migrações em `backend/src/main/resources/db/migration`:
 
 ## Banco de horas semestral (ciclo)
 
-O RH zera o banco a cada 6 meses. O saldo da tela **Banco de horas** (e do cartão no Início) é o do **ciclo aberto** (card "Banco de horas · ciclo
+O RH zera o banco a cada 6 meses. O saldo do painel é o do **ciclo aberto** (card "Banco de horas · ciclo
 atual", com o gráfico mês a mês do ciclo):
 
 - **Fechar banco de horas**: escolhe o último dia incluído (sugestão: a previsão, se já passou; senão, ontem), o
@@ -460,7 +433,7 @@ atual", com o gráfico mês a mês do ciclo):
 
 ## Lançamentos no banco de horas (abater ou creditar)
 
-Botão **Usar ou somar horas do banco** (Início, Banco de horas ou nos detalhes de um dia em Meu ponto): abate horas do banco (ex.: as horas a mais compensadas com uma folga ou uma
+Botão **Lançar no banco** no Painel: abate horas do banco (ex.: as horas a mais compensadas com uma folga ou uma
 saída antecipada, horas pagas pela empresa) ou credita uma correção, numa data e com motivo obrigatório. As batidas
 do dia **não mudam**: o lançamento entra no saldo do mês e do ciclo (`ConsolidacaoBancoHoras` soma as jornadas
 consolidadas no banco de dados com os lançamentos). No cartão o dia ganha o selo `banco −04:00`, e a lista do mês
@@ -470,55 +443,50 @@ só as jornadas. Folga que deve **descontar** do banco = lançamento de −08:48
 
 ## Feriados, férias, atestados, licenças, folgas e abonos
 
-Tela **Folgas e feriados** (`/ausencias`), ou direto pelo dia em Meu ponto (botões *Foi folga ou atestado*, num dia de trabalho sem batidas, e *Marcar
-folga, férias ou feriado*, nos detalhes de qualquer dia): **feriado** (municipal, estadual, nacional ou da empresa/ponto facultativo — ex.: Corpus Christi),
+Tela **Folgas e feriados** (`/ausencias`), ou direto pelo dia no Painel (ícone de calendário, ou clique num dia útil
+sem registro): **feriado** (municipal, estadual, nacional ou da empresa/ponto facultativo — ex.: Corpus Christi),
 **férias**, **atestado**, **licença**, **folga** ou **outra justificativa** (abono, com o motivo obrigatório). Nesses dias
-a jornada base é **zero** — não há débito e o dia não aparece como "sem registro" (a linha do dia mostra a marcação). Dias já
-registrados são reclassificados e, se houver trabalho num desses dias, o tempo conta inteiro a favor. O botão
-*Remover a folga* (ou *Remover o feriado*, para o administrador) desfaz a marcação. Os feriados nacionais de 2026 e 2027 vêm cadastrados.
+a jornada base é **zero** — não há débito e o dia não aparece como "sem registro" (o cartão mostra o rótulo). Dias já
+registrados são reclassificados e, se houver trabalho num desses dias, o tempo vira crédito. Clicando num dia
+marcado, dá para ver e remover a marcação. Os feriados nacionais de 2026 e 2027 vêm cadastrados.
 
 ## Conciliação com o relatório do RH
 
-Tela **Conferir com o RH** (`/conciliacao`): arraste o PDF do "Relatório de Banco de Horas". O leitor (PDFBox, pela
+Tela **Conciliação RH** (`/conciliacao`): arraste o PDF do "Relatório de Banco de Horas". O leitor (PDFBox, pela
 posição das colunas) extrai emissão, período, totais e, por dia, batidas, ocorrência (Feriado, Férias, folga) e
 "Hr. Trabalho / Trabalhadas / Extra-Falta". **O PDF não é guardado** (tem CPF): ficam só esses dados e o hash (o
 mesmo arquivo não é enviado duas vezes). Dias a partir da data de emissão não são conferidos (estavam em andamento).
 
-Em segundo plano, cada data é comparada com o ponto do sistema usando o relatório **mais recente** que a cobre. A
-tela mostra em três passos: **1.** o relatório enviado; **2.** o resultado ("O RH e o sistema batem em 15 dos 37
-dias conferidos. 22 dias têm diferença para decidir"), com o saldo do RH e o do sistema nos mesmos dias; **3.** um
-cartão por dia diferente, com uma frase do que difere, o tamanho da diferença no saldo e os dois lados (*No
-sistema* × *No relatório do RH*). Os tipos: folga ou feriado diferente, dia que só o RH tem, dia que só o sistema
-tem, falta ou sobra batida, horário diferente, saldo diferente e segundos diferentes (o PDF do comprovante costuma
-marcar 1 s depois do RH — só vira diferença se mudar o saldo). **Nada é alterado sozinho**:
+Em segundo plano, cada data é comparada com a conferência usando o relatório **mais recente** que a cobre. As
+divergências ficam numa lista com os dois lados (conferência × RH), por tipo: tipo do dia, só no RH, só na
+conferência, batida faltando/a mais, horário diferente, saldo diferente (regra) e diferença de segundos (o PDF do
+comprovante costuma marcar 1 s depois do RH — só vira divergência se mudar o saldo). **Nada é alterado sozinho**:
 
-- **Usar o do RH** — o dia fica igual ao RH, com histórico "Conforme relatório do RH". Batidas com PDF só têm
-  os segundos alinhados (até 1 min), nunca são apagadas; feriado vira feriado da empresa (só o administrador
-  aceita, porque vale para todos); férias/folga viram um período de ausência.
-- **Manter o meu** — a diferença fica registrada (com observação) e só volta se algum lado mudar.
-- **Ajustar as batidas à mão** — abre a correção dos horários já preenchida com as batidas do RH.
-- **Usar o do RH em vários dias** — por tipo (já marcados os que o servidor sugere).
-- **Comparar de novo** e **Reabrir** uma decisão.
+- **Aceitar dados do RH** — o dia fica igual ao RH, com histórico "Conforme relatório do RH". Batidas com PDF só têm
+  os segundos alinhados (até 1 min), nunca são apagadas; feriado vira feriado da empresa; férias/folga viram um
+  período de ausência (o RH marca também sábados e domingos, então o período sai inteiro).
+- **Manter dados locais** — a diferença fica registrada (com observação) e só volta se algum lado mudar.
+- **Ajuste manual** — abre o ajuste de batidas já preenchido com as batidas do RH.
+- **Aceitar em lote** — por tipo (padrão: só no RH, tipo do dia e diferença de segundos).
 
-As frases, o que cada lado mostra e quais botões cada dia aceita vêm do servidor (campo `tela` de cada diferença).
-A lista acompanha o ponto em tempo real: um PDF novo, um ajuste ou uma folga marcada comparam o dia de novo.
+A lista acompanha a conferência em tempo real: um PDF novo, um ajuste ou uma ausência reconferem o dia. O quadro
+de relatórios compara o saldo do RH com o da conferência nos mesmos dias ("igual ✓" quando bate).
 
 ## Ajuste manual de batidas (correção do RH)
 
 Quando o relógio falha (batida não registrada, comprovante não gerado) e o RH corrige no sistema dele, o dia fica
 "incompleto" aqui — e a conferência deixa de bater. O **ajuste manual** resolve:
 
-- Em **Meu ponto**, o botão **Corrigir horários** (dia com batida faltando), **Ajustar** (dia fechado) ou
-  **Informar batidas** (dia de trabalho sem registro) abre a janela *Corrigir os horários do dia*; no **Início**,
-  *Esqueci de bater ou bati errado* abre a mesma janela para hoje. Dá para incluir a batida esquecida, corrigir
-  ou remover batidas sem comprovante e, num dia sem nenhum registro, preencher com o horário previsto.
+- No **Painel**, o lápis ✎ no fim de cada linha do cartão (sempre visível nos dias **incompletos**) ou o botão
+  **Ajustar batidas** na linha do tempo abrem a tela de ajuste. Dá para incluir a batida esquecida, corrigir ou
+  remover batidas sem comprovante e, num dia sem nenhum registro, preencher com a grade oficial.
 - **Batidas com PDF ficam travadas**: o comprovante é a prova da marcação real e não pode ser alterado nem apagado.
 - A lista é reordenada automaticamente (ex.: `08:05 · 12:58 · 18:03` + `12:00` vira E1 08:05, S1 12:00, E2 12:58,
   S2 18:03) e os PDFs acompanham a nova posição.
 - **Justificativa obrigatória** (há sugestões prontas). Cada ajuste fica no histórico com antes → depois, usuário e
   data; o usuário vem do token, não da tela.
-- Batidas ajustadas aparecem como "informada à mão" nos detalhes do dia, com o histórico de ajustes logo abaixo, e
-  o filtro *Ajustados à mão* do Meu ponto junta esses dias; na planilha de conferência a batida vai em itálico e o motivo, nas
+- Batidas ajustadas aparecem marcadas (`aj` no cartão, "ajustada" na auditoria) e a coordenação vê o histórico em
+  "ajustado à mão", com filtro próprio; na planilha de conferência a batida vai em itálico e o motivo, nas
   observações do dia. Perfil `VIEWER` não ajusta (`403`).
 - Regras: de 1 a 6 batidas (com segundos), pelo menos 1 minuto entre elas, nada no futuro e alguma coisa precisa mudar.
 - "Incompleto" = dia que já passou com entrada sem saída (antes aparecia como "em andamento").
@@ -582,14 +550,15 @@ Quando o ponto é batido em outro PC e os PDFs caem numa pasta compartilhada, in
 - Evite letra de unidade mapeada (`Z:`), que depende da sessão do Windows.
 - O back-end acessa a pasta com o usuário do Windows que o executa. Se a pasta pedir senha, abra-a uma vez
   no Explorer marcando *Lembrar minhas credenciais* (ou `cmdkey /add:192.168.0.10 /user:USUARIO /pass`).
-- **Queda da conexão** (VPN caiu, outro PC desligado): o Início mostra *A pasta dos comprovantes não está acessível*, o monitor tenta de novo a cada 15 s (`intervalo-reconexao`) e, quando a pasta
+- **Queda da conexão** (VPN caiu, outro PC desligado): o painel mostra *Pasta dos PDFs inacessível ·
+  tentando reconectar*, o monitor tenta de novo a cada 15 s (`intervalo-reconexao`) e, quando a pasta
   volta, confere e importa o que chegou nesse meio-tempo.
 - **Varredura de segurança** a cada 30 s (`varredura-periodica`): em pasta de rede o aviso do Windows sobre
   arquivo novo pode se perder. A varredura lista a pasta numa única ida ao servidor e só lê arquivos novos
   ou alterados (nome + tamanho + data), então não pesa na VPN.
 - A cada subida do back-end os PDFs da pasta são relidos para conferir o hash — nada é duplicado. Medido
   numa VPN: 381 PDFs (48 MB) em ~27 s, em segundo plano.
-- Os PDFs são **copiados** para o arquivo local; o download em Meu ponto funciona mesmo com a pasta de rede
+- Os PDFs são **copiados** para o arquivo local; o download na auditoria funciona mesmo com a pasta de rede
   fora do ar.
 
 **Formato do comprovante (validado com PDFs reais do Ponto Fácil).** Os comprovantes são gerados com

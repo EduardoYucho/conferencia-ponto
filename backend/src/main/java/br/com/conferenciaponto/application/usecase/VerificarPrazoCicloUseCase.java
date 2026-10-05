@@ -64,6 +64,6 @@ public class VerificarPrazoCicloUseCase {
             return Optional.empty();
         }
         String chave = "%s:%s:%s".formatted(tipo, ciclo.id(), ciclo.dataFimPrevista());
-        return notificacoes.notificar(usuarioId, tipo, chave, titulo, mensagem, "/banco");
+        return notificacoes.notificar(usuarioId, tipo, chave, titulo, mensagem, "/");
     }
 }

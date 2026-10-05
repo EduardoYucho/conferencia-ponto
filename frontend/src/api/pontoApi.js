@@ -4,14 +4,6 @@ import { http } from './http'
 export const pontoApi = {
   configuracao: () => http.get('/configuracao'),
 
-  // ------------------------------------------------ telas prontas (o servidor decide; a tela só mostra)
-  /** Início: o dia de hoje, pendências, saldos e últimos dias. */
-  inicio: () => http.get('/inicio'),
-  /** Meu ponto: o mês dia a dia, com situação, frase e ações de cada dia. Sem ano/mês: o mês de hoje. */
-  meuPonto: (ano, mes) => http.get('/ponto', { params: { ano, mes } }),
-  /** Banco de horas: saldo do ciclo, meses, horas usadas ou somadas à mão e fechamentos anteriores. */
-  banco: () => http.get('/banco'),
-
   mes: (ano, mes) => http.get('/jornadas', { params: { ano, mes } }),
 
   dia: (data) => http.get(`/jornadas/${data}`),

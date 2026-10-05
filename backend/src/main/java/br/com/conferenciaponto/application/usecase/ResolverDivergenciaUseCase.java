@@ -101,7 +101,7 @@ public class ResolverDivergenciaUseCase {
         Divergencia d = pendente(usuarioId, id);
         DiaVigente vigente = relatorios.vigentes(usuarioId, d.data(), d.data()).stream().findFirst()
                 .orElseThrow(() -> new ConflitoException("DIVERGENCIA_SEM_RELATORIO",
-                        "O relatório do RH deste dia não está mais disponível. Use \"Comparar de novo\"."));
+                        "O relatório do RH deste dia não está mais disponível. Use \"Reconferir\"."));
         RelatorioRh relatorio = relatorios.buscarPorId(vigente.relatorioId()).orElseThrow();
         String justificativa = "Conforme relatório do RH emitido em %s (conciliação)"
                 .formatted(DATA.format(relatorio.emitidoEm()));
@@ -118,7 +118,7 @@ public class ResolverDivergenciaUseCase {
                         // feriado vale para todos: mudaria o dia e o saldo das outras pessoas
                         throw new RegraNegocioException("FERIADO_SO_ADMINISTRADOR", ("O RH marca %s como feriado. Feriado "
                                 + "vale para todos: peça ao administrador para cadastrá-lo em \"Folgas e feriados\" "
-                                + "(esta diferença some sozinha depois).").formatted(DATA.format(d.data())));
+                                + "(esta divergência some sozinha depois).").formatted(DATA.format(d.data())));
                     }
                     aceitarFeriado(d.data(), vigente.dia());
                 } else {
@@ -160,7 +160,7 @@ public class ResolverDivergenciaUseCase {
         }
         Divergencia mantida = d.resolvida(StatusDivergencia.MANTIDO_LOCAL, usuario, observacao, clock.instant());
         divergencias.salvar(mantida);
-        publicar(usuarioId, "Diferença de %s mantida como está no sistema".formatted(DATA.format(d.data())));
+        publicar(usuarioId, "Divergência de %s mantida".formatted(DATA.format(d.data())));
         return mantida;
     }
 
@@ -177,7 +177,7 @@ public class ResolverDivergenciaUseCase {
                 null);
         divergencias.salvar(reaberta);
         conferir.conferir(usuarioId, d.data(), d.data(), "Igual ao RH");
-        publicar(usuarioId, "Diferença de %s reaberta".formatted(DATA.format(d.data())));
+        publicar(usuarioId, "Divergência de %s reaberta".formatted(DATA.format(d.data())));
         return divergencias.buscarPorId(id).orElseThrow();
     }
 
@@ -210,10 +210,10 @@ public class ResolverDivergenciaUseCase {
             } catch (RuntimeException e) {
                 log.error("Aceite em lote: falha no dia {} ({}) do usuário {}", d.data(), d.tipo(), usuarioId, e);
                 falhas.add(new ResultadoLote.Falha(d.data(), d.tipo(),
-                        "Não foi possível usar o do RH neste dia agora. Tente de novo só neste dia."));
+                        "Não foi possível aceitar este dia agora. Tente aceitá-lo individualmente."));
             }
         }
-        publicar(usuarioId, "%d dia(s) passaram a usar o do RH".formatted(aceitas));
+        publicar(usuarioId, "%d divergência(s) aceita(s) em lote".formatted(aceitas));
         return new ResultadoLote(aceitas, falhas);
     }
 
@@ -262,7 +262,7 @@ public class ResolverDivergenciaUseCase {
     private Divergencia pendente(UUID usuarioId, UUID id) {
         Divergencia d = doUsuario(usuarioId, id);
         if (!d.isPendente()) {
-            throw new ConflitoException("DIVERGENCIA_JA_RESOLVIDA", "Esta diferença já foi decidida.");
+            throw new ConflitoException("DIVERGENCIA_JA_RESOLVIDA", "Esta divergência já foi resolvida.");
         }
         return d;
     }
@@ -270,12 +270,12 @@ public class ResolverDivergenciaUseCase {
     private static void exigirAceitavel(Divergencia d) {
         if (!d.aceitavel()) {
             throw new RegraNegocioException("DIVERGENCIA_NAO_ACEITAVEL", d.motivoNaoAceitavel() != null
-                    ? d.motivoNaoAceitavel() : "Neste dia não dá para usar o do RH automaticamente.");
+                    ? d.motivoNaoAceitavel() : "Esta divergência não pode ser aceita automaticamente.");
         }
     }
 
     private RecursoNaoEncontradoException naoEncontrada() {
-        return new RecursoNaoEncontradoException("DIVERGENCIA_NAO_ENCONTRADA", "Diferença não encontrada.");
+        return new RecursoNaoEncontradoException("DIVERGENCIA_NAO_ENCONTRADA", "Divergência não encontrada.");
     }
 
     private void publicar(UUID usuarioId, String descricao) {

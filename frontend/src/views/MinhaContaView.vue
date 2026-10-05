@@ -1,6 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
@@ -9,35 +8,23 @@ import EditorPasta from '@/components/EditorPasta.vue'
 import EditorPlanilha from '@/components/EditorPlanilha.vue'
 import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
-import Icone from '@/components/Icone.vue'
-import { avisar } from '@/utils/avisar'
+import { dataBR, dataISO } from '@/utils/tempo'
 import { mensagemDe } from '@/utils/erros'
-import { momento } from '@/utils/horas'
-import { TEMAS, definirTema, escuro, tema } from '@/utils/tema'
-import { dataISO } from '@/utils/tempo'
 
 /**
- * Minha conta: a aparência da tela e a senha de quem está usando; e, da pessoa em tela, o horário de trabalho,
- * a pasta dos comprovantes e a planilha no Google. O administrador consultando outra pessoa ("Dados de") vê e
- * altera o horário, a pasta e a planilha dela por aqui; a coordenação só consulta.
+ * Minha conta: senha, pasta dos comprovantes, horário de trabalho e planilha no Google. O administrador
+ * consultando outra pessoa ("Dados de") vê e altera a pasta, o horário e a planilha dela por aqui; a senha é
+ * sempre a do próprio usuário.
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const route = useRoute()
 
 const pessoa = computed(() => auth.pessoaEmTela)
-/** Horário, pasta e planilha: da pessoa em tela, se ela tem dados de ponto. */
+/** Pasta e horário: da pessoa em tela, se ela tem dados de ponto. */
 const temPonto = computed(() => auth.ehTitular || !auth.vendoOsProprios)
 const outraPessoa = computed(() => !auth.vendoOsProprios)
 /** O próprio titular, ou o administrador alterando outra pessoa. */
 const podeEditar = computed(() => (auth.vendoOsProprios ? auth.ehTitular : auth.ehAdmin))
-/**
- * A página é a conta de quem está usando (com aparência e senha). Só deixa de ser quando o administrador abre a
- * conta de outra pessoa: aí a página inteira é dela.
- */
-const minhaPagina = computed(() => auth.vendoOsProprios || !auth.ehAdmin)
-const perfil = computed(() => (auth.ehAdmin ? 'Administrador' : auth.ehTitular ? 'Usuário' : 'Coordenação (só consulta)'))
-const primeiroNome = computed(() => (pessoa.value?.nome ?? '').trim().split(/\s+/)[0])
 
 const vigencias = ref([])
 const pasta = ref(null)
@@ -47,10 +34,14 @@ const carregando = ref(false)
 /** O horário e a pasta já chegaram (antes disso não dá para dizer "nenhuma pasta": é desconhecido). */
 const carregado = ref(false)
 const erro = ref(null)
-const recentesAbertos = ref(false)
+const aviso = ref('')
 const hoje = computed(() => ponto.hoje ?? dataISO())
+let timerAviso = null
 let timerRecarga = null
-onBeforeUnmount(() => clearTimeout(timerRecarga))
+onBeforeUnmount(() => {
+  clearTimeout(timerAviso)
+  clearTimeout(timerRecarga)
+})
 
 async function carregar() {
   if (!temPonto.value) return
@@ -65,8 +56,8 @@ async function carregar() {
     if (!outraPessoa.value) {
       pasta.value = auth.usuario?.pastaComprovantes ?? null
     } else if (auth.ehAdmin) {
-      const pessoas = await pontoApi.usuarios()
-      pasta.value = pessoas.find((u) => u.login === pessoa.value?.login)?.pastaComprovantes ?? null
+      const lista = await pontoApi.usuarios()
+      pasta.value = lista.find((u) => u.login === pessoa.value?.login)?.pastaComprovantes ?? null
     } else {
       pasta.value = estado.situacao === 'SEM_PASTA' ? null : estado.diretorio
     }
@@ -77,47 +68,24 @@ async function carregar() {
     carregando.value = false
   }
 }
-onMounted(async () => {
-  await carregar()
-  // veio por um link para uma seção (ex.: #planilha): o que carregou acima empurrou a seção para baixo
-  if (route.hash) {
-    await nextTick()
-    document.querySelector(route.hash)?.scrollIntoView({ block: 'start' })
-  }
-})
-
-// ------------------------------------------------------------------ aparência
-const ICONES_TEMA = { claro: 'sol', escuro: 'lua', auto: 'monitor' }
-const descricaoTema = computed(() => ({
-  claro: 'Fundo claro.',
-  escuro: 'Fundo escuro, descansa a vista.',
-  auto: `Acompanha o tema do seu computador (agora: ${escuro.value ? 'escuro' : 'claro'}).`,
-}))
+onMounted(carregar)
 
 // ------------------------------------------------------------------ senha
-const senhaAberta = ref(false)
 const senha = ref({ atual: '', nova: '', confirmacao: '' })
 const erroSenha = ref('')
 const salvandoSenha = ref(false)
 
-function fecharSenha() {
-  senhaAberta.value = false
-  senha.value = { atual: '', nova: '', confirmacao: '' }
-  erroSenha.value = ''
-}
-
 async function trocarSenha() {
   const s = senha.value
-  // ajuda de digitação; quem decide se a senha serve é o servidor
   erroSenha.value = !s.atual ? 'Informe a senha atual.'
     : s.nova.length < 8 ? 'A nova senha precisa ter pelo menos 8 caracteres.'
-      : s.nova !== s.confirmacao ? 'As duas digitações da nova senha estão diferentes.' : ''
+      : s.nova !== s.confirmacao ? 'A confirmação não confere com a nova senha.' : ''
   if (erroSenha.value) return
   salvandoSenha.value = true
   try {
     await auth.alterarSenha(s.atual, s.nova)
-    fecharSenha()
-    avisar('Senha alterada.')
+    senha.value = { atual: '', nova: '', confirmacao: '' }
+    mostrar('Senha alterada.')
   } catch (e) {
     erroSenha.value = mensagemDe(e)
   } finally {
@@ -130,132 +98,60 @@ async function aoSalvarPasta(r) {
   pasta.value = r.pasta
   if (!outraPessoa.value) auth.atualizarUsuario().catch(() => {})
   clearTimeout(timerRecarga)
-  timerRecarga = setTimeout(carregar, 1500) // o sistema leva um instante para abrir a pasta nova
+  timerRecarga = setTimeout(carregar, 1500) // o monitor leva um instante para conectar à pasta nova
 }
 
 function aoSalvarHorario(r) {
   vigencias.value = r.vigencias
-  // o horário mudou (e dias podem ter sido recalculados): o que é comum às telas é lido de novo
+  mostrar(r.diasRecalculados
+    ? `Horário salvo · ${r.diasRecalculados} dia(s) já registrado(s) recalculado(s).`
+    : 'Horário salvo.')
   ponto.recarregarConfiguracao()
-  ponto.atualizarSaldos({ silencioso: true })
-  ponto.sinalizarMudanca({ tipo: 'jornada' })
 }
 
 function aoEnviar({ total, importados }) {
-  avisar(total === 1
-    ? (importados ? 'O comprovante virou batida.' : 'O comprovante não virou batida: veja o motivo na lista.')
-    : `${importados} de ${total} comprovantes viraram batida.`, importados ? 'ok' : 'info')
+  mostrar(`${importados} de ${total} comprovante(s) importado(s).`)
   carregar()
 }
 
-/** O servidor diz o que aconteceu com cada comprovante; aqui só se escolhe a etiqueta. */
-const SITUACAO_COMPROVANTE = {
-  IMPORTADO: { texto: 'Virou batida', selo: 'selo-positivo' },
-  DUPLICADO: { texto: 'Já existia', selo: 'selo-neutro' },
-  REJEITADO: { texto: 'Recusado', selo: 'selo-negativo' },
-  INVALIDO: { texto: 'Arquivo inválido', selo: 'selo-negativo' },
+function mostrar(texto) {
+  aviso.value = texto
+  clearTimeout(timerAviso)
+  timerAviso = setTimeout(() => (aviso.value = ''), 5000)
+}
+
+const ROTULO_STATUS = { IMPORTADO: 'importado', DUPLICADO: 'já existia', REJEITADO: 'recusado', INVALIDO: 'inválido' }
+const quando = (iso) => {
+  const d = new Date(iso)
+  return `${dataBR(dataISO(d))} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`
 }
 </script>
 
 <template>
-  <main class="pagina">
-    <header>
-      <h1 class="titulo-pagina">{{ minhaPagina ? 'Minha conta' : `Conta de ${pessoa?.nome ?? '…'}` }}</h1>
-      <p v-if="!minhaPagina" class="subtitulo-pagina">
-        O horário de trabalho, a pasta dos comprovantes e a planilha de {{ primeiroNome }}. O ponto desta pessoa é só para
-        consulta, mas estes três itens você, como administrador, pode alterar aqui.
-      </p>
-      <p v-else-if="temPonto && !outraPessoa" class="subtitulo-pagina">
-        A aparência da tela, a sua senha, o seu horário de trabalho e de onde chegam os seus comprovantes.
-      </p>
-      <p v-else class="subtitulo-pagina">A aparência da tela e a sua senha.</p>
-      <p v-if="minhaPagina" class="mt-3 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[0.95rem] text-texto-2">
-        <b class="text-texto">{{ auth.usuario?.nome }}</b>
-        <span>login <b class="text-texto">{{ auth.usuario?.login }}</b></span>
-        <span class="selo" :class="auth.ehAdmin ? 'selo-info' : 'selo-neutro'">{{ perfil }}</span>
+  <div class="mx-auto max-w-4xl px-4 pb-16 sm:px-6">
+    <header class="border-b-2 border-tinta pt-6 pb-4 sm:pt-8">
+      <p class="rotulo">{{ outraPessoa ? 'Administração' : auth.rotuloPerfil }}</p>
+      <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">
+        {{ outraPessoa ? `Conta de ${pessoa?.nome}` : 'Minha conta' }}
+      </h1>
+      <p v-if="!outraPessoa" class="mt-2 text-sm text-tinta-suave">
+        {{ auth.usuario?.nome }} · login <b class="carimbo">{{ auth.usuario?.login }}</b>
       </p>
     </header>
 
-    <!-- Aparência -->
-    <section v-if="minhaPagina" class="cartao p-5 sm:p-6" aria-labelledby="titulo-aparencia">
-      <h2 id="titulo-aparencia" class="titulo-secao">Aparência</h2>
-      <p class="mt-1 text-[0.95rem] text-texto-3">Escolha como a tela fica melhor para você. A escolha vale para este navegador.</p>
-      <div class="mt-4 grid gap-3 sm:grid-cols-3" role="group" aria-labelledby="titulo-aparencia">
-        <button
-          v-for="t in TEMAS"
-          :key="t.valor"
-          type="button"
-          class="flex min-h-[4.75rem] items-center gap-3 rounded-xl border-2 px-4 py-3 text-left transition-colors"
-          :class="tema === t.valor ? 'border-primaria bg-primaria-suave' : 'border-borda bg-superficie hover:bg-neutro'"
-          :aria-pressed="tema === t.valor"
-          @click="definirTema(t.valor)"
-        >
-          <span
-            class="grid size-11 shrink-0 place-items-center rounded-full"
-            :class="tema === t.valor ? 'bg-botao text-sobre-botao' : 'bg-neutro text-texto-2'"
-          ><Icone :nome="ICONES_TEMA[t.valor]" tamanho="22" /></span>
-          <span class="min-w-0 flex-1">
-            <span class="flex flex-wrap items-center gap-x-2 text-base font-bold">
-              {{ t.rotulo }}
-              <span v-if="tema === t.valor" class="flex items-center gap-1 text-sm text-primaria"><Icone nome="certo" tamanho="16" /> em uso</span>
-            </span>
-            <span class="block text-sm text-texto-2">{{ descricaoTema[t.valor] }}</span>
-          </span>
-        </button>
-      </div>
-    </section>
-
-    <!-- Senha -->
-    <section v-if="minhaPagina" class="cartao p-5 sm:p-6" aria-labelledby="titulo-senha">
-      <div class="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 id="titulo-senha" class="titulo-secao">Senha</h2>
-          <p class="mt-1 text-[0.95rem] text-texto-3">A senha que você usa para entrar no sistema.</p>
-        </div>
-        <button v-if="!senhaAberta" type="button" class="botao-secundario min-h-11" @click="senhaAberta = true">
-          <Icone nome="cadeado" tamanho="18" /> Trocar a senha
-        </button>
-      </div>
-      <form v-if="senhaAberta" class="mt-4 grid gap-4 sm:grid-cols-3" novalidate @submit.prevent="trocarSenha">
-        <div>
-          <label class="rotulo" for="senha-atual">Senha atual</label>
-          <input id="senha-atual" v-model="senha.atual" type="password" class="campo mt-1.5" autocomplete="current-password" />
-        </div>
-        <div>
-          <label class="rotulo" for="senha-nova">Nova senha</label>
-          <input id="senha-nova" v-model="senha.nova" type="password" class="campo mt-1.5" autocomplete="new-password" aria-describedby="ajuda-senha" />
-          <p id="ajuda-senha" class="mt-1 text-sm text-texto-3">Pelo menos 8 caracteres.</p>
-        </div>
-        <div>
-          <label class="rotulo" for="senha-confirmacao">Repita a nova senha</label>
-          <input id="senha-confirmacao" v-model="senha.confirmacao" type="password" class="campo mt-1.5" autocomplete="new-password" />
-        </div>
-        <p v-if="erroSenha" role="alert" class="aviso-erro sm:col-span-3">{{ erroSenha }}</p>
-        <div class="flex flex-col-reverse gap-2 sm:col-span-3 sm:flex-row sm:justify-end">
-          <button type="button" class="botao-secundario min-h-11" :disabled="salvandoSenha" @click="fecharSenha">Cancelar</button>
-          <button type="submit" class="botao-primario min-h-11" :disabled="salvandoSenha">{{ salvandoSenha ? 'Salvando…' : 'Salvar a nova senha' }}</button>
-        </div>
-      </form>
-    </section>
-
-    <!-- A coordenação não tem ponto próprio: daqui para baixo é a pessoa escolhida em "Dados de" -->
-    <div v-if="minhaPagina && outraPessoa && temPonto" class="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1">
-      <h2 class="text-xl font-extrabold tracking-tight">Dados de {{ pessoa?.nome ?? '…' }}</h2>
-      <span class="selo selo-atencao">Somente consulta</span>
-      <p class="w-full text-[0.95rem] text-texto-3">O horário, a pasta dos comprovantes e a planilha da pessoa escolhida em “Dados de”, lá em cima.</p>
+    <!-- Falha ao carregar o horário e a pasta (numa recarga, o que já estava na tela continua) -->
+    <div v-if="erro" class="mt-6">
+      <EstadoDaTela :erro="erro" :carregando="carregando" manter @tentar="carregar" />
     </div>
 
-    <!-- Falha ao carregar o horário e a pasta (numa recarga, o que já estava na tela continua) -->
-    <EstadoDaTela v-if="temPonto && erro" :erro="erro" :carregando="carregando" manter @tentar="carregar" />
-
     <!-- Horário -->
-    <section v-if="temPonto" class="cartao p-5 sm:p-6" aria-labelledby="titulo-horario">
-      <h2 id="titulo-horario" class="titulo-secao">Horário de trabalho</h2>
-      <p class="mt-1 mb-4 text-[0.95rem] text-texto-3">
-        O previsto para cada dia: é com ele que o sistema calcula o que fica a favor ou devendo. Em dia sem
-        expediente, todo o tempo trabalhado fica a favor.
+    <section v-if="temPonto" class="cartao mt-6 px-5 py-5" aria-labelledby="titulo-horario">
+      <h2 id="titulo-horario" class="font-sans text-lg font-bold">Horário de trabalho</h2>
+      <p class="mt-1 mb-4 text-sm text-tinta-suave">
+        A base do cálculo: o que é previsto em cada dia e onde vale a tolerância. Dia sem expediente
+        (como sábado e domingo) conta todo o tempo trabalhado como crédito.
       </p>
-      <EstadoDaTela v-if="!carregado" :carregando="carregando" vazio vazio-texto="O horário não foi carregado." carregando-texto="Carregando o horário…" />
+      <p v-if="!carregado" class="text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'O horário não foi carregado.' }}</p>
       <EditorHorario
         v-else
         :vigencias="vigencias"
@@ -267,14 +163,13 @@ const SITUACAO_COMPROVANTE = {
     </section>
 
     <!-- Comprovantes -->
-    <section v-if="temPonto" class="cartao p-5 sm:p-6" aria-labelledby="titulo-pasta">
-      <h2 id="titulo-pasta" class="titulo-secao">Comprovantes de ponto</h2>
-      <p class="mt-1 mb-4 text-[0.95rem] text-texto-3">
-        Cada comprovante em PDF vira uma batida. {{ podeEditar
-          ? (outraPessoa ? 'Escolha a pasta onde os PDFs desta pessoa chegam.' : 'Escolha a pasta onde os PDFs chegam (a de downloads do navegador, por exemplo) ou envie-os pela tela.')
-          : 'Aqui aparece de onde eles chegam.' }}
+    <section v-if="temPonto" class="cartao mt-6 px-5 py-5" aria-labelledby="titulo-pasta">
+      <h2 id="titulo-pasta" class="font-sans text-lg font-bold">Comprovantes de ponto</h2>
+      <p class="mt-1 mb-4 text-sm text-tinta-suave">
+        Os PDFs dos comprovantes viram batidas automaticamente. Escolha a pasta onde eles chegam
+        {{ outraPessoa ? '' : '(a mesma onde o navegador salva os downloads, por exemplo)' }} e/ou envie-os pela tela.
       </p>
-      <EstadoDaTela v-if="!carregado" :carregando="carregando" vazio vazio-texto="A pasta não foi carregada." carregando-texto="Carregando a pasta…" />
+      <p v-if="!carregado" class="text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'A pasta não foi carregada.' }}</p>
       <EditorPasta
         v-else
         :pasta="pasta"
@@ -284,52 +179,68 @@ const SITUACAO_COMPROVANTE = {
         :de-outra-pessoa="outraPessoa"
         @salvo="aoSalvarPasta"
       />
-
-      <div v-if="!outraPessoa && auth.ehTitular" class="mt-5 border-t border-borda pt-4">
-        <h3 class="font-bold">Enviar pela tela</h3>
-        <p class="mt-0.5 mb-3 text-[0.95rem] text-texto-3">Para mandar um comprovante agora, sem depender da pasta.</p>
+      <div v-if="!outraPessoa && auth.ehTitular" class="mt-6">
+        <h3 class="rotulo mb-2">Enviar pela tela</h3>
         <EnvioComprovantes compacto @enviados="aoEnviar" />
       </div>
-
-      <div v-if="recentes.length" class="mt-5 border-t border-borda">
-        <button
-          type="button"
-          class="flex min-h-12 w-full items-center justify-between gap-3 text-left"
-          :aria-expanded="recentesAbertos"
-          aria-controls="ultimos-comprovantes"
-          @click="recentesAbertos = !recentesAbertos"
-        >
-          <span class="font-bold">Últimos comprovantes recebidos <span class="font-semibold text-texto-3">({{ recentes.length }})</span></span>
-          <span class="flex items-center gap-1 text-[0.95rem] font-semibold text-primaria">
-            {{ recentesAbertos ? 'Esconder' : 'Mostrar' }}
-            <Icone nome="abaixo" tamanho="18" class="transition-transform" :class="{ 'rotate-180': recentesAbertos }" />
-          </span>
-        </button>
-        <ul v-if="recentesAbertos" id="ultimos-comprovantes" class="divide-y divide-borda border-t border-borda">
-          <li v-for="(c, i) in recentes" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2.5">
-            <span class="selo" :class="SITUACAO_COMPROVANTE[c.status]?.selo ?? 'selo-neutro'">{{ SITUACAO_COMPROVANTE[c.status]?.texto ?? c.status }}</span>
-            <span class="min-w-0 flex-1 basis-56 font-mono text-sm break-all">{{ c.nomeArquivo }}</span>
-            <span class="text-sm text-texto-3">{{ momento(c.processadoEm) }}</span>
-            <span v-if="c.mensagem && c.status !== 'IMPORTADO'" class="w-full text-sm text-texto-2">{{ c.mensagem }}</span>
+      <div v-if="recentes.length" class="mt-6">
+        <h3 class="rotulo mb-2">Últimos comprovantes processados</h3>
+        <ul class="divide-y divide-linha/70 text-sm">
+          <li v-for="(c, i) in recentes" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-0.5 py-1.5">
+            <span class="carimbo w-32 text-xs text-tinta-suave">{{ quando(c.processadoEm) }}</span>
+            <span class="w-20 text-xs font-semibold" :class="c.status === 'IMPORTADO' ? 'text-credito' : c.status === 'DUPLICADO' ? 'text-tinta-suave' : 'text-carimbo'">
+              {{ ROTULO_STATUS[c.status] ?? c.status }}
+            </span>
+            <span class="min-w-0 flex-1 truncate" :title="c.mensagem">{{ c.nomeArquivo }}</span>
           </li>
         </ul>
       </div>
     </section>
 
-    <!-- Planilha no Google (outras telas mandam para cá com #planilha) -->
-    <section v-if="temPonto" id="planilha" class="cartao scroll-mt-20 p-5 sm:p-6" aria-labelledby="titulo-planilha">
-      <h2 id="titulo-planilha" class="titulo-secao">Planilha no Google</h2>
-      <p class="mt-1 mb-4 text-[0.95rem] text-texto-3">
-        O ponto {{ outraPessoa ? 'desta pessoa' : 'que você vê aqui' }}, mês a mês, numa planilha do Google que o sistema mantém
-        atualizada. Serve para mostrar a quem confere.
+    <!-- Planilha no Google -->
+    <section v-if="temPonto" id="planilha" class="cartao mt-6 scroll-mt-6 px-5 py-5" aria-labelledby="titulo-planilha">
+      <h2 id="titulo-planilha" class="font-sans text-lg font-bold">Planilha no Google</h2>
+      <p class="mt-1 mb-4 text-sm text-tinta-suave">
+        A conferência {{ outraPessoa ? 'desta pessoa' : 'do seu ponto' }} numa planilha do Google Sheets, mês a mês,
+        com o total de horas e o banco de horas, sempre atualizada. Serve para compartilhar com quem confere.
       </p>
       <EditorPlanilha :pode-editar="podeEditar" :usuario="outraPessoa ? pessoa?.login : null" />
     </section>
 
-    <!-- O administrador na conta de outra pessoa: a aparência e a senha ficam na conta dele -->
-    <p v-if="!minhaPagina" class="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-borda bg-superficie-2 px-5 py-4 text-[0.95rem] text-texto-2">
-      <span>A aparência da tela e a sua senha ficam na sua própria conta.</span>
-      <button type="button" class="botao-secundario min-h-11" @click="auth.verComo(null)">Voltar para a minha conta</button>
-    </p>
-  </main>
+    <!-- Senha -->
+    <section v-if="!outraPessoa" class="cartao mt-6 px-5 py-5" aria-labelledby="titulo-senha">
+      <h2 id="titulo-senha" class="font-sans text-lg font-bold">Senha</h2>
+      <form class="mt-4 grid gap-4 sm:grid-cols-3" novalidate @submit.prevent="trocarSenha">
+        <label class="block">
+          <span class="rotulo">Senha atual</span>
+          <input v-model="senha.atual" type="password" class="campo mt-1.5" autocomplete="current-password" />
+        </label>
+        <label class="block">
+          <span class="rotulo">Nova senha</span>
+          <input v-model="senha.nova" type="password" class="campo mt-1.5" autocomplete="new-password" />
+        </label>
+        <label class="block">
+          <span class="rotulo">Repita a nova senha</span>
+          <input v-model="senha.confirmacao" type="password" class="campo mt-1.5" autocomplete="new-password" />
+        </label>
+        <p v-if="erroSenha" role="alert" class="text-sm text-carimbo sm:col-span-3">{{ erroSenha }}</p>
+        <div class="sm:col-span-3 sm:text-right">
+          <button type="submit" class="botao-primario" :disabled="salvandoSenha">{{ salvandoSenha ? 'Salvando…' : 'Alterar senha' }}</button>
+        </div>
+      </form>
+    </section>
+
+    <Transition
+      enter-active-class="transition duration-200"
+      enter-from-class="translate-y-3 opacity-0"
+      leave-active-class="transition duration-150"
+      leave-to-class="opacity-0"
+    >
+      <p
+        v-if="aviso"
+        role="status"
+        class="fixed inset-x-4 bottom-6 z-50 mx-auto max-w-md rounded-[3px] bg-tinta px-4 py-3 text-center text-sm text-cartao shadow-lg"
+      >{{ aviso }}</p>
+    </Transition>
+  </div>
 </template>

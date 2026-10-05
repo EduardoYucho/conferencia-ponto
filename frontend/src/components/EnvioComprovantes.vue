@@ -2,30 +2,27 @@
 import { ref } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { mensagemDe } from '@/utils/erros'
-import Icone from '@/components/Icone.vue'
 
 /**
- * Envio dos comprovantes em PDF pela tela (arrastar e soltar ou escolher os arquivos), para quem não tem uma
- * pasta de comprovantes ou quer mandar um comprovante na hora. O servidor lê cada PDF e diz o que aconteceu com
- * ele; o mesmo comprovante nunca conta duas vezes.
+ * Envio dos comprovantes PDF pela tela (arrastar e soltar ou escolher), para quem não tem uma pasta
+ * monitorada ou quer mandar um comprovante na hora. Mesmas regras da pasta: o mesmo arquivo nunca gera
+ * batida duas vezes.
  */
 defineProps({
-  /** Versão menor, para usar dentro de uma seção (Minha conta). */
   compacto: { type: Boolean, default: false },
 })
 const emit = defineEmits(['enviados'])
 
-/** O que aconteceu com cada arquivo (a situação vem do servidor; aqui só o nome e a cor da etiqueta). */
-const SITUACOES = {
-  IMPORTADO: { texto: 'importado', selo: 'selo-positivo' },
-  DUPLICADO: { texto: 'já estava no sistema', selo: 'selo-neutro' },
-  JA_PROCESSADO: { texto: 'já tinha sido enviado', selo: 'selo-neutro' },
-  REJEITADO: { texto: 'não aceito', selo: 'selo-negativo' },
-  INVALIDO: { texto: 'não aceito', selo: 'selo-negativo' },
-  ENVIANDO: { texto: 'enviando…', selo: 'selo-atencao' },
-  ERRO: { texto: 'não enviado', selo: 'selo-negativo' },
+const ROTULOS = {
+  IMPORTADO: { texto: 'importado', classe: 'bg-credito/15 text-credito' },
+  DUPLICADO: { texto: 'já existia', classe: 'bg-tinta/10 text-tinta-suave' },
+  JA_PROCESSADO: { texto: 'já enviado', classe: 'bg-tinta/10 text-tinta-suave' },
+  REJEITADO: { texto: 'recusado', classe: 'bg-carimbo/15 text-carimbo' },
+  INVALIDO: { texto: 'inválido', classe: 'bg-carimbo/15 text-carimbo' },
+  ENVIANDO: { texto: 'enviando…', classe: 'bg-amber-500/15 text-amber-700' },
+  ERRO: { texto: 'não enviado', classe: 'bg-carimbo/15 text-carimbo' },
 }
-/** O servidor aceita vários por envio; mandar em grupos pequenos mostra o andamento. */
+/** A API aceita até 50 por envio; manda em lotes para mostrar o progresso. */
 const LOTE = 10
 
 const itens = ref([])
@@ -87,56 +84,37 @@ defineExpose({ enviar })
 <template>
   <div>
     <div
-      class="flex flex-col items-center rounded-2xl border-2 border-dashed text-center transition-colors"
-      :class="[
-        arrastando ? 'border-primaria bg-primaria-suave' : 'border-borda-forte bg-superficie-2',
-        compacto ? 'gap-2 px-4 py-5' : 'gap-3 px-5 py-8',
-      ]"
+      class="grid place-items-center rounded-[3px] border-2 border-dashed text-center transition"
+      :class="[arrastando ? 'border-tinta bg-papel-escuro/60' : 'border-linha', compacto ? 'px-4 py-5' : 'px-6 py-8']"
       @dragenter.prevent="arrastando = true"
       @dragover.prevent="arrastando = true"
       @dragleave.prevent="arrastando = false"
       @drop.prevent="aoSoltar"
     >
-      <Icone nome="enviar" :tamanho="compacto ? 24 : 30" class="text-primaria" />
-      <p class="font-bold" :class="compacto ? 'text-[0.95rem]' : 'text-base'">
-        {{ arrastando ? 'Solte os comprovantes aqui' : 'Arraste os comprovantes em PDF para cá' }}
+      <svg viewBox="0 0 24 24" class="size-7 text-tinta-suave" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true">
+        <path d="M12 16V4m0 0l-4 4m4-4l4 4M4 16v3a1 1 0 001 1h14a1 1 0 001-1v-3" stroke-linecap="round" stroke-linejoin="round" />
+      </svg>
+      <p class="mt-2 text-sm">
+        Arraste os comprovantes em PDF para cá ou
+        <button type="button" class="font-semibold text-tinta underline underline-offset-4" :disabled="enviando" @click="escolher">escolha os arquivos</button>.
       </p>
-      <button
-        type="button"
-        class="min-h-11"
-        :class="compacto ? 'botao-secundario' : 'botao-primario'"
-        :disabled="enviando"
-        @click="escolher"
-      >
-        <Icone nome="documento" tamanho="18" /> {{ enviando ? 'Enviando…' : 'Escolher os arquivos' }}
-      </button>
-      <p class="text-sm text-texto-3">Pode enviar vários de uma vez. O mesmo comprovante nunca conta duas vezes.</p>
-      <input
-        ref="campo"
-        type="file"
-        accept="application/pdf,.pdf"
-        multiple
-        class="sr-only"
-        tabindex="-1"
-        aria-label="Escolher os comprovantes em PDF"
-        @change="enviar($event.target.files)"
-      />
+      <p class="mt-1 text-xs text-tinta-apagada">O mesmo comprovante nunca gera batida duas vezes.</p>
+      <input ref="campo" type="file" accept="application/pdf,.pdf" multiple class="sr-only" @change="enviar($event.target.files)" />
     </div>
 
-    <p v-if="ignorados" role="alert" class="aviso-atencao mt-3">
-      {{ ignorados === 1 ? '1 arquivo não entrou' : `${ignorados} arquivos não entraram` }} porque já havia um envio em andamento.
-      {{ enviando ? 'Espere terminar e solte de novo.' : 'Solte de novo.' }}
+    <p v-if="ignorados" role="alert" class="mt-2 text-sm text-carimbo">
+      {{ ignorados }} arquivo(s) não entraram porque já havia um envio em andamento.
+      {{ enviando ? 'Espere terminar e solte-os de novo.' : 'Solte-os de novo.' }}
     </p>
 
-    <template v-if="itens.length">
-      <h3 class="rotulo mt-4">O que aconteceu com cada arquivo</h3>
-      <ul class="mt-1.5 max-h-64 divide-y divide-borda overflow-y-auto rounded-xl border border-borda" aria-live="polite">
-        <li v-for="(item, i) in itens" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5">
-          <span class="selo" :class="SITUACOES[item.status]?.selo ?? 'selo-neutro'">{{ SITUACOES[item.status]?.texto ?? item.status }}</span>
-          <span class="min-w-0 flex-1 truncate text-[0.95rem] font-semibold" :title="item.nome">{{ item.nome }}</span>
-          <span v-if="item.mensagem" class="w-full text-sm text-texto-2">{{ item.mensagem }}</span>
-        </li>
-      </ul>
-    </template>
+    <ul v-if="itens.length" class="mt-3 max-h-64 divide-y divide-linha/70 overflow-y-auto rounded-[3px] border border-linha text-sm" aria-live="polite">
+      <li v-for="(item, i) in itens" :key="i" class="flex flex-wrap items-center gap-x-3 gap-y-0.5 px-3 py-2">
+        <span class="rounded-[2px] px-1.5 py-0.5 text-[0.68rem] font-bold tracking-wider uppercase" :class="ROTULOS[item.status]?.classe">
+          {{ ROTULOS[item.status]?.texto ?? item.status }}
+        </span>
+        <span class="min-w-0 flex-1 truncate font-semibold" :title="item.nome">{{ item.nome }}</span>
+        <span v-if="item.mensagem" class="w-full text-xs text-tinta-suave">{{ item.mensagem }}</span>
+      </li>
+    </ul>
   </div>
 </template>

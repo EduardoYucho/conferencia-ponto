@@ -1,12 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
 import br.com.conferenciaponto.application.RegrasJornada;
-import br.com.conferenciaponto.application.tela.DiaView.Tom;
-import br.com.conferenciaponto.application.tela.MontadorDeDias.Quem;
-import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase.Textos;
-import br.com.conferenciaponto.application.view.ConciliacaoResumoView;
-import br.com.conferenciaponto.application.view.DivergenciaView;
-import br.com.conferenciaponto.application.view.DivergenciaView.Marca;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.DiaRelatorioRh;
@@ -107,7 +101,7 @@ class ConciliacaoUseCasesTest {
     private final ResolverDivergenciaUseCase resolver = new ResolverDivergenciaUseCase(divergencias, relatorios,
             registros, ajustar, ausencias, feriados, regras, conferir, eventos::add, semTransacao, clock);
     private final ConsultarConciliacaoUseCase consultar =
-            new ConsultarConciliacaoUseCase(relatorios, divergencias, registros, regras, ausenciasRepo);
+            new ConsultarConciliacaoUseCase(relatorios, divergencias, registros, regras);
 
     private static LocalDate d(int dia) {
         return LocalDate.of(2026, 7, dia);
@@ -179,7 +173,7 @@ class ConciliacaoUseCasesTest {
             assertThat(r.divergencias()).isEqualTo(7);
         });
         assertThat(notificacoesRepo.listarRecentes(DONO, 5)).singleElement()
-                .satisfies(n -> assertThat(n.titulo()).isEqualTo("Relatório do RH: 7 dia(s) com diferença"));
+                .satisfies(n -> assertThat(n.titulo()).isEqualTo("Relatório do RH: 7 divergência(s)"));
         assertThatThrownBy(() -> importar.receber(DONO, "de-novo.pdf", new byte[]{1}, USUARIO))
                 .isInstanceOf(ConflitoException.class).hasMessageContaining("já foi enviado");
     }
@@ -274,165 +268,5 @@ class ConciliacaoUseCasesTest {
         var comparativo = consultar.resumo(DONO).relatorios().get(0);
         assertThat(comparativo.saldoRhSegundos()).isZero();
         assertThat(comparativo.diasConferidos()).isEqualTo(10);
-    }
-
-    private static final Quem DONO_ADMIN = new Quem(true, true);
-    private static final Quem DONO_COMUM = new Quem(true, false);
-
-    private DivergenciaView.Tela tela(int dia, Quem quem) {
-        return consultar.divergencias(DONO, null, d(dia), d(dia), quem).get(0).tela();
-    }
-
-    @Test
-    @DisplayName("Tela: cada diferença vem escrita em palavras, com o tamanho da diferença e os dois lados marcados")
-    void diferencaEmPalavras() {
-        DivergenciaView.Tela faltando = tela(21, DONO_ADMIN);
-        assertThat(faltando.dia()).isEqualTo("Terça, 21/07/2026");
-        assertThat(faltando.tipo()).isEqualTo("Falta batida no sistema");
-        assertThat(faltando.frase()).isEqualTo("Falta 1 batida no sistema: o RH tem 13:00 e o sistema não.");
-        assertThat(faltando.situacao()).isEqualTo("Para decidir");
-        assertThat(faltando.sistema().horarios()).extracting(DivergenciaView.Hora::texto, DivergenciaView.Hora::marca)
-                .containsExactly(org.assertj.core.groups.Tuple.tuple("08:00", Marca.IGUAL),
-                        org.assertj.core.groups.Tuple.tuple("12:00", Marca.IGUAL),
-                        org.assertj.core.groups.Tuple.tuple("17:48", Marca.IGUAL));
-        assertThat(faltando.rh().horarios()).extracting(DivergenciaView.Hora::exato, DivergenciaView.Hora::marca)
-                .contains(org.assertj.core.groups.Tuple.tuple("13:00:00", Marca.DIFERENTE));
-        assertThat(faltando.rh().saldo()).isEqualTo("em dia");
-        assertThat(faltando.motivoDoAjuste()).isEqualTo("Conforme relatório do RH emitido em 17/08/2026");
-
-        DivergenciaView.Tela horario = tela(28, DONO_ADMIN);
-        assertThat(horario.frase())
-                .isEqualTo("1 batida com horário diferente: Saída p/ almoço (12:10 no sistema e 12:00 no RH).");
-        assertThat(horario.impacto())
-                .isEqualTo("Diferença de 10 min no saldo do dia: em dia no RH e + 10 min a favor no sistema.");
-        assertThat(horario.sistema().saldo()).isEqualTo("+ 10 min a favor");
-        assertThat(horario.sistema().tom()).isEqualTo(Tom.POSITIVO);
-        assertThat(horario.sistema().trabalhado()).isEqualTo("8h 58min");
-
-        // o mesmo horário com segundos diferentes é a mesma batida: sem marca, e os segundos não aparecem
-        assertThat(faltando.sistema().horarios().get(0).exato()).isEqualTo("08:00:10");
-
-        DivergenciaView.Tela ferias = tela(24, DONO_ADMIN);
-        assertThat(ferias.tipo()).isEqualTo("Folga ou feriado diferente");
-        assertThat(ferias.frase())
-                .isEqualTo("O RH marcou este dia como férias. No sistema ele está como dia de trabalho, sem batidas.");
-        assertThat(ferias.rh().titulo()).isEqualTo("Férias");
-        assertThat(ferias.rh().saldo()).isEqualTo("não soma nem desconta");
-
-        // batidas iguais com 1 s de diferença que muda o saldo: aí sim os segundos aparecem, marcados
-        local(30, "08:00:01", "12:00:01", "13:00:01", "17:53:01");
-        enviar(LocalDateTime.of(2026, 8, 18, 9, 0), List.of(
-                util(30, 300, "08:00:00", "12:00:00", "13:00:00", "17:53:00")), new byte[]{4});
-        DivergenciaView.Tela segundos = tela(30, DONO_ADMIN);
-        assertThat(segundos.tipo()).isEqualTo("Segundos diferentes");
-        assertThat(segundos.sistema().horarios()).extracting(DivergenciaView.Hora::texto, DivergenciaView.Hora::marca)
-                .contains(org.assertj.core.groups.Tuple.tuple("17:53:01", Marca.SEGUNDOS));
-        assertThat(segundos.impacto()).isEqualTo("Diferença de 1 s no saldo do dia.");
-    }
-
-    @Test
-    @DisplayName("Tela: dia sem registro ou com batida faltando fica fora do saldo — a frase nunca diz que desconta")
-    void diaForaDoSaldoNaoDesconta() {
-        DivergenciaView.Tela semRegistro = tela(20, DONO_ADMIN);
-        assertThat(semRegistro.frase()).isEqualTo("O RH tem 4 batidas neste dia e o sistema não tem nenhum registro.");
-        assertThat(semRegistro.impacto()).isEqualTo("No sistema o dia não tem registro: fica fora do saldo até ser "
-                + "corrigido (não desconta nada). No RH o dia não soma nem desconta.");
-        assertThat(semRegistro.sistema().titulo()).isEqualTo("Dia de trabalho, sem batidas");
-        assertThat(semRegistro.sistema().saldo()).isEqualTo("fora do saldo até ser corrigido");
-        assertThat(semRegistro.sistema().tom()).isEqualTo(Tom.ATENCAO);
-        // o outro lado não tem batidas: não há o que marcar como diferente
-        assertThat(semRegistro.rh().horarios()).hasSize(4).allSatisfy(h -> assertThat(h.marca()).isNull());
-
-        DivergenciaView.Tela faltaBatida = tela(21, DONO_ADMIN);
-        assertThat(faltaBatida.impacto()).startsWith("No sistema falta batida neste dia: ele fica fora do saldo até "
-                + "ser corrigido (não desconta nada).");
-        assertThat(faltaBatida.sistema().saldo()).isEqualTo("falta batida: fora do saldo até ser corrigido");
-
-        assertThat(consultar.divergencias(DONO, null, null, null, DONO_ADMIN))
-                .allSatisfy(v -> assertThat(v.tela().frase() + v.tela().impacto()).doesNotContain("descontando"));
-    }
-
-    @Test
-    @DisplayName("Tela: os botões de cada diferença vêm decididos (quem só consulta não tem nenhum; feriado é do administrador)")
-    void botoesDaDiferenca() {
-        assertThat(consultar.divergencias(DONO, StatusDivergencia.PENDENTE, null, null))
-                .allSatisfy(v -> {
-                    assertThat(v.tela().acoes()).isEqualTo(DivergenciaView.Acoes.NENHUMA);
-                    assertThat(v.tela().porQueNaoUsarRh()).isNull();
-                });
-
-        DivergenciaView.Acoes batida = tela(21, DONO_COMUM).acoes();
-        assertThat(batida.usarRh()).isTrue();
-        assertThat(batida.manter()).isTrue();
-        assertThat(batida.ajustar()).isTrue();
-        assertThat(batida.folgas()).isFalse();
-        assertThat(batida.reabrir()).isFalse();
-        assertThat(tela(21, DONO_COMUM).aoUsarRh()).contains("nunca é apagada");
-
-        DivergenciaView.Tela feriadoComum = tela(23, DONO_COMUM);
-        assertThat(feriadoComum.acoes().usarRh()).isFalse();
-        assertThat(feriadoComum.acoes().folgas()).isTrue();
-        assertThat(feriadoComum.acoes().ajustar()).isFalse();
-        assertThat(feriadoComum.porQueNaoUsarRh()).contains("peça ao administrador");
-        DivergenciaView.Tela feriadoAdmin = tela(23, DONO_ADMIN);
-        assertThat(feriadoAdmin.acoes().usarRh()).isTrue();
-        assertThat(feriadoAdmin.aoUsarRh()).contains("vira feriado").contains("todas as pessoas");
-        assertThat(tela(24, DONO_COMUM).acoes().usarRh()).isTrue();
-        assertThat(tela(24, DONO_COMUM).aoUsarRh()).contains("férias");
-
-        enviar(LocalDateTime.of(2026, 8, 18, 9, 0), List.of(
-                util(29, 61, "08:04:59", "12:00:20", "13:02:49", "17:49:01", "17:49:46")), new byte[]{2});
-        DivergenciaView.Tela impar = tela(29, DONO_ADMIN);
-        assertThat(impar.acoes().usarRh()).isFalse();
-        assertThat(impar.acoes().ajustar()).isTrue();
-        assertThat(impar.porQueNaoUsarRh()).contains("número ímpar de batidas (5)").contains("Ajuste as batidas à mão");
-        assertThat(impar.aoUsarRh()).isNull();
-
-        resolver.manterLocal(DONO, divergencia(28).id(), "Vou conferir com o RH", USUARIO);
-        DivergenciaView.Tela mantida = tela(28, DONO_COMUM);
-        assertThat(mantida.situacao()).isEqualTo("Mantido como está no sistema");
-        assertThat(mantida.acoes()).isEqualTo(new DivergenciaView.Acoes(false, false, false, false, true));
-        assertThat(consultar.decididas(DONO, null, null, DONO_COMUM)).extracting(v -> v.divergencia().data())
-                .containsExactly(d(28));
-    }
-
-    @Test
-    @DisplayName("Resumo: em quantos dias o RH e o sistema batem, numa frase, e quantas diferenças dá para resolver de uma vez")
-    void resultadoDaComparacao() {
-        ConciliacaoResumoView resumo = consultar.resumo(DONO);
-        assertThat(resumo.comparacao()).isEqualTo(new ConciliacaoResumoView.Comparacao(10, 3, 7, 0));
-        assertThat(Textos.comparacao(resumo.comparacao()))
-                .isEqualTo("O RH e o sistema batem em 3 dos 10 dias conferidos. 7 dias têm diferença para decidir.");
-        assertThat(resumo.aceitaveisPorTipo()).containsOnly(
-                java.util.Map.entry(TipoDivergencia.SOMENTE_RH, 2), java.util.Map.entry(TipoDivergencia.TIPO_DIA, 3),
-                java.util.Map.entry(TipoDivergencia.BATIDA_FALTANDO, 1),
-                java.util.Map.entry(TipoDivergencia.HORARIO_DIFERENTE, 1));
-        assertThat(resumo.decididas()).isZero();
-        assertThat(resumo.total()).isEqualTo(7);
-
-        ConciliacaoResumoView.Comparativo comparativo = resumo.relatorios().get(0);
-        assertThat(comparativo.diasDiferentes()).isEqualTo(7);
-        Textos.Relatorio relatorio = Textos.relatorio(comparativo.relatorio(), comparativo);
-        assertThat(relatorio.periodo()).isEqualTo("20/07/2026 a 31/07/2026");
-        assertThat(relatorio.emitido()).isEqualTo("emitido pelo RH em 17/08/2026 às 14:10");
-        assertThat(relatorio.situacao()).isEqualTo("Comparado");
-        assertThat(relatorio.diasIguais()).isEqualTo("3 de 10 dias iguais");
-        assertThat(relatorio.saldoRh()).isEqualTo("em dia");
-        assertThat(relatorio.saldoSistema()).isEqualTo("+ 10 min a favor");
-        assertThat(relatorio.diferenca()).isEqualTo("10 min de diferença");
-        assertThat(relatorio.saldosIguais()).isFalse();
-        assertThat(relatorio.foraDoSaldo()).isEqualTo(
-                "1 dia com batida faltando fica fora do saldo do sistema até ser corrigido (não desconta nada).");
-
-        resolver.manterLocal(DONO, divergencia(28).id(), null, USUARIO);
-        resolver.aceitarEmLote(DONO, Set.of(TipoDivergencia.values()), null, null, USUARIO, true);
-        ConciliacaoResumoView depois = consultar.resumo(DONO);
-        assertThat(depois.comparacao()).isEqualTo(new ConciliacaoResumoView.Comparacao(10, 9, 0, 1));
-        assertThat(Textos.comparacao(depois.comparacao())).isEqualTo("O RH e o sistema batem em 9 dos 10 dias "
-                + "conferidos. 1 dia ficou diferente por decisão (mantido como está no sistema).");
-        assertThat(depois.decididas()).isEqualTo(7);
-        assertThat(Textos.comparacao(ConciliacaoResumoView.Comparacao.NADA)).isNull();
-        assertThat(Textos.comparacao(new ConciliacaoResumoView.Comparacao(22, 22, 0, 0)))
-                .isEqualTo("O RH e o sistema batem em todos os 22 dias conferidos.");
     }
 }

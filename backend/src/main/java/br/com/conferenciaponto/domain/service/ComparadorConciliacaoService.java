@@ -72,7 +72,7 @@ public final class ComparadorConciliacaoService {
         if (r.isEmpty()) {
             return Optional.of(f.achado(TipoDivergencia.SOMENTE_LOCAL, "A conferência tem %d batida(s) (%s) e o RH não tem nenhuma (saldo no RH: %s)."
                             .formatted(l.size(), texto(l), saldo(rh.saldoSegundos())),
-                    "Usar o do RH apagaria o dia inteiro: se for o caso, apague o registro do dia em Meu ponto."));
+                    "Aceitar o RH apagaria o dia: se for o caso, exclua o dia na conferência."));
         }
 
         if (r.size() != l.size() && semPar(r, l).isEmpty() && semPar(l, r).isEmpty()) {
@@ -83,7 +83,7 @@ public final class ComparadorConciliacaoService {
             return Optional.of(f.achado(TipoDivergencia.SALDO, "Mesmas batidas, com repetição a menos de 1 minuto (RH %s × conferência %s); saldo RH %s × conferência %s."
                             .formatted(texto(r), texto(l), saldo(rh.saldoSegundos()),
                                     saldoLocal == null ? "incompleto" : saldo(saldoLocal)),
-                    "A diferença vem de uma batida repetida: use \"Manter o meu\" ou ajuste as batidas à mão."));
+                    "A diferença vem de uma batida repetida: use \"Manter dados locais\" ou o ajuste manual."));
         }
         if (r.size() > l.size()) {
             List<LocalTime> faltando = semPar(r, l);
@@ -139,7 +139,7 @@ public final class ComparadorConciliacaoService {
         if (rh.jornadaPrevistaSegundos() > 0 && (tipoLocal == TipoDia.FERIADO || tipoLocal == TipoDia.AUSENCIA)) {
             return Optional.of(f.achado(TipoDivergencia.TIPO_DIA, "O RH conta este dia como útil (jornada de %s) e na conferência ele é %s."
                             .formatted(duracao(rh.jornadaPrevistaSegundos()), rotulo(tipoLocal)),
-                    "Remova o feriado ou a folga deste dia em Folgas e feriados."));
+                    "Remova o feriado ou a ausência deste dia na conferência (tela Ausências)."));
         }
         return Optional.empty();
     }
@@ -154,15 +154,15 @@ public final class ComparadorConciliacaoService {
     /** Motivo pelo qual as batidas do RH não podem ser copiadas como estão (ou null se podem). */
     static String motivoRhInvalido(List<LocalTime> r) {
         if (r.size() > TipoBatida.MAXIMO) {
-            return "O RH tem %d batidas e o sistema comporta %d: ajuste as batidas à mão.".formatted(r.size(), TipoBatida.MAXIMO);
+            return "O RH tem %d batidas e a conferência comporta %d: use o ajuste manual.".formatted(r.size(), TipoBatida.MAXIMO);
         }
         if (r.size() % 2 == 1) {
-            return "O RH tem número ímpar de batidas (%d): copiar deixaria o dia com batida faltando. Ajuste as batidas à mão."
+            return "O RH tem número ímpar de batidas (%d): copiar deixaria o dia incompleto. Use o ajuste manual."
                     .formatted(r.size());
         }
         for (int i = 1; i < r.size(); i++) {
             if (!r.get(i).isAfter(r.get(i - 1))) {
-                return "O RH tem batidas repetidas ou fora de ordem (%s): ajuste as batidas à mão.".formatted(HORA.format(r.get(i)));
+                return "O RH tem batidas repetidas ou fora de ordem (%s): use o ajuste manual.".formatted(HORA.format(r.get(i)));
             }
         }
         return null;

@@ -1,82 +1,34 @@
 @import "tailwindcss";
 
 /*
- * Identidade visual: limpa, com poucas cores e cada uma com um papel.
- *   azul      = a ação principal e o que é "seu agora" (link, botão, item ativo)
- *   verde     = a favor / online / deu certo
- *   vermelho  = devendo / faltou / erro
- *   âmbar     = pede atenção, mas não é erro
- * Tudo é definido por variáveis: o tema escuro só troca os valores (bloco [data-theme="dark"] abaixo), então
- * nenhuma tela precisa saber em qual tema está.
+ * Identidade visual: cartão de ponto mecânico.
+ * Papel creme, tinta preta para batidas absorvidas pela tolerância e
+ * tinta vermelha (carimbo) para batidas fora da tolerância / débitos.
  */
-@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
-
-@theme static {
-  --font-sans: "Figtree Variable", "Figtree", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+@theme {
+  --font-sans: "Archivo Variable", "Archivo", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "Cascadia Mono", monospace;
 
-  /* superfícies e linhas */
-  --color-fundo: #f3f5f8;
-  --color-superficie: #ffffff;
-  --color-superficie-2: #f7f9fc;
-  --color-neutro: #eef1f5;
-  --color-borda: #e3e7ee;
-  --color-borda-forte: #c9d1dd;
+  --color-papel: #f4efe4;
+  --color-papel-escuro: #e8e0ce;
+  --color-cartao: #fbf8f1;
+  --color-tinta: #1d1c1a;
+  --color-tinta-suave: #5f5a51;
+  --color-tinta-apagada: #9a9282;
+  --color-linha: #d9d0be;
+  --color-carimbo: #c2362f;
+  --color-credito: #2d6a4c;
 
-  /* texto: principal, secundário e de apoio */
-  --color-texto: #18212f;
-  --color-texto-2: #3a4657;
-  --color-texto-3: #5b6676;
-  --color-texto-4: #8a94a3;
-
-  /* ação principal */
-  --color-primaria: #1f4fd8;
-  --color-primaria-forte: #163ba6;
-  --color-primaria-suave: #eaf0ff;
-  --color-primaria-borda: #b9c8f5;
-  --color-botao: #1f4fd8;
-  --color-botao-forte: #163ba6;
-  --color-sobre-botao: #ffffff;
-
-  /* a favor · devendo · atenção */
-  --color-positivo: #0a6b55;
-  --color-positivo-suave: #e3f4ee;
-  --color-positivo-borda: #b9e0d2;
-  --color-positivo-solido: #0a6b55;
-  --color-negativo: #b3261e;
-  --color-negativo-suave: #fcebe9;
-  --color-negativo-borda: #f0c2be;
-  --color-negativo-solido: #b3261e;
-  --color-atencao: #7a4300;
-  --color-atencao-suave: #fff8ec;
-  --color-atencao-borda: #f1d9a8;
-  --color-atencao-solido: #d98a00;
-
-  /* botão escuro (segunda ação mais forte) */
-  --color-inverso: #18212f;
-  --color-sobre-inverso: #ffffff;
-
-  /* nomes da identidade anterior, apontando para a paleta nova (componentes ainda não reescritos) */
-  --color-papel: #f3f5f8;
-  --color-papel-escuro: #eef1f5;
-  --color-cartao: #ffffff;
-  --color-tinta: #18212f;
-  --color-tinta-suave: #5b6676;
-  --color-tinta-apagada: #8a94a3;
-  --color-linha: #e3e7ee;
-  --color-carimbo: #b3261e;
-  --color-credito: #0a6b55;
-
-  --animate-surgir: surgir 0.35s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  --animate-surgir: surgir 0.55s cubic-bezier(0.2, 0.7, 0.2, 1) both;
   --animate-listras: listras 1.2s linear infinite;
 
   @keyframes surgir {
-    from { opacity: 0; transform: translateY(6px); }
+    from { opacity: 0; transform: translateY(10px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
   @keyframes realce {
-    0%, 35% { background-color: color-mix(in srgb, var(--color-positivo) 22%, transparent); }
+    0%, 35% { background-color: color-mix(in srgb, var(--color-credito) 22%, transparent); }
     100% { background-color: transparent; }
   }
 
@@ -86,69 +38,9 @@
   }
 }
 
-/* Tema escuro: os mesmos papéis, com valores para fundo escuro (contraste de texto conferido em 4,5:1). */
-[data-theme="dark"] {
-  color-scheme: dark;
-
-  --color-fundo: #0f141b;
-  --color-superficie: #171d26;
-  --color-superficie-2: #1b222c;
-  --color-neutro: #232b36;
-  --color-borda: #2a3340;
-  --color-borda-forte: #3a4553;
-
-  --color-texto: #e8ecf2;
-  --color-texto-2: #c2cad6;
-  --color-texto-3: #97a3b4;
-  --color-texto-4: #6f7b8c;
-
-  --color-primaria: #8fb0ff;
-  --color-primaria-forte: #b3c8ff;
-  --color-primaria-suave: #1b2a4d;
-  --color-primaria-borda: #2f4580;
-  --color-botao: #3d6beb;
-  --color-botao-forte: #5a82f0;
-  --color-sobre-botao: #ffffff;
-
-  --color-positivo: #4cc9a4;
-  --color-positivo-suave: #10302a;
-  --color-positivo-borda: #1f4f43;
-  --color-positivo-solido: #128a6c;
-  --color-negativo: #ff8a80;
-  --color-negativo-suave: #3a1b19;
-  --color-negativo-borda: #6b2a26;
-  --color-negativo-solido: #c8372d;
-  --color-atencao: #f2c46d;
-  --color-atencao-suave: #2e2410;
-  --color-atencao-borda: #5a451b;
-  --color-atencao-solido: #e0a030;
-
-  --color-inverso: #e8ecf2;
-  --color-sobre-inverso: #0f141b;
-
-  --color-papel: #0f141b;
-  --color-papel-escuro: #232b36;
-  --color-cartao: #171d26;
-  --color-tinta: #e8ecf2;
-  --color-tinta-suave: #97a3b4;
-  --color-tinta-apagada: #6f7b8c;
-  --color-linha: #2a3340;
-  --color-carimbo: #ff8a80;
-  --color-credito: #4cc9a4;
-
-  /* âmbar da paleta padrão (avisos de telas ainda não reescritas) */
-  --color-amber-50: #2e2410;
-  --color-amber-500: #e0a030;
-  --color-amber-600: #e0a030;
-  --color-amber-700: #f2c46d;
-  --color-amber-800: #f2c46d;
-  --color-amber-900: #f2c46d;
-  --color-amber-950: #f2c46d;
-}
-
 @utility botao {
-  @apply inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold
-    transition-[background-color,border-color,color,opacity] duration-150
+  @apply inline-flex items-center justify-center gap-2 rounded-[3px] px-4 py-2.5 text-sm font-semibold
+    transition-[transform,background-color,box-shadow] duration-150 active:translate-y-px
     disabled:cursor-not-allowed disabled:opacity-50;
 }
 
@@ -158,49 +50,60 @@
   }
 
   body {
-    @apply bg-fundo text-texto font-sans antialiased;
-    font-variant-numeric: tabular-nums;
+    @apply bg-papel text-tinta font-sans antialiased;
+    /* granulação de papel */
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.45 0 0 0 0 0.38 0 0 0 0 0.25 0 0 0 0.06 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
   }
 
   :focus-visible {
-    outline: 2px solid var(--color-primaria);
+    outline: 2px solid var(--color-tinta);
     outline-offset: 2px;
-  }
-
-  a {
-    color: inherit;
   }
 }
 
 @layer components {
   .cartao {
-    @apply bg-superficie border border-borda rounded-2xl;
+    @apply bg-cartao border border-linha rounded-[3px];
+    box-shadow: 0 1px 0 var(--color-linha), 0 14px 30px -22px rgb(29 28 26 / 0.45);
   }
 
-  /* (identidade anterior: coluna de furos do cartão de ponto) hoje é só um cartão com respiro à esquerda */
+  /* Coluna de furos na lateral, como um cartão de ponto */
   .perfurado {
-    padding-left: 1.25rem;
+    position: relative;
+    padding-left: 1.75rem;
+  }
+  .perfurado::before {
+    content: "";
+    position: absolute;
+    inset: 0 auto 0 0;
+    width: 1.1rem;
+    border-right: 1px dashed var(--color-linha);
+    background-image: radial-gradient(circle at center, var(--color-papel-escuro) 3px, transparent 3.6px);
+    background-size: 100% 22px;
+    background-position: center 6px;
   }
 
   .rotulo {
-    @apply font-sans text-sm font-semibold text-texto-3;
+    @apply font-sans text-[0.68rem] font-semibold uppercase tracking-[0.16em] text-tinta-suave;
   }
 
-  /* números alinhados em colunas */
+  /* Números "carimbados" */
   .carimbo {
-    font-variant-numeric: tabular-nums;
+    @apply font-mono tabular-nums;
+    letter-spacing: 0.02em;
+    mix-blend-mode: multiply;
   }
 
   .hachurado {
     background-image: repeating-linear-gradient(
       -45deg,
       transparent 0 5px,
-      color-mix(in srgb, var(--color-texto) 16%, transparent) 5px 6px
+      rgb(29 28 26 / 0.16) 5px 6px
     );
   }
 
   .em-andamento {
-    --cor-listra: var(--color-primaria);
+    --cor-listra: var(--color-tinta);
     background-color: color-mix(in srgb, var(--cor-listra) 55%, transparent);
     background-image: linear-gradient(
       -45deg,
@@ -210,111 +113,26 @@
     background-size: 16px 16px;
     @apply animate-listras;
   }
-  .em-andamento.listra-credito {
-    --cor-listra: var(--color-positivo);
-  }
-
-  /* linha alterada por evento em tempo real (ex.: comprovante importado) */
-  .realce,
+  /* Linha alterada por evento em tempo real (ex.: PDF importado) */
   tr.realce > td {
     animation: realce 2.4s ease-out both;
   }
 
+  .em-andamento.listra-credito {
+    --cor-listra: var(--color-credito);
+  }
+
   .botao-primario {
-    @apply botao bg-botao text-sobre-botao hover:bg-botao-forte;
+    @apply botao bg-tinta text-cartao hover:bg-black;
+    box-shadow: 0 2px 0 #000;
   }
   .botao-secundario {
-    @apply botao border border-borda-forte bg-superficie text-texto hover:bg-neutro;
-  }
-  .botao-escuro {
-    @apply botao bg-inverso text-sobre-inverso hover:opacity-90;
-  }
-  .botao-perigo {
-    @apply botao bg-negativo-solido text-white hover:opacity-90;
-  }
-  /* botão de linha: discreto, mas com texto (nada de ícone sozinho) */
-  .botao-linha {
-    @apply botao min-h-11 border border-borda-forte bg-superficie px-3.5 py-2 text-texto hover:bg-neutro;
+    @apply botao border border-tinta bg-cartao text-tinta hover:bg-papel-escuro;
   }
 
   .campo {
-    @apply w-full rounded-xl border border-borda-forte bg-superficie px-3 py-2.5 font-sans text-base text-texto
-      outline-none transition placeholder:text-texto-4 focus:border-primaria;
-  }
-
-  /* etiqueta de situação */
-  .selo {
-    @apply inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-sm font-bold whitespace-nowrap;
-  }
-  .selo-positivo { @apply bg-positivo-suave text-positivo; }
-  .selo-negativo { @apply bg-negativo-suave text-negativo; }
-  .selo-atencao { @apply bg-atencao-suave text-atencao; }
-  .selo-info { @apply bg-primaria-suave text-primaria; }
-  .selo-neutro { @apply bg-neutro text-texto-2; }
-
-  /* caixa de aviso dentro da tela */
-  .aviso-erro {
-    @apply rounded-xl border border-negativo-borda bg-negativo-suave px-3.5 py-2.5 text-sm text-negativo;
-  }
-  .aviso-ok {
-    @apply rounded-xl border border-positivo-borda bg-positivo-suave px-3.5 py-2.5 text-sm text-positivo;
-  }
-  .aviso-atencao {
-    @apply rounded-xl border border-atencao-borda bg-atencao-suave px-3.5 py-2.5 text-sm text-atencao;
-  }
-
-  /* título de página e de seção */
-  .titulo-pagina {
-    @apply text-[1.75rem] leading-tight font-extrabold tracking-tight text-texto;
-  }
-  .titulo-secao {
-    @apply text-lg font-extrabold text-texto;
-  }
-  .subtitulo-pagina {
-    @apply mt-1 text-base text-texto-3;
-  }
-
-  /* área de conteúdo de cada tela (o respiro de baixo deixa a barra do celular livre) */
-  .pagina {
-    @apply mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-6 pb-28 sm:px-6 lg:px-8 lg:pt-8 lg:pb-14;
-  }
-
-  /* item do menu (lateral e "Mais") */
-  .item-menu {
-    @apply flex min-h-11 items-center gap-2.5 rounded-[10px] px-3 text-[0.95rem] font-semibold text-texto-2
-      transition-colors hover:bg-neutro;
-  }
-  .item-menu-ativo {
-    @apply bg-primaria-suave font-bold text-primaria hover:bg-primaria-suave;
-  }
-
-  /* janela (modal): fundo escurecido + cartão */
-  .janela-fundo {
-    @apply fixed inset-0 z-50 flex items-end justify-center bg-black/50 p-0 sm:items-center sm:p-6;
-  }
-  .janela {
-    @apply max-h-[92dvh] w-full max-w-lg animate-surgir overflow-y-auto rounded-t-2xl border border-borda bg-superficie
-      shadow-2xl sm:rounded-2xl;
-  }
-
-  /* botão-filtro (pílula): um conjunto em que só um fica marcado */
-  .pilula {
-    @apply inline-flex min-h-11 items-center gap-1.5 rounded-full border border-borda-forte bg-superficie px-4 text-[0.95rem]
-      font-semibold text-texto transition-colors hover:bg-neutro;
-  }
-  .pilula-ativa {
-    @apply border-inverso bg-inverso font-bold text-sobre-inverso hover:bg-inverso;
-  }
-
-  /* botão grande de atalho (Início) */
-  .acao-rapida {
-    @apply flex min-h-14 items-center gap-2.5 rounded-[14px] border border-borda-forte bg-superficie px-4 py-2.5 text-left
-      text-[0.95rem] font-bold text-texto transition-colors hover:bg-neutro disabled:cursor-not-allowed disabled:opacity-50;
-  }
-
-  /* link de texto */
-  .link {
-    @apply font-semibold text-primaria underline-offset-4 hover:text-primaria-forte hover:underline;
+    @apply w-full rounded-[3px] border border-linha bg-white/70 px-3 py-2 font-mono text-base tabular-nums
+      text-tinta outline-none transition focus:border-tinta focus:bg-white;
   }
 }
 

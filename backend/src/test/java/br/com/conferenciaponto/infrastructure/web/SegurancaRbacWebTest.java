@@ -1,10 +1,5 @@
 package br.com.conferenciaponto.infrastructure.web;
 
-import br.com.conferenciaponto.application.tela.BancoView;
-import br.com.conferenciaponto.application.tela.ConsultarBancoUseCase;
-import br.com.conferenciaponto.application.tela.ConsultarInicioUseCase;
-import br.com.conferenciaponto.application.tela.ConsultarMeuPontoUseCase;
-import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.usecase.AjustarBatidasUseCase;
 import br.com.conferenciaponto.application.usecase.AutenticarUsuarioUseCase;
 import br.com.conferenciaponto.application.usecase.BaixarComprovanteUseCase;
@@ -40,9 +35,7 @@ import br.com.conferenciaponto.application.view.RegistroJornadaView;
 import br.com.conferenciaponto.application.view.SessaoView;
 import br.com.conferenciaponto.domain.model.Batidas;
 import br.com.conferenciaponto.domain.model.ComprovanteArquivado;
-import br.com.conferenciaponto.domain.model.GradeHoraria;
 import br.com.conferenciaponto.domain.model.HashSha256;
-import br.com.conferenciaponto.domain.model.HorarioTrabalho;
 import br.com.conferenciaponto.domain.model.Intervalo;
 import br.com.conferenciaponto.domain.model.LancamentoBanco;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -93,7 +86,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -116,7 +108,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 @WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
         FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class,
-        PresencaController.class, LogController.class, TelasController.class})
+        PresencaController.class, LogController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, JwtEmissorToken.class, SegurancaRbacWebTest.Relogio.class,
         AcessoUsuarios.class})
 class SegurancaRbacWebTest {
@@ -156,8 +148,6 @@ class SegurancaRbacWebTest {
     @MockitoBean
     private AjustarBatidasUseCase ajustar;
     @MockitoBean
-    private RegrasJornada regras;
-    @MockitoBean
     private GerenciarCicloBancoUseCase ciclos;
     @MockitoBean
     private ImportarRelatorioRhUseCase importarRh;
@@ -185,12 +175,6 @@ class SegurancaRbacWebTest {
     private SincronizadorPlanilhas sincronizadorPlanilhas;
     @MockitoBean
     private ConsultarPresencaUseCase presenca;
-    @MockitoBean
-    private ConsultarInicioUseCase telaInicio;
-    @MockitoBean
-    private ConsultarMeuPontoUseCase telaMeuPonto;
-    @MockitoBean
-    private ConsultarBancoUseCase telaBanco;
     @MockitoBean
     private ArquivosDeLog arquivosDeLog;
     @MockitoBean
@@ -351,29 +335,9 @@ class SegurancaRbacWebTest {
                         .contentType(MediaType.APPLICATION_JSON).content("{\"horarios\": [], \"justificativa\": \"\"}"))
                 .andExpect(status().isBadRequest());
 
-        // a janela de ajuste recebe os nomes das batidas pelo horário da pessoa no dia (sexta, 08:00–12:00 e 13:00–17:48)
         when(ajustar.contexto(any(), any())).thenReturn(new AjustarBatidasUseCase.Contexto(List.of(), List.of()));
-        when(regras.horario(any(), any())).thenReturn(HorarioTrabalho.semanal(idDe("eduardo"),
-                HorarioTrabalho.DESDE_SEMPRE, GradeHoraria.PADRAO, 5, "sistema", Instant.EPOCH));
-        when(regras.classificar(any(), any())).thenReturn(TipoDia.UTIL);
         mvc.perform(get("/api/v1/jornadas/2026-06-26/ajustes").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.comprovadas").isEmpty())
-                .andExpect(jsonPath("$.dados.historico").isEmpty())
-                .andExpect(jsonPath("$.dados.nomes.length()").value(TipoBatida.MAXIMO))
-                .andExpect(jsonPath("$.dados.nomes[0]").value("Entrada"))
-                .andExpect(jsonPath("$.dados.nomes[1]").value("Saída p/ almoço"))
-                .andExpect(jsonPath("$.dados.nomes[2]").value("Volta do almoço"))
-                .andExpect(jsonPath("$.dados.nomes[3]").value("Saída"));
-
-        // feriado (ou folga, férias, dia sem expediente): não há horário previsto, os nomes são os simples
-        when(regras.classificar(any(), any())).thenReturn(TipoDia.FERIADO);
-        mvc.perform(get("/api/v1/jornadas/2026-06-26/ajustes").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.nomes[0]").value("Entrada"))
-                .andExpect(jsonPath("$.dados.nomes[1]").value("Saída"))
-                .andExpect(jsonPath("$.dados.nomes[2]").value("Volta"))
-                .andExpect(jsonPath("$.dados.nomes[3]").value("Saída"));
+                .andExpect(status().isOk());
     }
 
     @Test
@@ -444,22 +408,7 @@ class SegurancaRbacWebTest {
         mvc.perform(get("/api/v1/conciliacoes/resumo").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.tipos.length()").value(8))
-                .andExpect(jsonPath("$.dados.pendentes").value(0))
-                // prontos para a tela: nome e explicação de cada tipo, contagem dos filtros e o resultado geral
-                .andExpect(jsonPath("$.dados.tipos[0].nome").value("Folga ou feriado diferente"))
-                .andExpect(jsonPath("$.dados.tipos[0].sugerido").value(true))
-                .andExpect(jsonPath("$.dados.contagem.DECIDIDAS").value(0))
-                .andExpect(jsonPath("$.dados.contagem.TODAS").value(0))
-                .andExpect(jsonPath("$.dados.comparacao.diasConferidos").value(0));
-
-        mvc.perform(get("/api/v1/conciliacoes/divergencias").param("status", "decididas")
-                        .with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.length()").value(0));
-        mvc.perform(get("/api/v1/conciliacoes/divergencias").param("status", "XYZ")
-                        .with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.erros[0].codigo").value("STATUS_INVALIDO"));
+                .andExpect(jsonPath("$.dados.pendentes").value(0));
     }
 
     @Test
@@ -707,34 +656,5 @@ class SegurancaRbacWebTest {
                             .with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
                     .andExpect(status().isAccepted());
         }
-    }
-
-    @Test
-    @DisplayName("Telas prontas (início, meu ponto, banco): exigem login; só o dono dos dados recebe ações liberadas")
-    void telasProntas() throws Exception {
-        when(telaBanco.agora(any(), anyBoolean(), any())).thenAnswer(inv -> new BancoView(null, null, List.of(), List.of(),
-                List.of(), inv.getArgument(1), false, inv.getArgument(2) == null ? "próprio" : inv.getArgument(2)));
-
-        for (String rota : List.of("/api/v1/inicio", "/api/v1/ponto", "/api/v1/banco")) {
-            mvc.perform(get(rota)).andExpect(status().isUnauthorized());
-        }
-        // cada um nos próprios dados: pode editar
-        mvc.perform(get("/api/v1/banco").with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
-                .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.podeEditar").value(true))
-                .andExpect(jsonPath("$.dados.explicacao").value("próprio"));
-        // administrador e coordenação olhando a Maria: só consulta, e as frases usam o primeiro nome dela
-        for (Perfil p : List.of(Perfil.ROLE_ADMIN, Perfil.ROLE_VIEWER)) {
-            String login = p == Perfil.ROLE_VIEWER ? "coordenacao" : "eduardo";
-            mvc.perform(get("/api/v1/banco").param("usuario", "maria")
-                            .with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
-                    .andExpect(status().isOk())
-                    .andExpect(jsonPath("$.dados.podeEditar").value(false))
-                    .andExpect(jsonPath("$.dados.explicacao").value("Maria"));
-        }
-        // a Maria não consulta outra pessoa
-        mvc.perform(get("/api/v1/banco").param("usuario", "eduardo")
-                        .with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
-                .andExpect(status().isForbidden());
     }
 }

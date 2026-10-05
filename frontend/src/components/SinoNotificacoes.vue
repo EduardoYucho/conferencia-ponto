@@ -5,7 +5,6 @@ import { storeToRefs } from 'pinia'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import { mensagemDe } from '@/utils/erros'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
-import Icone from '@/components/Icone.vue'
 
 /** Sino com os avisos do sistema (prazo do banco de horas, relatório do RH conferido). */
 const notificacoes = useNotificacoesStore()
@@ -88,23 +87,26 @@ const quando = (iso) => {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-const icone = (tipo) => (tipo === 'CONCILIACAO' ? 'comparar' : tipo === 'CICLO_VENCIDO' ? 'alerta' : 'relogio')
+const icone = (tipo) => (tipo === 'CONCILIACAO' ? '⇄' : tipo === 'CICLO_VENCIDO' ? '!' : '⏳')
 </script>
 
 <template>
   <div ref="raiz" class="relative">
     <button
       type="button"
-      class="relative grid size-11 place-items-center rounded-xl text-texto-3 transition hover:bg-neutro hover:text-texto"
-      :class="{ 'animate-pulse text-negativo': pulsando }"
-      :aria-label="naoLidas ? `Avisos: ${naoLidas} não lido(s)` : 'Avisos'"
+      class="relative grid size-8 place-items-center rounded-full text-tinta-suave transition hover:bg-papel-escuro hover:text-tinta"
+      :class="{ 'animate-pulse text-carimbo': pulsando }"
+      :aria-label="naoLidas ? `${naoLidas} aviso(s) não lido(s)` : 'Avisos'"
       :aria-expanded="aberto"
       @click="aberto = !aberto"
     >
-      <Icone nome="sino" tamanho="22" />
+      <svg viewBox="0 0 20 20" class="size-5" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true">
+        <path d="M5 8a5 5 0 0 1 10 0v3.5l1.5 2.5h-13L5 11.5V8Z" stroke-linejoin="round" />
+        <path d="M8 16.5a2 2 0 0 0 4 0" stroke-linecap="round" />
+      </svg>
       <span
         v-if="naoLidas"
-        class="absolute top-1 right-1 grid h-[18px] min-w-[18px] place-items-center rounded-full bg-negativo-solido px-1 text-[0.68rem] font-bold text-white"
+        class="carimbo absolute -top-0.5 -right-0.5 grid min-w-4 place-items-center rounded-full bg-carimbo px-1 text-[0.6rem] font-bold text-cartao"
       >{{ naoLidas > 9 ? '9+' : naoLidas }}</span>
     </button>
 
@@ -116,40 +118,46 @@ const icone = (tipo) => (tipo === 'CONCILIACAO' ? 'comparar' : tipo === 'CICLO_V
     >
       <div
         v-if="aberto"
-        class="cartao absolute right-0 z-50 mt-2 w-[min(24rem,calc(100vw-2rem))] overflow-hidden shadow-xl"
+        class="cartao absolute right-0 z-50 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden"
         role="dialog"
         aria-label="Avisos"
       >
-        <div class="flex items-center justify-between gap-3 border-b border-borda px-4 py-3">
-          <p class="text-base font-extrabold">Avisos</p>
-          <button v-if="naoLidas" type="button" class="link text-sm" @click="marcarTodas">Marcar todos como lidos</button>
+        <div class="flex items-center justify-between border-b border-linha px-4 py-2.5">
+          <p class="rotulo">Avisos</p>
+          <button
+            v-if="naoLidas"
+            type="button"
+            class="text-xs font-semibold text-tinta-suave underline underline-offset-4 hover:text-tinta"
+            @click="marcarTodas"
+          >marcar todos como lidos</button>
         </div>
-        <p v-if="falhaAoMarcar" role="alert" class="border-b border-borda px-4 py-2 text-sm text-negativo">{{ falhaAoMarcar }}</p>
+        <p v-if="falhaAoMarcar" role="alert" class="border-b border-linha px-4 py-2 text-xs text-carimbo">{{ falhaAoMarcar }}</p>
         <div v-if="falhouCarga" class="px-4 py-3">
           <EstadoDaTela :erro="erroCarga" :carregando="carregando" @tentar="carregar" />
         </div>
-        <ul class="max-h-96 divide-y divide-borda overflow-y-auto">
-          <li v-if="!lista.length && !falhouCarga" class="px-4 py-8 text-center text-[0.95rem] text-texto-3">
+        <ul class="max-h-96 divide-y divide-linha/70 overflow-y-auto">
+          <li v-if="!lista.length && !falhouCarga" class="px-4 py-6 text-center text-sm text-tinta-suave">
             {{ carregado ? 'Nenhum aviso por enquanto.' : 'Carregando…' }}
           </li>
           <li v-for="n in lista" :key="n.id">
             <button
               type="button"
-              class="flex w-full gap-3 px-4 py-3 text-left transition hover:bg-neutro"
+              class="flex w-full gap-3 px-4 py-3 text-left transition hover:bg-papel"
+              :class="n.lida ? 'opacity-60' : ''"
               @click="abrirNotificacao(n)"
             >
               <span
-                class="mt-0.5 grid size-8 shrink-0 place-items-center rounded-full"
-                :class="n.tipo === 'CONCILIACAO' ? 'bg-primaria-suave text-primaria' : n.tipo === 'CICLO_VENCIDO' ? 'bg-negativo-suave text-negativo' : 'bg-atencao-suave text-atencao'"
+                class="mt-0.5 grid size-6 shrink-0 place-items-center rounded-full text-xs font-bold"
+                :class="n.tipo === 'CONCILIACAO' ? 'bg-tinta/10 text-tinta' : 'bg-carimbo/10 text-carimbo'"
                 aria-hidden="true"
-              ><Icone :nome="icone(n.tipo)" tamanho="17" /></span>
-              <span class="min-w-0 flex-1">
+              >{{ icone(n.tipo) }}</span>
+              <span class="min-w-0">
                 <span class="flex items-baseline gap-2">
-                  <span class="text-[0.95rem]" :class="n.lida ? 'font-semibold text-texto-2' : 'font-bold'">{{ n.titulo }}</span>
-                  <span v-if="!n.lida" class="size-2 shrink-0 rounded-full bg-primaria" aria-label="não lido" />
+                  <span class="text-sm font-semibold">{{ n.titulo }}</span>
+                  <span v-if="!n.lida" class="size-1.5 shrink-0 rounded-full bg-carimbo" aria-label="não lido" />
                 </span>
-                <span class="mt-0.5 block text-sm text-texto-3">{{ n.mensagem }}</span>
-                <span class="mt-1 block text-[0.8rem] text-texto-4">{{ quando(n.criadaEm) }}</span>
+                <span class="mt-0.5 block text-xs text-tinta-suave">{{ n.mensagem }}</span>
+                <span class="mt-1 block text-[0.65rem] uppercase tracking-wider text-tinta-apagada">{{ quando(n.criadaEm) }}</span>
               </span>
             </button>
           </li>

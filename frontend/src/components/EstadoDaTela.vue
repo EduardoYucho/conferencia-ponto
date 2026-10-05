@@ -1,7 +1,6 @@
 <script setup>
 import { computed } from 'vue'
 import { mensagemDe } from '@/utils/erros'
-import Icone from '@/components/Icone.vue'
 
 /**
  * Os três estados que toda lista ou painel tem antes de mostrar dados: carregando, falhou e vazio.
@@ -39,23 +38,22 @@ const mostrarConteudo = computed(() => props.manter || (!props.carregando && !pr
   <div
     v-if="mensagem"
     role="alert"
-    class="aviso-erro flex flex-wrap items-center gap-x-3 gap-y-2"
+    class="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo"
     :class="{ 'mb-3': mostrarConteudo }"
   >
-    <Icone nome="alerta" class="self-start" />
-    <span class="min-w-0 flex-1 text-[0.95rem]">{{ mensagem }}</span>
+    <span class="min-w-0 flex-1">{{ mensagem }}</span>
     <button
       v-if="!semTentar"
       type="button"
-      class="botao-secundario shrink-0 px-3! py-1.5!"
+      class="botao-secundario shrink-0 px-2.5! py-1! text-xs"
       :disabled="carregando"
       @click="$emit('tentar')"
     >{{ carregando ? 'Tentando…' : 'Tentar de novo' }}</button>
   </div>
-  <p v-else-if="carregando && !manter" role="status" class="py-8 text-center text-[0.95rem] text-texto-3">
+  <p v-else-if="carregando && !manter" role="status" class="py-6 text-center text-sm text-tinta-suave">
     {{ carregandoTexto }}
   </p>
-  <p v-else-if="vazio && !carregando && !manter" class="py-8 text-center text-[0.95rem] text-texto-3">
+  <p v-else-if="vazio && !carregando && !manter" class="py-6 text-center text-sm text-tinta-suave">
     <slot name="vazio">{{ vazioTexto }}</slot>
   </p>
   <slot v-if="mostrarConteudo" />
