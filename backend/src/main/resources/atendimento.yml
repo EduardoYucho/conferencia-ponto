@@ -1,0 +1,60 @@
+# Configuração dos módulos de atendimentos e base de conhecimento (importada pelo application.yml).
+# Os valores desta máquina vão em config/application.yml (fora do Git), como o resto da configuração:
+# lá eles têm prioridade sobre os daqui. Cada chave passa a ser usada na etapa indicada.
+
+atendimento:
+  armazenamento:
+    # PDF, anexos, ligações, vídeos, prints e imagens geradas; base/ guarda as imagens da base de conhecimento
+    # (o "ponto backup" copia base/ e a chave mestra)
+    diretorio: ${PONTO_ATENDIMENTOS_DIR:${user.home}/.conferencia-ponto/atendimentos}
+  chave-mestra:
+    arquivo: ${atendimento.armazenamento.diretorio}/chave-mestra   # cifra as chaves do Gemini (E3)
+  retencao:                                  # (E5)
+    dias-arquivos: 30                        # PDF, anexos, ligações, vídeo e prints
+    dias-textos: 180                         # análises, linha do tempo e saídas
+    cron: "0 30 3 * * *"                     # limpeza diária às 03:30
+  pdf:
+    tamanho-maximo: 50MB                     # PDF da conversa (E4)
+  envio:
+    tamanho-maximo:                          # arquivos enviados pela tela (E5)
+      imagem: 50MB
+      audio: 500MB
+      video: 2GB
+      documento: 50MB
+  digisac:
+    # de onde os anexos podem ser baixados (o link vem de um arquivo enviado pelo usuário)
+    hosts-permitidos:
+      - "*.compat.objectstorage.sa-vinhedo-1.oraclecloud.com"
+  download:
+    paralelos: 4
+    tempo-conexao: 10s
+    tempo-leitura: 60s
+    tamanho-maximo: 2GB                      # limite da Files API do Gemini
+  fila:                                      # (E5)
+    trabalhadores: 8                         # tarefas ao mesmo tempo, no total
+    por-usuario: 4                           # e por usuário (limite de requisições do Gemini é por projeto)
+    prazo-execucao: 15m                      # tarefa "executando" há mais tempo volta para a fila
+    varredura: 2s
+  gemini:
+    url-base: https://generativelanguage.googleapis.com
+    exigir-nivel-pago: true                  # o usuário confirma que a chave é de projeto com faturamento (E3)
+    modelos:                                 # nomes na configuração: troca sem mexer no código (E6)
+      analise: gemini-3.8-flash
+      audio: gemini-3.8-flash
+      redacao: gemini-3.8-flash
+    tentativas: 5
+    tempo-limite: 10m
+    video:
+      quadros-por-segundo: 1                 # (E9)
+  ffmpeg:
+    caminho:                                 # vazio = procurar no PATH (E9)
+  imagens:
+    marcacoes: false                         # marcações em vermelho, experimental (E12)
+
+conhecimento:
+  vetor:                                     # pesquisa por significado (E11)
+    modelo: gemini-embedding-2
+    dimensao: 768
+  parecidos:
+    limite: 5
+    similaridade-minima: 0.75                # ajustada na validação

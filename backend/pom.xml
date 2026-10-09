@@ -29,6 +29,10 @@
     <properties>
         <java.version>17</java.version>
         <pdfbox.version>3.0.5</pdfbox.version>
+        <archunit.version>1.5.1</archunit.version>
+        <embedded-postgres.version>2.2.2</embedded-postgres.version>
+        <!-- a mesma versão do PostgreSQL da máquina de produção -->
+        <embedded-postgres-binarios.version>18.6.0</embedded-postgres-binarios.version>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     </properties>
 
@@ -94,7 +98,36 @@
             <artifactId>spring-security-test</artifactId>
             <scope>test</scope>
         </dependency>
+        <!-- Regras de dependência entre o ponto e os módulos (ArquiteturaModulosTest) -->
+        <dependency>
+            <groupId>com.tngtech.archunit</groupId>
+            <artifactId>archunit-junit5</artifactId>
+            <version>${archunit.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            PostgreSQL temporário só durante os testes (sobe numa pasta temporária e é apagado no fim): as migrações
+            e as consultas são testadas num banco de verdade sem nunca tocar no banco do sistema.
+        -->
+        <dependency>
+            <groupId>io.zonky.test</groupId>
+            <artifactId>embedded-postgres</artifactId>
+            <version>${embedded-postgres.version}</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>io.zonky.test.postgres</groupId>
+                <artifactId>embedded-postgres-binaries-bom</artifactId>
+                <version>${embedded-postgres-binarios.version}</version>
+                <type>pom</type>
+                <scope>import</scope>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
 
     <build>
         <plugins>
