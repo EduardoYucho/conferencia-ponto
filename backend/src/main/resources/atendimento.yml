@@ -38,6 +38,8 @@ atendimento:
   gemini:
     url-base: https://generativelanguage.googleapis.com
     exigir-nivel-pago: true                  # o usuário confirma que a chave é de projeto com faturamento (E3)
+    tempo-conexao: 10s                       # para abrir a conexão com o Google
+    tempo-teste: 20s                         # para o teste da chave responder
     modelos:                                 # nomes na configuração: troca sem mexer no código (E6)
       analise: gemini-3.8-flash
       audio: gemini-3.8-flash
