@@ -4,6 +4,8 @@ import DashboardView from '@/views/DashboardView.vue'
 // Fora do carregamento sob demanda: é para o login que a aba volta quando algo dá errado (sessão vencida,
 // sistema atualizado), e nessa hora os arquivos antigos das outras telas podem não existir mais.
 import LoginView from '@/views/LoginView.vue'
+// telas dos módulos de atendimentos e base de conhecimento (ficam todas em src/modulos)
+import { rotasDosModulos } from '@/modulos/rotas'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -25,6 +27,7 @@ export const router = createRouter({
       component: () => import('@/views/TrocarSenhaView.vue'),
       meta: { semBarra: true },
     },
+    ...rotasDosModulos,
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
 })

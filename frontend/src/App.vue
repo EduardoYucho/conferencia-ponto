@@ -6,10 +6,12 @@ import { usePontoStore } from '@/stores/ponto'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import SinoNotificacoes from '@/components/SinoNotificacoes.vue'
 import AvisosGlobais from '@/components/AvisosGlobais.vue'
+import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 
 const auth = useAuthStore()
 const ponto = usePontoStore()
 const notificacoes = useNotificacoesStore()
+const modulos = useAcessoModulosStore()
 const route = useRoute()
 const router = useRouter()
 
@@ -23,8 +25,11 @@ watch(
       // (falhas daqui não derrubam a tela: sem a lista de pessoas, o seletor "Dados de" oferece tentar de novo)
       auth.atualizarUsuario().catch(() => {})
       auth.carregarTitulares().catch(() => {})
+      // o que a pessoa pode usar nos módulos (decide os itens do menu); falha não derruba a tela
+      modulos.carregar().catch(() => {})
     } else {
       ponto.desconectarTempoReal()
+      modulos.limpar()
     }
   },
   { immediate: true },
@@ -37,7 +42,12 @@ const menu = computed(() => [
   { nome: 'conciliacao', rotulo: 'Conciliação RH' },
   { nome: 'ausencias', rotulo: 'Folgas e feriados' },
   { nome: 'equipe', rotulo: 'Equipe' },
-  ...(auth.ehAdmin ? [{ nome: 'usuarios', rotulo: 'Usuários' }, { nome: 'logs', rotulo: 'Logs' }] : []),
+  // módulos de atendimentos e base de conhecimento: só para quem foi liberado
+  ...(modulos.gerador ? [{ nome: 'atendimentos', rotulo: 'Atendimentos' }] : []),
+  ...(modulos.pesquisar ? [{ nome: 'base-conhecimento', rotulo: 'Base de conhecimento' }] : []),
+  ...(auth.ehAdmin
+    ? [{ nome: 'usuarios', rotulo: 'Usuários' }, { nome: 'acessos-modulos', rotulo: 'Acessos' }, { nome: 'logs', rotulo: 'Logs' }]
+    : []),
 ])
 const iniciais = computed(() =>
   (auth.usuario?.nome ?? '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase(),
