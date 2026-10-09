@@ -61,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 272 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
+.\iniciar.ps1 -Testes    # 297 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -253,6 +253,26 @@ Todos veem a situação de todos. O detalhe é reservado: para colegas, **atesta
 coordenação e a própria pessoa. A tela se atualiza sozinha quando alguém bate o ponto (evento
 `presenca-atualizada`, que não carrega dado nenhum) e a cada minuto. Quem importa o ponto por comprovante (PDF)
 aparece online assim que o comprovante da entrada chega ao sistema.
+
+## Atendimentos e base de conhecimento (em construção)
+
+Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador de textos de atendimento** (lê o
+PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou o chamado para o
+desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
+regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
+deles. Chegam em etapas; por enquanto existem os acessos:
+
+- **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
+  qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
+  ponto**: a coordenação pode ser liberada, e o administrador também precisa se liberar.
+- Os itens **Atendimentos** e **Base de conhecimento** só aparecem no menu de quem foi liberado. Toda rota dos
+  módulos confere a liberação a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar o acesso vale na hora.
+
+| Método | Rota | Descrição |
+|---|---|---|
+| GET | `/atendimentos/meu-acesso` · `/conhecimento/meu-acesso` | Qualquer perfil: `{gerador, administrador}` · `{pesquisar, curar, administrador}` |
+| GET | `/atendimentos/acessos` · `/conhecimento/acessos` | (ADMIN) usuários ativos com o acesso de cada um |
+| PUT | `/atendimentos/acessos/{usuarioId}` · `/conhecimento/acessos/{usuarioId}` | (ADMIN) `{gerador}` · `{pesquisar, curar}` |
 
 ## Erros, protocolo e logs
 

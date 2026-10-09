@@ -72,11 +72,19 @@ async function mudarGerador(linha, valor) {
   }, () => (linha.gerador = antes))
 }
 
-/** Curar inclui pesquisar; tirar a pesquisa tira a curadoria. */
-async function mudarBase(linha, { pesquisar, curar }) {
+/**
+ * Curar inclui pesquisar: marcar "curar" marca "pesquisar"; desmarcar "pesquisar" desmarca "curar". Por isso
+ * importa qual das duas caixas a pessoa mexeu.
+ */
+async function mudarBase(linha, caixa, marcada) {
   const antes = { pesquisar: linha.pesquisar, curar: linha.curar }
-  linha.pesquisar = curar ? true : pesquisar
-  linha.curar = linha.pesquisar ? curar : false
+  if (caixa === 'curar') {
+    linha.curar = marcada
+    if (marcada) linha.pesquisar = true
+  } else {
+    linha.pesquisar = marcada
+    if (!marcada) linha.curar = false
+  }
   await salvar(linha, async () => {
     const r = await conhecimentoApi.definirAcesso(linha.usuarioId, linha.pesquisar, linha.curar)
     linha.pesquisar = r.pesquisar
@@ -178,7 +186,7 @@ const ultima = (linha) =>
                       :checked="l.pesquisar"
                       :disabled="!!salvando[l.usuarioId]"
                       :aria-label="`Pesquisar na base para ${l.nome}`"
-                      @change="mudarBase(l, { pesquisar: $event.target.checked, curar: l.curar })"
+                      @change="mudarBase(l, 'pesquisar', $event.target.checked)"
                     />
                   </td>
                   <td class="px-2 py-2.5 text-center">
@@ -188,7 +196,7 @@ const ultima = (linha) =>
                       :checked="l.curar"
                       :disabled="!!salvando[l.usuarioId]"
                       :aria-label="`Curar a base para ${l.nome}`"
-                      @change="mudarBase(l, { pesquisar: l.pesquisar, curar: $event.target.checked })"
+                      @change="mudarBase(l, 'curar', $event.target.checked)"
                     />
                   </td>
                   <td class="py-2.5 pr-4 text-xs text-tinta-suave">{{ salvando[l.usuarioId] ? 'salvando…' : ultima(l) }}</td>
