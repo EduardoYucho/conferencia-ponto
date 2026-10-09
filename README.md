@@ -61,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 255 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro)
+.\iniciar.ps1 -Testes    # 272 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -470,6 +470,17 @@ Migrações em `backend/src/main/resources/db/migration`:
   administrador), `tb_horario_trabalho` (períodos por dia da semana, tolerância e vigência), pasta dos
   comprovantes e troca de senha obrigatória em `tb_usuario`, `vw_saldo_mensal` por usuário
 - `V13` — `tb_planilha_google`: a planilha do Google de cada usuário, com a última gravação e o último erro
+- `V14` — módulo de atendimentos, no schema próprio `atendimento` (nenhuma tabela do ponto muda): `acesso`,
+  `chave_gemini` (cifrada), `atendimento`, `arquivo`, `analise`, `saida`, `imagem` e `tarefa` (a fila)
+- `V15` — base de conhecimento, no schema `conhecimento`: `acesso`, `registro` (busca em português sem acento,
+  mantida por gatilho, e trigramas), `registro_imagem`, `registro_situacao` e `vetor`; ativa as extensões
+  `unaccent` e `pg_trgm` (confiáveis: o dono do banco cria sem superusuário)
+
+Os schemas dos módulos só se ligam ao ponto por `tb_usuario`; para desfazê-los sem tocar no ponto, veja
+[Backup](#backup). `MigracoesPostgresTest` aplica todas as migrações num PostgreSQL temporário (o mesmo 18.6,
+baixado pelo Maven, criado numa pasta temporária e apagado no fim do teste), com o usuário `ponto` sem
+superusuário, e confere que nada do schema `public` muda; `ArquiteturaModulosTest` confere que o código do
+ponto não depende dos módulos e vice-versa.
 
 ## Banco de horas semestral (ciclo)
 
