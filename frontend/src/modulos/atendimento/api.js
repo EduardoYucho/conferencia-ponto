@@ -10,4 +10,16 @@ export const atendimentoApi = {
 
   /** Administrador: libera (true) ou retira (false) o gerador de uma pessoa. */
   definirAcesso: (usuarioId, gerador) => http.put(`/atendimentos/acessos/${usuarioId}`, { gerador }),
+
+  /** A chave do Gemini da pessoa logada: { cadastrada, ultimosCaracteres, situacao, testadaEm, ... } (nunca a chave). */
+  chaveGemini: () => http.get('/atendimentos/chave-gemini'),
+
+  /** Testa a chave com o Google e, se ele aceitar, guarda cifrada. */
+  salvarChaveGemini: (chave, nivelPagoConfirmado) =>
+    http.put('/atendimentos/chave-gemini', { chave, nivelPagoConfirmado }),
+
+  /** Testa de novo a chave guardada. */
+  testarChaveGemini: () => http.post('/atendimentos/chave-gemini/testar'),
+
+  apagarChaveGemini: () => http.delete('/atendimentos/chave-gemini'),
 }

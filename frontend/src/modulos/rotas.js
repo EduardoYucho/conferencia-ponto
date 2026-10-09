@@ -9,6 +9,11 @@ export const rotasDosModulos = [
     component: () => import('./atendimento/views/AtendimentosView.vue'),
   },
   {
+    path: '/atendimentos/chave-gemini',
+    name: 'chave-gemini',
+    component: () => import('./atendimento/views/MinhaChaveGeminiView.vue'),
+  },
+  {
     path: '/base-conhecimento',
     name: 'base-conhecimento',
     component: () => import('./conhecimento/views/BaseConhecimentoView.vue'),

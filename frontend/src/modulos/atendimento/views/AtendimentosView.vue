@@ -38,12 +38,13 @@ const modulos = useAcessoModulosStore()
             </p>
           </article>
           <article class="cartao px-5 py-4">
-            <p class="rotulo">Em construção</p>
+            <p class="rotulo">Configuração</p>
             <h2 class="mt-1 font-sans text-lg font-bold">Minha chave do Gemini</h2>
             <p class="mt-1 text-sm text-tinta-suave">
-              Cada pessoa usa a própria chave da API do Gemini, guardada cifrada no servidor. O cadastro chega na
-              próxima versão.
+              Cada pessoa usa a própria chave da API do Gemini, guardada cifrada no servidor. Cadastre e teste a sua
+              antes de gerar os textos.
             </p>
+            <RouterLink :to="{ name: 'chave-gemini' }" class="botao-secundario mt-3 inline-block">Abrir</RouterLink>
           </article>
         </section>
       </EstadoDaTela>
