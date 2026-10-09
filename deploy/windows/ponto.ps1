@@ -20,7 +20,10 @@
     ponto logs -Erros   ao vivo, só avisos e erros (combina com o usuário: ponto logs maria -Erros)
     ponto logs pasta    abre a pasta dos logs por usuário e por hora
     ponto config        abre a configuração (pasta dos PDFs, usuários...) no Bloco de Notas
-    ponto atualizar     recompila a partir da pasta do projeto e troca a versão (-Testes roda os testes)
+    ponto atualizar     recompila a partir da pasta do projeto, faz o backup e troca a versão (-Testes roda os testes)
+    ponto backup        copia o banco (e as imagens da base de conhecimento) para a pasta de backups
+    ponto backup antes-da-mudanca   o mesmo, com um motivo no nome da pasta
+    ponto backup lista  mostra os backups guardados (ficam os 10 mais recentes feitos pelo comando)
     ponto console       roda no próprio terminal, com a saída na tela (diagnóstico; Ctrl+C para parar)
     ponto desinstalar   remove a tarefa e o comando (mantém configuração, logs, banco e PDFs)
 
@@ -30,18 +33,22 @@
     config\servico.yml            porta, segredo do login e logs (gerado)
     logs\conferencia-ponto.log    log da aplicação (e build.log da última compilação)
     logs\usuarios\<login>\<aaaa-mm-dd>\<hh>h.log   um arquivo por usuário e por hora (guardados por 30 dias)
+  Backups em %USERPROFILE%\.conferencia-ponto\backups\<aaaa-mm-dd_hhmmss>[_motivo]\ (banco.dump e backup.json)
 
 .EXAMPLE
   ponto
 .EXAMPLE
   ponto atualizar -Testes
 .EXAMPLE
+  ponto backup lista
+.EXAMPLE
   .\instalar.cmd -Porta 8090
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Comando = 'status',
-    # "ponto logs <usuario>": de quem são as linhas a acompanhar (ou "pasta" para abrir a pasta dos logs)
+    # "ponto logs <usuario>": de quem são as linhas a acompanhar (ou "pasta" para abrir a pasta dos logs);
+    # "ponto backup <motivo>" ou "ponto backup lista"
     [Parameter(Position = 1)] [string] $Alvo = '',
     [int] $Porta = 0,
     [switch] $Testes,
@@ -65,6 +72,9 @@ $ArquivoLog    = Join-Path $PastaLogs 'conferencia-ponto.log'
 $PastaLogsUsuarios = Join-Path $PastaLogs 'usuarios'
 $LogBuild      = Join-Path $PastaLogs 'build.log'
 $PortaPadrao   = 8080
+# Backups do banco ("ponto backup"); PONTO_BACKUP_DIR troca a pasta (usado nos testes do próprio script)
+$PastaBackups  = if ($env:PONTO_BACKUP_DIR) { $env:PONTO_BACKUP_DIR } else { Join-Path $HOME '.conferencia-ponto\backups' }
+$BackupsGuardados = 10
 
 # Argumentos da JVM e da aplicação (a tarefa roda com a pasta de instalação como diretório de trabalho,
 # então o Spring Boot lê config\application.yml sozinho; o servico.yml vem por último e prevalece).
@@ -504,6 +514,283 @@ function Iniciar-Aplicacao {
     exit 1
 }
 
+# ------------------------------------------------------------------------------------------ backup
+# "ponto backup": cópia do banco (pg_dump) e dos arquivos que não estão no banco nem se recuperam de outro
+# lugar (as imagens da base de conhecimento e a chave mestra que protege as chaves do Gemini). Cada backup é
+# uma pasta <aaaa-mm-dd_hhmmss>[_motivo] com banco.dump e backup.json; ficam os $BackupsGuardados mais
+# recentes. Arquivos .dump soltos na pasta (backups feitos à mão) nunca são apagados.
+
+# Valor de uma chave ("spring.datasource.url") num .yml simples: blocos por indentação, sem listas.
+function Ler-ValorYaml([string] $arquivo, [string] $chave) {
+    if (-not (Test-Path -LiteralPath $arquivo)) { return $null }
+    $pilha = New-Object System.Collections.ArrayList
+    foreach ($linha in (Get-Content -LiteralPath $arquivo -Encoding UTF8)) {
+        if ($linha -match '^\s*(#.*)?$') { continue }
+        if ($linha -notmatch '^(?<espacos> *)(?<nome>[A-Za-z0-9_.-]+)\s*:(?<resto>.*)$') { continue }
+        $nivel = $Matches['espacos'].Length
+        $nome = $Matches['nome']
+        $resto = $Matches['resto']
+        while ($pilha.Count -gt 0 -and $pilha[$pilha.Count - 1].Nivel -ge $nivel) { $pilha.RemoveAt($pilha.Count - 1) }
+        $caminho = (@($pilha | ForEach-Object { $_.Nome }) + $nome) -join '.'
+        [void] $pilha.Add([pscustomobject]@{ Nivel = $nivel; Nome = $nome })
+        if ($caminho -ne $chave) { continue }
+        $valor = ($resto -replace '\s+#.*$', '').Trim()
+        if ($valor -match '^"(.*)"$' -or $valor -match "^'(.*)'$") { $valor = $Matches[1] }
+        if ($valor) { return $valor }
+        return $null
+    }
+    return $null
+}
+
+# "${DB_URL:jdbc:...}" vira a variável de ambiente DB_URL ou, sem ela, o que vem depois dos dois-pontos
+function Resolver-Marcador([string] $valor) {
+    if (-not $valor) { return $valor }
+    $valor = $valor.Replace('${user.home}', $HOME)
+    if ($valor -match '^\$\{(?<variavel>[A-Za-z0-9_]+)(?::(?<padrao>.*))?\}$') {
+        $doAmbiente = [Environment]::GetEnvironmentVariable($Matches['variavel'])
+        if ($doAmbiente) { return $doAmbiente }
+        return $Matches['padrao']
+    }
+    return $valor
+}
+
+# Na mesma ordem em que a aplicação instalada lê: servico.yml, config\application.yml e o padrão do projeto
+function Configuracao-Servico([string] $chave, [string] $padrao) {
+    foreach ($arquivo in @((Join-Path $PastaConfig 'servico.yml'), (Join-Path $PastaConfig 'application.yml'))) {
+        $valor = Ler-ValorYaml $arquivo $chave
+        if ($valor) { return (Resolver-Marcador $valor) }
+    }
+    return (Resolver-Marcador $padrao)
+}
+
+function Conexao-Banco {
+    $url = Configuracao-Servico 'spring.datasource.url' '${DB_URL:jdbc:postgresql://localhost:5432/conferencia_ponto}'
+    if ($url -notmatch '^jdbc:postgresql://(?<servidor>[^/:?]+)(?::(?<porta>\d+))?/(?<banco>[^?]+)') {
+        throw "o endereço do banco não foi reconhecido (spring.datasource.url = $url)."
+    }
+    $servidor = $Matches['servidor']
+    $portaBanco = if ($Matches['porta']) { $Matches['porta'] } else { '5432' }
+    $nomeBanco = $Matches['banco']
+    return [pscustomobject]@{
+        Servidor = $servidor
+        Porta    = $portaBanco
+        Banco    = $nomeBanco
+        Usuario  = (Configuracao-Servico 'spring.datasource.username' '${DB_USER:ponto}')
+        Senha    = (Configuracao-Servico 'spring.datasource.password' '${DB_PASSWORD:ponto}')
+    }
+}
+
+# pg_dump.exe / pg_restore.exe: PONTO_PG_BIN, o PATH ou a versão mais nova em Arquivos de Programas\PostgreSQL
+function Resolver-PgFerramenta([string] $nome) {
+    if ($env:PONTO_PG_BIN) {
+        $indicado = Join-Path $env:PONTO_PG_BIN "$nome.exe"
+        if (Test-Path -LiteralPath $indicado) { return $indicado }
+    }
+    $noPath = Get-Command "$nome.exe" -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($noPath) { return $noPath.Source }
+    foreach ($programas in @($env:ProgramFiles, ${env:ProgramFiles(x86)}) | Where-Object { $_ }) {
+        $raizPg = Join-Path $programas 'PostgreSQL'
+        if (-not (Test-Path -LiteralPath $raizPg)) { continue }
+        $versao = Get-ChildItem -LiteralPath $raizPg -Directory -ErrorAction SilentlyContinue |
+            Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName "bin\$nome.exe") } |
+            Sort-Object { $numero = 0.0; [void] [double]::TryParse(($_.Name -replace '[^\d.]', ''), [ref] $numero); $numero } -Descending |
+            Select-Object -First 1
+        if ($versao) { return (Join-Path $versao.FullName "bin\$nome.exe") }
+    }
+    return $null
+}
+
+# Roda uma ferramenta do PostgreSQL com a senha só no ambiente do processo filho (nunca na linha de comando
+# nem na tela). Devolve o código de saída, as linhas de saída e a primeira mensagem de erro.
+function Executar-Pg([string] $executavel, [string[]] $argumentos, [string] $senha) {
+    $senhaAntes = $env:PGPASSWORD
+    $esperaAntes = $env:PGCONNECT_TIMEOUT
+    $eap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        if ($senha) { $env:PGPASSWORD = $senha }
+        $env:PGCONNECT_TIMEOUT = '10'
+        $linhas = @(& $executavel @argumentos 2>&1 | ForEach-Object { "$_" })
+        $codigo = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $eap
+        if ($null -eq $senhaAntes) { Remove-Item Env:PGPASSWORD -ErrorAction SilentlyContinue } else { $env:PGPASSWORD = $senhaAntes }
+        if ($null -eq $esperaAntes) { Remove-Item Env:PGCONNECT_TIMEOUT -ErrorAction SilentlyContinue } else { $env:PGCONNECT_TIMEOUT = $esperaAntes }
+    }
+    $erro = @($linhas | Where-Object { $_ -match 'error|erro|fatal|could not|n.o foi poss|refused|recusad' } | Select-Object -First 1)
+    $mensagem = if ($erro.Count -gt 0) { $erro[0].Trim() } elseif ($linhas.Count -gt 0) { $linhas[-1].Trim() } else { "código de saída $codigo" }
+    return [pscustomobject]@{ Codigo = $codigo; Linhas = $linhas; Mensagem = $mensagem }
+}
+
+function Normalizar-Motivo([string] $texto) {
+    if (-not $texto) { return '' }
+    $semAcento = -join ($texto.Normalize([Text.NormalizationForm]::FormD).ToCharArray() |
+        Where-Object { [Globalization.CharUnicodeInfo]::GetUnicodeCategory($_) -ne [Globalization.UnicodeCategory]::NonSpacingMark })
+    $limpo = ($semAcento.ToLowerInvariant() -replace '[^a-z0-9]+', '-').Trim('-')
+    if ($limpo.Length -gt 60) { $limpo = $limpo.Substring(0, 60).TrimEnd('-') }
+    return $limpo
+}
+
+function Tamanho-Legivel([double] $bytes) {
+    if ($bytes -ge 1GB) { return ('{0:N1} GB' -f ($bytes / 1GB)) }
+    if ($bytes -ge 1MB) { return ('{0:N1} MB' -f ($bytes / 1MB)) }
+    return ('{0:N0} KB' -f [math]::Max(1, [math]::Ceiling($bytes / 1KB)))
+}
+
+# Ramo e commit da pasta do projeto (para saber, depois, de que versão era o backup). $null se não der.
+function Versao-Do-Projeto {
+    $repositorio = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+    if (-not ($repositorio -and (Test-Path -LiteralPath (Join-Path $repositorio '.git')))) {
+        $estado = Ler-Estado
+        $repositorio = if ($estado) { $estado.repositorio } else { $null }
+    }
+    if (-not $repositorio -or -not (Test-Path -LiteralPath (Join-Path $repositorio '.git'))) { return $null }
+    if (-not (Get-Command git.exe -CommandType Application -ErrorAction SilentlyContinue)) { return $null }
+    $eap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $ramo = (& git.exe -C $repositorio rev-parse --abbrev-ref HEAD 2>$null) | Select-Object -First 1
+        $commit = (& git.exe -C $repositorio rev-parse --short HEAD 2>$null) | Select-Object -First 1
+    } finally {
+        $ErrorActionPreference = $eap
+    }
+    if (-not $commit) { return $null }
+    return [pscustomobject]@{ ramo = "$ramo".Trim(); commit = "$commit".Trim() }
+}
+
+# Backups feitos pelo comando (pastas com backup.json), do mais novo para o mais antigo
+function Backups-DoComando {
+    if (-not (Test-Path -LiteralPath $PastaBackups)) { return @() }
+    return @(Get-ChildItem -LiteralPath $PastaBackups -Directory -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -notlike '*.parcial' -and (Test-Path -LiteralPath (Join-Path $_.FullName 'backup.json')) } |
+        Sort-Object Name -Descending)
+}
+
+function Limpar-BackupsAntigos {
+    foreach ($antigo in @(Backups-DoComando | Select-Object -Skip $BackupsGuardados)) {
+        Remove-Item -LiteralPath $antigo.FullName -Recurse -Force
+        Passo "Backup antigo apagado (ficam os $BackupsGuardados mais recentes): $($antigo.Name)"
+    }
+    # restos de um backup interrompido (janela fechada no meio, por exemplo)
+    Get-ChildItem -LiteralPath $PastaBackups -Directory -Filter '*.parcial' -ErrorAction SilentlyContinue |
+        Where-Object { $_.LastWriteTime -lt (Get-Date).AddHours(-1) } |
+        ForEach-Object { Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue }
+}
+
+# Faz o backup e devolve onde ele ficou. Qualquer problema vira exceção com a explicação: quem chama decide o
+# que dizer (no "ponto atualizar", a atualização é cancelada).
+function Fazer-Backup([string] $motivo) {
+    $pgDump = Resolver-PgFerramenta 'pg_dump'
+    $pgRestore = Resolver-PgFerramenta 'pg_restore'
+    if (-not $pgDump -or -not $pgRestore) {
+        throw ('o pg_dump e o pg_restore não foram encontrados. Eles vêm com o PostgreSQL; se estiverem em outra ' +
+               'pasta, indique a pasta bin deles na variável de ambiente PONTO_PG_BIN.')
+    }
+    $banco = Conexao-Banco
+    $rotulo = Normalizar-Motivo $motivo
+    $nome = Get-Date -Format 'yyyy-MM-dd_HHmmss'
+    if ($rotulo) { $nome = "${nome}_$rotulo" }
+    New-Item -ItemType Directory -Force -Path $PastaBackups | Out-Null
+    $destino = Join-Path $PastaBackups $nome
+    $parcial = "$destino.parcial"
+    if (Test-Path -LiteralPath $destino) { throw "já existe um backup com este nome: $destino. Tente de novo em um segundo." }
+    if (Test-Path -LiteralPath $parcial) { Remove-Item -LiteralPath $parcial -Recurse -Force }
+    New-Item -ItemType Directory -Path $parcial | Out-Null
+    try {
+        Passo "Banco $($banco.Banco) em $($banco.Servidor):$($banco.Porta) (pg_dump)"
+        $dump = Join-Path $parcial 'banco.dump'
+        $copia = Executar-Pg $pgDump @('--format=custom', '--no-password', "--host=$($banco.Servidor)",
+            "--port=$($banco.Porta)", "--username=$($banco.Usuario)", "--file=$dump", $banco.Banco) $banco.Senha
+        if ($copia.Codigo -ne 0 -or -not (Test-Path -LiteralPath $dump)) {
+            $dica = ''
+            if ($copia.Mensagem -match 'refused|recusad|timeout|tempo|could not connect') { $dica = ' Confira se o PostgreSQL está rodando.' }
+            elseif ($copia.Mensagem -match 'password|senha|autentica') { $dica = ' Confira o usuário e a senha do banco na configuração (ponto config).' }
+            throw "o pg_dump não conseguiu copiar o banco ($($copia.Mensagem)).$dica"
+        }
+        Passo 'Conferindo se o arquivo pode ser restaurado (pg_restore --list)'
+        $conferencia = Executar-Pg $pgRestore @('--list', $dump) $null
+        $itens = @($conferencia.Linhas | Where-Object { $_ -and -not $_.StartsWith(';') }).Count
+        if ($conferencia.Codigo -ne 0 -or $itens -eq 0) {
+            throw "o arquivo do backup não pôde ser lido pelo pg_restore ($($conferencia.Mensagem))."
+        }
+
+        $arquivos = @()
+        # mesmo padrão que a aplicação usa (atendimento.yml), inclusive a variável de ambiente
+        $pastaAtendimentos = Configuracao-Servico 'atendimento.armazenamento.diretorio' '${PONTO_ATENDIMENTOS_DIR:${user.home}/.conferencia-ponto/atendimentos}'
+        $base = Join-Path $pastaAtendimentos 'base'
+        if (Test-Path -LiteralPath $base -PathType Container) {
+            Passo "Imagens da base de conhecimento ($base)"
+            Copy-Item -LiteralPath $base -Destination (Join-Path $parcial 'atendimentos-base') -Recurse
+            $arquivos += 'atendimentos-base'
+        }
+        $chaveMestra = Configuracao-Servico 'atendimento.chave-mestra.arquivo' (Join-Path $pastaAtendimentos 'chave-mestra')
+        if (Test-Path -LiteralPath $chaveMestra -PathType Leaf) {
+            Passo 'Chave mestra das chaves do Gemini'
+            Copy-Item -LiteralPath $chaveMestra -Destination (Join-Path $parcial 'chave-mestra')
+            $arquivos += 'chave-mestra'
+        }
+
+        $tamanho = (Get-ChildItem -LiteralPath $parcial -Recurse -File | Measure-Object Length -Sum).Sum
+        $meta = [ordered]@{
+            data     = (Get-Date).ToString('s')
+            motivo   = $rotulo
+            banco    = [ordered]@{ nome = $banco.Banco; servidor = $banco.Servidor; porta = $banco.Porta
+                                   itens = $itens; tamanho = (Get-Item -LiteralPath $dump).Length }
+            arquivos = @($arquivos)
+            tamanho  = $tamanho
+            projeto  = (Versao-Do-Projeto)
+        }
+        [IO.File]::WriteAllText((Join-Path $parcial 'backup.json'), ($meta | ConvertTo-Json -Depth 4),
+            (New-Object Text.UTF8Encoding $false))
+        Rename-Item -LiteralPath $parcial -NewName $nome
+    } catch {
+        Remove-Item -LiteralPath $parcial -Recurse -Force -ErrorAction SilentlyContinue
+        throw
+    }
+    Limpar-BackupsAntigos
+    return [pscustomobject]@{ Pasta = $destino; Tamanho = $tamanho; Itens = $itens; Arquivos = @($arquivos) }
+}
+
+function Cmd-ListarBackups {
+    Titulo "Backups em $PastaBackups"
+    $feitos = @(Backups-DoComando)
+    if ($feitos.Count -eq 0) { Info 'Nenhum backup feito pelo comando ainda. Para fazer um agora: ponto backup' }
+    foreach ($pasta in $feitos) {
+        try {
+            $meta = Get-Content -LiteralPath (Join-Path $pasta.FullName 'backup.json') -Raw -Encoding UTF8 | ConvertFrom-Json
+            $quando = ([datetime] $meta.data).ToString('dd/MM/yyyy HH:mm')
+            $extras = if (@($meta.arquivos).Count -gt 0) { " + $(@($meta.arquivos) -join ', ')" } else { '' }
+            $versao = if ($meta.projeto) { "  ($($meta.projeto.ramo) $($meta.projeto.commit))" } else { '' }
+            Info ('{0}  {1,9}  {2}{3}{4}' -f $quando, (Tamanho-Legivel $meta.tamanho), $pasta.Name, $extras, $versao)
+        } catch {
+            Aviso "$($pasta.Name): backup.json ilegível"
+        }
+    }
+    $manuais = @(Get-ChildItem -LiteralPath $PastaBackups -File -Filter '*.dump' -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+    if ($manuais.Count -gt 0) {
+        Write-Host ''
+        Info 'Feitos à mão (arquivos .dump soltos na pasta; o comando nunca os apaga):'
+        foreach ($arquivo in $manuais) {
+            Info ('{0}  {1,9}  {2}' -f $arquivo.LastWriteTime.ToString('dd/MM/yyyy HH:mm'), (Tamanho-Legivel $arquivo.Length), $arquivo.Name)
+        }
+    }
+    Write-Host ''
+    Info "O comando guarda os $BackupsGuardados backups mais recentes. Como restaurar: README, seção Backup."
+}
+
+function Cmd-Backup([string] $alvo) {
+    if ($alvo -in 'lista', 'listar') { Cmd-ListarBackups; return }
+    Titulo 'Backup da Conferência de Ponto'
+    try { $feito = Fazer-Backup $alvo }
+    catch { Falhar "Backup não feito: $($_.Exception.Message)" }
+    $conteudo = 'banco'
+    if ($feito.Arquivos.Count -gt 0) { $conteudo += ' + ' + ($feito.Arquivos -join ', ') }
+    Ok "Backup feito: $($feito.Pasta)"
+    Info "Conteúdo: $conteudo · $(Tamanho-Legivel $feito.Tamanho) · $($feito.Itens) itens conferidos pelo pg_restore"
+    Info 'Todos os backups: ponto backup lista'
+}
+
 # ------------------------------------------------------------------------------------------ comandos
 function Cmd-Instalar([switch] $Atualizacao) {
     $repositorio = Resolver-Repositorio
@@ -517,6 +804,20 @@ function Cmd-Instalar([switch] $Atualizacao) {
     Passo "Java $($java.Versao): $($java.Javaw)"
     New-Item -ItemType Directory -Force -Path $Raiz, $PastaApp, $PastaLogs | Out-Null
     $gerado = Compilar $repositorio
+
+    # Já instalada: o banco é copiado antes de a versão nova subir (é ela que aplica as migrações).
+    # Sem backup, sem troca de versão.
+    if ($Atualizacao -or (Test-Path -LiteralPath $Jar)) {
+        Passo 'Backup antes de trocar a versão'
+        $versaoNova = Versao-Do-Projeto
+        $motivo = if ($versaoNova -and $versaoNova.ramo) { "antes-de-atualizar-$($versaoNova.ramo)" } else { 'antes-de-atualizar' }
+        try { $feito = Fazer-Backup $motivo }
+        catch {
+            Falhar ("Backup não feito: $($_.Exception.Message)`r`n" +
+                    '  A atualização foi cancelada e a versão instalada continua a mesma. Resolva e rode "ponto atualizar" de novo.')
+        }
+        Passo "Backup feito: $($feito.Pasta)"
+    }
 
     Passo "Instalando em $Raiz"
     Parar-Aplicacao -Silencioso
@@ -571,7 +872,7 @@ function Cmd-Status {
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
     Write-Host ''
-    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | console | desinstalar'
+    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | backup [lista] | console | desinstalar'
 }
 
 # Uma linha do log geral:
@@ -675,6 +976,7 @@ switch ($Comando.ToLowerInvariant()) {
         Info 'Depois de salvar: ponto reiniciar'
     }
     'console'     { Cmd-Console }
+    'backup'      { Cmd-Backup $Alvo }
     'desinstalar' { Cmd-Desinstalar }
     'path'        { Alterar-Path; Ok "$PastaBin está no PATH do usuário (vale para terminais novos)." }
     { $_ -in 'ajuda', 'help', '-h', '/?', '--help' } { Get-Help $PSCommandPath -Detailed }
