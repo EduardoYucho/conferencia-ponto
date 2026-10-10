@@ -1,11 +1,12 @@
 <script setup>
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { mensagemDe } from '@/utils/erros'
 import { ApiError } from '@/api/http'
-import { anexosPorCategoria, dataHora, periodo, textoDosOmitidos, validadeDosLinks } from '@/modulos/atendimento/formato'
+import { anexosPorCategoria, contagem, dataHora, periodo, textoDosOmitidos, validadeDosLinks } from '@/modulos/atendimento/formato'
 
 /**
  * Novo atendimento: a pessoa solta o PDF da conversa exportada do Digisac e vê, na hora, o que o servidor leu
@@ -13,6 +14,8 @@ import { anexosPorCategoria, dataHora, periodo, textoDosOmitidos, validadeDosLin
  * confere que é um arquivo .pdf, para não mandar outro tipo de arquivo à toa.
  */
 const modulos = useAcessoModulosStore()
+const router = useRouter()
+const baixando = ref(false)
 
 const campo = ref(null)
 const arrastando = ref(false)
@@ -67,6 +70,21 @@ function aoSoltar(evento) {
   enviar(evento.dataTransfer?.files)
 }
 
+/** Os links valem 24 h: o mais comum é já pôr os anexos para baixar e acompanhar no atendimento. */
+async function baixarEAbrir() {
+  baixando.value = true
+  falha.value = null
+  const id = resultado.value.atendimento.id
+  try {
+    await atendimentoApi.processar(id)
+    router.push({ name: 'atendimento', params: { id } })
+  } catch (e) {
+    falha.value = { mensagem: mensagemDe(e), protocolo: e instanceof ApiError ? e.protocolo : null }
+  } finally {
+    baixando.value = false
+  }
+}
+
 function recomecar() {
   resultado.value = null
   falha.value = null
@@ -91,7 +109,7 @@ function recomecar() {
           <p class="mt-1 text-sm text-tinta-suave">Peça ao administrador para liberar.</p>
         </section>
 
-        <div v-else class="grid gap-5">
+        <div v-else class="grid grid-cols-[minmax(0,1fr)] gap-5">
           <!-- envio -->
           <section v-if="!resultado" class="cartao px-5 py-5" aria-label="Enviar o PDF do Digisac">
             <p class="text-sm text-tinta-suave">
@@ -126,7 +144,7 @@ function recomecar() {
             </div>
             <p v-if="aviso" role="status" class="mt-3 text-sm text-tinta-suave">{{ aviso }}</p>
             <div v-if="falha" role="alert" class="mt-3 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
-              <p><span v-if="nomeDoArquivo" class="font-semibold">{{ nomeDoArquivo }}: </span>{{ falha.mensagem }}</p>
+              <p class="break-words"><span v-if="nomeDoArquivo" class="font-semibold">{{ nomeDoArquivo }}: </span>{{ falha.mensagem }}</p>
               <p v-if="falha.protocolo" class="mt-1 text-xs">Protocolo: <span class="carimbo font-bold">{{ falha.protocolo }}</span></p>
             </div>
           </section>
@@ -142,7 +160,13 @@ function recomecar() {
               <p v-if="resultado.criado" class="font-semibold">Atendimento criado a partir de {{ leitura.arquivo ?? 'PDF enviado' }}.</p>
               <template v-else>
                 <p class="font-semibold">Você já tem um atendimento deste chamado (criado em {{ dataHora(resultado.atendimento.criadoEm) }}).</p>
-                <p class="mt-0.5">Nada foi criado agora. Abra o existente para continuar.</p>
+                <p class="mt-0.5">
+                  Nada foi criado agora.
+                  <template v-if="resultado.linksRenovados">
+                    Os links de {{ resultado.linksRenovados }} anexo(s) que faltavam foram renovados com este PDF.
+                  </template>
+                  Abra o existente para continuar.
+                </p>
               </template>
             </div>
 
@@ -161,7 +185,7 @@ function recomecar() {
               </div>
               <div>
                 <dt class="rotulo">Conversa</dt>
-                <dd class="mt-0.5">{{ leitura.mensagens }} mensagens · {{ leitura.eventos }} eventos</dd>
+                <dd class="mt-0.5">{{ contagem(leitura.mensagens, 'mensagem', 'mensagens') }} · {{ contagem(leitura.eventos, 'evento', 'eventos') }}</dd>
               </div>
               <div>
                 <dt class="rotulo">Anexos</dt>
@@ -188,8 +212,22 @@ function recomecar() {
               atendimento; se estiver errada, avise o administrador (o formato do PDF pode ter mudado).
             </p>
 
+            <div v-if="falha" role="alert" class="mt-4 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
+              <p>{{ falha.mensagem }}</p>
+              <p v-if="falha.protocolo" class="mt-1 text-xs">Protocolo: <span class="carimbo font-bold">{{ falha.protocolo }}</span></p>
+            </div>
             <div class="mt-5 flex flex-wrap gap-3">
-              <RouterLink :to="{ name: 'atendimento', params: { id: resultado.atendimento.id } }" class="botao-primario">
+              <button
+                v-if="leitura.anexos && !leitura.linksVencidos && (resultado.criado || resultado.linksRenovados)"
+                type="button"
+                class="botao-primario"
+                :disabled="baixando"
+                @click="baixarEAbrir"
+              >{{ baixando ? 'Pondo na fila…' : 'Baixar os anexos e abrir' }}</button>
+              <RouterLink
+                :to="{ name: 'atendimento', params: { id: resultado.atendimento.id } }"
+                :class="leitura.anexos && !leitura.linksVencidos && (resultado.criado || resultado.linksRenovados) ? 'botao-secundario' : 'botao-primario'"
+              >
                 {{ resultado.criado ? 'Abrir o atendimento' : 'Abrir o existente' }}
               </RouterLink>
               <button type="button" class="botao-secundario" @click="recomecar">Enviar outro PDF</button>

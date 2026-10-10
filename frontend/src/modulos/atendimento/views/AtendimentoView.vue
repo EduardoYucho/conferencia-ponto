@@ -1,16 +1,19 @@
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { atendimentoApi } from '@/modulos/atendimento/api'
+import { conectarEventosDoGerador } from '@/modulos/atendimento/eventos'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import AnexosDaConversa from '@/modulos/atendimento/components/AnexosDaConversa.vue'
+import ArquivosEnviados from '@/modulos/atendimento/components/ArquivosEnviados.vue'
+import ProcessamentoDoAtendimento from '@/modulos/atendimento/components/ProcessamentoDoAtendimento.vue'
 import { mensagemDe } from '@/utils/erros'
-import {
-  CATEGORIAS, dataHora, hora, periodo, SITUACOES, SITUACOES_DO_ANEXO, textoDosOmitidos, validadeDosLinks,
-} from '@/modulos/atendimento/formato'
+import { CATEGORIAS, contagem, dataHora, hora, periodo, SITUACOES, textoDosOmitidos } from '@/modulos/atendimento/formato'
 
 /**
- * Um atendimento: a conversa como o servidor leu do PDF (já sem a chave do bot e sem dados de acesso remoto,
- * que aparecem como [omitido]) e os anexos com a validade dos links. O link em si nunca chega à tela.
+ * Um atendimento: o processamento ao vivo (o download dos anexos), os anexos da conversa, as ligações, o vídeo e os
+ * prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem a chave do bot e sem dados de acesso
+ * remoto, que aparecem como [omitido]). O link de download nunca chega à tela.
  */
 const props = defineProps({
   id: { type: String, required: true },
@@ -27,34 +30,67 @@ const erroAoApagar = ref('')
 
 const OMITIDO = '[omitido]'
 
-async function carregar() {
-  carregando.value = true
+async function carregar({ silencioso = false } = {}) {
+  if (!silencioso) carregando.value = true
   erro.value = null
   try {
     atendimento.value = await atendimentoApi.atendimento(props.id)
   } catch (e) {
-    erro.value = e
+    if (!silencioso || !atendimento.value) erro.value = e
   } finally {
     carregando.value = false
   }
 }
-onMounted(carregar)
-watch(() => props.id, carregar)
+onMounted(() => carregar())
+watch(() => props.id, () => carregar())
+
+/** Aplica o progresso (da ação ou do SSE) sem recarregar a conversa; um arquivo que a tela não conhece recarrega tudo. */
+let recarga = null
+function aplicarProgresso(progresso) {
+  const a = atendimento.value
+  if (!a || progresso?.atendimentoId !== a.id) return
+  a.situacao = progresso.situacao
+  a.motivoPausa = progresso.motivoPausa
+  a.percentual = progresso.percentual
+  const porId = new Map([...a.anexos, ...a.extras].map((x) => [x.id, x]))
+  let desconhecido = false
+  for (const arquivo of progresso.arquivos ?? []) {
+    const local = porId.get(arquivo.id)
+    if (!local) {
+      desconhecido = true
+      continue
+    }
+    local.situacao = arquivo.situacao
+    local.erro = arquivo.erro
+    local.tamanho = arquivo.tamanho
+    if (arquivo.situacao === 'pronto') local.vencido = false
+  }
+  if (desconhecido || (progresso.arquivos ?? []).length !== porId.size) {
+    clearTimeout(recarga)
+    recarga = setTimeout(() => carregar({ silencioso: true }), 300)
+  }
+}
+
+let desligar = null
+onMounted(() => {
+  desligar = conectarEventosDoGerador({ onProgresso: aplicarProgresso })
+})
+onUnmounted(() => {
+  desligar?.()
+  clearTimeout(recarga)
+})
 
 const situacao = computed(() => SITUACOES[atendimento.value?.situacao] ?? SITUACOES.novo)
 const mensagens = computed(() => atendimento.value?.itens.filter((i) => i.tipo === 'mensagem').length ?? 0)
 const eventos = computed(() => (atendimento.value?.itens.length ?? 0) - mensagens.value)
 const anexosPorOrdem = computed(() => Object.fromEntries((atendimento.value?.anexos ?? []).map((a) => [a.ordem, a])))
+const arquivosApagados = computed(() => !!atendimento.value?.arquivosApagadosEm)
+const noServidor = computed(() => atendimento.value?.anexos.filter((a) => a.situacao === 'pronto').length ?? 0)
 
 /** Texto em pedaços, para destacar o que foi omitido. */
 function partes(texto) {
   return (texto ?? '').split(OMITIDO).flatMap((pedaco, i) => (i === 0 ? [{ texto: pedaco }] : [{ omitido: true }, { texto: pedaco }]))
     .filter((p) => p.omitido || p.texto)
-}
-
-function situacaoDoAnexo(anexo) {
-  if (anexo.vencido) return 'link vencido'
-  return SITUACOES_DO_ANEXO[anexo.situacao] ?? anexo.situacao
 }
 
 async function apagar() {
@@ -90,26 +126,24 @@ async function apagar() {
 
     <div class="mt-6">
       <EstadoDaTela :carregando="carregando" :erro="erro" carregando-texto="Abrindo o atendimento…" @tentar="carregar">
-        <div v-if="atendimento" class="grid gap-5">
+        <div v-if="atendimento" class="grid grid-cols-[minmax(0,1fr)] gap-5">
           <!-- resumo -->
           <section class="cartao px-5 py-4" aria-label="Resumo">
             <dl class="grid gap-x-6 gap-y-3 text-sm sm:grid-cols-3">
               <div>
                 <dt class="rotulo">Conversa</dt>
-                <dd class="mt-0.5">{{ mensagens }} mensagens · {{ eventos }} eventos</dd>
+                <dd class="mt-0.5">{{ contagem(mensagens, 'mensagem', 'mensagens') }} · {{ contagem(eventos, 'evento', 'eventos') }}</dd>
               </div>
               <div>
                 <dt class="rotulo">Anexos</dt>
                 <dd class="mt-0.5">
                   {{ atendimento.anexos.length }}
-                  <span v-if="atendimento.anexos.length" :class="atendimento.linksVencidos ? 'font-semibold text-carimbo' : 'text-tinta-suave'">
-                    · {{ validadeDosLinks(atendimento.linksValidosAte, atendimento.linksVencidos) }}
-                  </span>
+                  <span v-if="atendimento.anexos.length" class="text-tinta-suave">· {{ noServidor }} no servidor</span>
                 </dd>
               </div>
               <div>
                 <dt class="rotulo">Arquivos guardados até</dt>
-                <dd class="mt-0.5">{{ dataHora(atendimento.apagarArquivosEm) }}</dd>
+                <dd class="mt-0.5">{{ arquivosApagados ? 'já apagados' : dataHora(atendimento.apagarArquivosEm) }}</dd>
               </div>
               <div v-if="atendimento.assunto" class="sm:col-span-3">
                 <dt class="rotulo">Assunto (no Digisac)</dt>
@@ -123,31 +157,33 @@ async function apagar() {
             <p class="mt-3 text-xs text-tinta-suave">{{ textoDosOmitidos(atendimento.omitidos) }}</p>
           </section>
 
-          <!-- anexos -->
-          <section v-if="atendimento.anexos.length" class="cartao" aria-label="Anexos da conversa">
-            <h2 class="rotulo border-b border-linha px-5 py-2.5">Anexos da conversa</h2>
-            <ul class="divide-y divide-linha/70 text-sm">
-              <li v-for="a in atendimento.anexos" :key="a.id" class="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
-                <span class="carimbo w-6 text-tinta-apagada">{{ a.ordem }}</span>
-                <span class="rounded-[2px] bg-tinta/10 px-1.5 py-0.5 text-[0.68rem] font-bold tracking-wider uppercase">{{ CATEGORIAS[a.categoria] ?? a.categoria }}</span>
-                <span class="min-w-0 flex-1 truncate font-semibold" :title="a.nome">{{ a.nome }}</span>
-                <span class="flex w-full flex-wrap gap-x-3 pl-9 text-xs sm:w-auto sm:pl-0">
-                  <a v-if="a.mensagemOrdem" :href="`#item-${a.mensagemOrdem}`" class="text-tinta-suave underline-offset-4 hover:underline">
-                    mensagem das {{ hora(a.momento) || '—' }}
-                  </a>
-                  <span :class="a.vencido ? 'font-semibold text-carimbo' : 'text-tinta-suave'">{{ situacaoDoAnexo(a) }}</span>
-                </span>
-              </li>
-            </ul>
-            <p class="border-t border-linha px-5 py-2.5 text-xs text-tinta-suave">
-              O download dos anexos e o envio de ligações, vídeo e prints chegam na próxima versão do gerador.
-            </p>
-          </section>
+          <p v-if="arquivosApagados" role="status" class="rounded-[3px] border border-linha bg-papel-escuro/40 px-3 py-2 text-sm">
+            Os arquivos deste atendimento (PDF, anexos, ligações, vídeo e prints) foram apagados em
+            {{ dataHora(atendimento.arquivosApagadosEm) }}, pela retenção. A conversa lida continua aqui.
+          </p>
+
+          <ProcessamentoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @recarregar="carregar({ silencioso: true })" />
+
+          <AnexosDaConversa
+            v-if="atendimento.anexos.length"
+            :atendimento-id="atendimento.id"
+            :anexos="atendimento.anexos"
+            :bloqueado="arquivosApagados"
+            @progresso="aplicarProgresso"
+            @recarregar="carregar({ silencioso: true })"
+          />
+
+          <ArquivosEnviados
+            :atendimento-id="atendimento.id"
+            :extras="atendimento.extras"
+            :bloqueado="arquivosApagados"
+            @recarregar="carregar({ silencioso: true })"
+          />
 
           <!-- conversa -->
           <section class="cartao px-3 py-4 sm:px-5" aria-label="Conversa">
             <h2 class="rotulo mb-3 px-2 sm:px-0">Conversa lida do PDF</h2>
-            <ol class="grid gap-2.5">
+            <ol class="grid grid-cols-[minmax(0,1fr)] gap-2.5">
               <li v-for="item in atendimento.itens" :id="`item-${item.ordem}`" :key="item.ordem" class="scroll-mt-20">
                 <p v-if="item.tipo === 'evento'" class="mx-auto max-w-xl px-2 text-center text-xs text-tinta-suave">
                   <span class="whitespace-pre-line">{{ item.texto }}</span>
@@ -167,7 +203,7 @@ async function apagar() {
                         <template v-else>{{ p.texto }}</template>
                       </template>
                     </p>
-                    <ul v-if="item.anexos.length" class="mt-1.5 grid gap-1">
+                    <ul v-if="item.anexos.length" class="mt-1.5 grid grid-cols-[minmax(0,1fr)] gap-1">
                       <li v-for="o in item.anexos" :key="o" class="flex items-center gap-2 rounded-[2px] border border-linha bg-cartao px-2 py-1 text-xs">
                         <span class="font-bold tracking-wider uppercase">{{ CATEGORIAS[anexosPorOrdem[o]?.categoria] ?? 'Anexo' }}</span>
                         <span class="min-w-0 truncate" :title="anexosPorOrdem[o]?.nome">{{ anexosPorOrdem[o]?.nome ?? `anexo ${o}` }}</span>
