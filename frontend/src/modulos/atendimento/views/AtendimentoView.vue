@@ -11,9 +11,9 @@ import { mensagemDe } from '@/utils/erros'
 import { CATEGORIAS, contagem, dataHora, hora, periodo, SITUACOES, textoDosOmitidos } from '@/modulos/atendimento/formato'
 
 /**
- * Um atendimento: o processamento ao vivo (o download dos anexos), os anexos da conversa, as ligações, o vídeo e os
- * prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem a chave do bot e sem dados de acesso
- * remoto, que aparecem como [omitido]). O link de download nunca chega à tela.
+ * Um atendimento: o processamento ao vivo (o download dos anexos e a análise de cada arquivo pelo Gemini), os anexos
+ * da conversa, as ligações, o vídeo e os prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem
+ * a chave do bot e sem dados de acesso remoto, que aparecem como [omitido]). O link de download nunca chega à tela.
  */
 const props = defineProps({
   id: { type: String, required: true },
@@ -52,6 +52,9 @@ function aplicarProgresso(progresso) {
   a.situacao = progresso.situacao
   a.motivoPausa = progresso.motivoPausa
   a.percentual = progresso.percentual
+  a.tokensEntrada = progresso.tokensEntrada ?? a.tokensEntrada
+  a.tokensSaida = progresso.tokensSaida ?? a.tokensSaida
+  a.semChaveGemini = !!progresso.semChaveGemini
   const porId = new Map([...a.anexos, ...a.extras].map((x) => [x.id, x]))
   let desconhecido = false
   for (const arquivo of progresso.arquivos ?? []) {
@@ -63,6 +66,9 @@ function aplicarProgresso(progresso) {
     local.situacao = arquivo.situacao
     local.erro = arquivo.erro
     local.tamanho = arquivo.tamanho
+    local.analise = arquivo.analise
+    local.analiseCodigo = arquivo.analiseCodigo
+    local.analiseErro = arquivo.analiseErro
     if (arquivo.situacao === 'pronto') local.vencido = false
   }
   if (desconhecido || (progresso.arquivos ?? []).length !== porId.size) {
@@ -177,6 +183,7 @@ async function apagar() {
             :atendimento-id="atendimento.id"
             :extras="atendimento.extras"
             :bloqueado="arquivosApagados"
+            @progresso="aplicarProgresso"
             @recarregar="carregar({ silencioso: true })"
           />
 

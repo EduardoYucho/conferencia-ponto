@@ -67,6 +67,24 @@ export const SITUACOES_DO_ANEXO = {
   removido: { rotulo: 'tirado', classe: 'text-tinta-apagada' },
 }
 
+/** A análise de cada arquivo pelo Gemini. */
+export const SITUACOES_DA_ANALISE = {
+  pendente: { rotulo: 'análise pendente', classe: 'text-tinta-suave' },
+  na_fila: { rotulo: 'na fila da análise', classe: 'text-tinta-suave' },
+  analisando: { rotulo: 'analisando…', classe: 'text-tinta' },
+  pronta: { rotulo: 'analisado', classe: 'text-credito' },
+  falhou: { rotulo: 'análise falhou', classe: 'font-semibold text-carimbo' },
+}
+
+/** Falhas da análise que se resolvem cadastrando a chave (o "Processar" tenta de novo). */
+export const FALHAS_DA_CHAVE = ['SEM_CHAVE_GEMINI', 'CHAVE_GEMINI_ILEGIVEL', 'CHAVE_GEMINI_RECUSADA']
+
+/** "1.234" ou "12,3 mil" tokens. */
+export function tokens(n) {
+  if (!n) return '0'
+  return n < 10000 ? n.toLocaleString('pt-BR') : `${(n / 1000).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} mil`
+}
+
 /** Quantos trechos saíram da conversa ("2 trechos omitidos: chave do bot e acesso remoto"). */
 export function textoDosOmitidos(omitidos) {
   const chave = omitidos?.chaveDoBot ?? 0

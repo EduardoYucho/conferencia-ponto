@@ -2,11 +2,12 @@
 import { ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { mensagemDe } from '@/utils/erros'
-import { ACEITOS_NO_ENVIO, CATEGORIAS, hora, SITUACOES_DO_ANEXO, tamanho } from '@/modulos/atendimento/formato'
+import { ACEITOS_NO_ENVIO, CATEGORIAS, hora, SITUACOES_DA_ANALISE, SITUACOES_DO_ANEXO, tamanho } from '@/modulos/atendimento/formato'
+import AnaliseDoArquivo from './AnaliseDoArquivo.vue'
 
 /**
- * Os anexos da conversa, cada um com a situação do download e, quando não deu para baixar, o motivo e as saídas:
- * tentar de novo, enviar o arquivo à mão (o "plano B") ou tirar.
+ * Os anexos da conversa, cada um com a situação do download e da análise e, quando algo não deu certo, o motivo e as
+ * saídas: tentar de novo, enviar o arquivo à mão (o "plano B") ou tirar. A análise pronta abre aqui mesmo.
  */
 const props = defineProps({
   atendimentoId: { type: String, required: true },
@@ -21,13 +22,15 @@ const confirmandoTirar = ref('')
 const campo = ref(null)
 const alvo = ref(null)
 const enviando = ref(null)
+const aberta = ref('')
 
 function situacao(a) {
   if (a.vencido && a.situacao !== 'pronto') return SITUACOES_DO_ANEXO.vencido
   return SITUACOES_DO_ANEXO[a.situacao] ?? { rotulo: a.situacao, classe: 'text-tinta-suave' }
 }
 
-const podeTentar = (a) => a.situacao === 'falhou' && !a.vencido
+const podeTentar = (a) => (a.situacao === 'falhou' && !a.vencido) || (a.situacao === 'pronto' && a.analise === 'falhou')
+const analiseDe = (a) => SITUACOES_DA_ANALISE[a.analise]
 const podeEnviar = (a) => ['aguardando', 'falhou', 'vencido', 'nao_suportado', 'removido'].includes(a.situacao)
 const podeTirar = (a) => a.situacao !== 'removido' && a.situacao !== 'baixando'
 
@@ -98,12 +101,21 @@ async function tirar(a) {
             </a>
             <span v-if="a.tamanho" class="text-tinta-suave">{{ tamanho(a.tamanho) }}</span>
             <span :class="situacao(a).classe">{{ enviando?.id === a.id ? `enviando… ${Math.round((enviando.progresso ?? 0) * 100)}%` : situacao(a).rotulo }}</span>
+            <span v-if="analiseDe(a)" :class="analiseDe(a).classe">· {{ analiseDe(a).rotulo }}</span>
           </span>
         </div>
         <p v-if="a.erro && a.situacao !== 'pronto'" class="mt-1 pl-9 text-xs text-carimbo">{{ a.erro }}</p>
-        <div v-if="!bloqueado && (podeTentar(a) || podeEnviar(a) || podeTirar(a))" class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 pl-9 text-xs">
+        <p v-if="a.situacao === 'pronto' && a.analiseErro" class="mt-1 pl-9 text-xs"
+           :class="a.analise === 'falhou' ? 'text-carimbo' : 'text-tinta-suave'">{{ a.analiseErro }}</p>
+        <div v-if="a.analise === 'pronta' || (!bloqueado && (podeTentar(a) || podeEnviar(a) || podeTirar(a)))"
+             class="mt-1.5 flex flex-wrap gap-x-4 gap-y-1 pl-9 text-xs">
+          <button v-if="a.analise === 'pronta'" type="button" class="font-semibold underline underline-offset-4"
+                  :aria-expanded="aberta === a.id" @click="aberta = aberta === a.id ? '' : a.id">
+            {{ aberta === a.id ? 'Fechar a análise' : 'Ver a análise' }}
+          </button>
+          <template v-if="!bloqueado">
           <button v-if="podeTentar(a)" type="button" class="font-semibold underline underline-offset-4" :disabled="!!ocupado" @click="tentarDeNovo(a)">
-            Tentar de novo
+            {{ a.situacao === 'pronto' ? 'Analisar de novo' : 'Tentar de novo' }}
           </button>
           <button v-if="podeEnviar(a)" type="button" class="font-semibold underline underline-offset-4" :disabled="!!ocupado" @click="escolher(a)">
             Enviar o arquivo à mão
@@ -117,8 +129,10 @@ async function tirar(a) {
               <button type="button" class="underline underline-offset-4" @click="confirmandoTirar = ''">Não</button>
             </span>
           </template>
+          </template>
         </div>
         <p v-if="falha?.id === a.id" role="alert" class="mt-1 pl-9 text-xs font-semibold text-carimbo">{{ falha.texto }}</p>
+        <AnaliseDoArquivo v-if="aberta === a.id && a.analise === 'pronta'" class="mt-2 sm:ml-9" :atendimento-id="atendimentoId" :arquivo-id="a.id" />
       </li>
     </ul>
   </section>

@@ -2,7 +2,8 @@
 import { ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { mensagemDe } from '@/utils/erros'
-import { ACEITOS_NO_ENVIO, CATEGORIAS, dataHora, ORIGENS, tamanho } from '@/modulos/atendimento/formato'
+import { ACEITOS_NO_ENVIO, CATEGORIAS, dataHora, ORIGENS, SITUACOES_DA_ANALISE, tamanho } from '@/modulos/atendimento/formato'
+import AnaliseDoArquivo from './AnaliseDoArquivo.vue'
 import SoltarArquivos from './SoltarArquivos.vue'
 
 /**
@@ -14,7 +15,7 @@ const props = defineProps({
   extras: { type: Array, required: true },
   bloqueado: { type: Boolean, default: false },
 })
-const emit = defineEmits(['recarregar'])
+const emit = defineEmits(['recarregar', 'progresso'])
 
 const origem = ref('ligacao')
 /** { nome, progresso, erro } de cada arquivo do último envio */
@@ -22,6 +23,19 @@ const envios = ref([])
 const enviando = ref(false)
 const ocupado = ref('')
 const falha = ref(null)
+const aberta = ref('')
+
+async function analisarDeNovo(arquivo) {
+  ocupado.value = arquivo.id
+  falha.value = null
+  try {
+    emit('progresso', await atendimentoApi.tentarDeNovo(props.atendimentoId, arquivo.id))
+  } catch (e) {
+    falha.value = { id: arquivo.id, texto: mensagemDe(e) }
+  } finally {
+    ocupado.value = ''
+  }
+}
 
 async function enviar(arquivos) {
   if (enviando.value) return
@@ -95,11 +109,20 @@ async function tirar(arquivo) {
         <span class="flex w-full flex-wrap items-center gap-x-3 gap-y-1 text-xs text-tinta-suave sm:w-auto">
           <span>{{ CATEGORIAS[x.categoria] ?? x.categoria }} · {{ tamanho(x.tamanho) }}</span>
           <span>{{ x.momento ? dataHora(x.momento) : 'sem data' }}</span>
+          <span v-if="SITUACOES_DA_ANALISE[x.analise]" :class="SITUACOES_DA_ANALISE[x.analise].classe">{{ SITUACOES_DA_ANALISE[x.analise].rotulo }}</span>
+          <button v-if="x.analise === 'pronta'" type="button" class="font-semibold text-tinta underline underline-offset-4"
+                  :aria-expanded="aberta === x.id" @click="aberta = aberta === x.id ? '' : x.id">
+            {{ aberta === x.id ? 'Fechar a análise' : 'Ver a análise' }}
+          </button>
+          <button v-if="!bloqueado && x.analise === 'falhou'" type="button" class="font-semibold text-tinta underline underline-offset-4"
+                  :disabled="!!ocupado" @click="analisarDeNovo(x)">Analisar de novo</button>
           <button v-if="!bloqueado" type="button" class="underline underline-offset-4" :disabled="!!ocupado" @click="tirar(x)">
-            {{ ocupado === x.id ? 'Tirando…' : 'Tirar' }}
+            {{ ocupado === x.id ? 'Aguarde…' : 'Tirar' }}
           </button>
         </span>
+        <p v-if="x.analiseErro" class="w-full text-xs" :class="x.analise === 'falhou' ? 'text-carimbo' : 'text-tinta-suave'">{{ x.analiseErro }}</p>
         <p v-if="falha?.id === x.id" role="alert" class="w-full text-xs font-semibold text-carimbo">{{ falha.texto }}</p>
+        <AnaliseDoArquivo v-if="aberta === x.id && x.analise === 'pronta'" class="w-full" :atendimento-id="atendimentoId" :arquivo-id="x.id" />
       </li>
     </ul>
     <p v-else-if="bloqueado" class="mt-3 text-sm text-tinta-suave">Nenhum arquivo enviado.</p>

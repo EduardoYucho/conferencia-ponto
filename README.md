@@ -260,8 +260,8 @@ Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador 
 PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
-deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac e o
-download dos anexos, com o envio das ligações, do vídeo e dos prints:
+deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
+download dos anexos, o envio das ligações, do vídeo e dos prints, e a análise de cada arquivo pelo Gemini:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
@@ -306,9 +306,26 @@ download dos anexos, com o envio das ligações, do vídeo e dos prints:
   fluxo com a data de modificação, que entra na linha do tempo. Limites por tipo em `atendimento.envio.tamanho-maximo`
   (imagem e documento 50 MB, áudio 500 MB, vídeo 2 GB). Ficam em `atendimentos\<id>\arquivos\` com nomes como
   `ligacao_001_<nome>`.
+- **Análise de cada arquivo** (Gemini, com a chave da própria pessoa): depois de baixado ou enviado, cada imagem,
+  áudio e documento vira uma tarefa "analisar" na mesma fila — o vídeo fica para a etapa do vídeo. É uma chamada
+  por arquivo, com a resposta em JSON num esquema por tipo: do print, a tela (nome, código, menu), os campos, as
+  mensagens literais e se o texto está legível; do áudio, a transcrição completa com quem fala e o instante (MM:SS),
+  sem resumir; do documento, o tipo, o conteúdo e os dados. A instrução comum manda descrever só o que está visível
+  ou audível, escrever "não identificado" no que não der para ler e nunca reproduzir dados de acesso. Imagem até
+  `atendimento.gemini.inline-maximo` (15 MB) vai no próprio pedido, em alta resolução; áudio, documento e imagem
+  maior vão pela Files API (envio retomável), e o arquivo é apagado do Google ao fim. A resposta passa pela
+  mesma máscara da conversa antes de gravar (`atendimento.analise`, com o modelo, a versão do prompt e os tokens) e
+  **não é refeita**: o mesmo arquivo — ou outro com o mesmo conteúdo, da mesma pessoa — na mesma versão e no mesmo
+  modelo reaproveita a análise; trocar o modelo em `atendimento.gemini.modelos` faz analisar de novo no próximo
+  "Processar". Na tela, cada arquivo mostra a análise (aberta ali mesmo, com "copiar a transcrição" no áudio), e o
+  processamento mostra os tokens gastos. Erros: sem chave (`SEM_CHAVE_GEMINI`, com o caminho para cadastrar), chave
+  recusada (`CHAVE_GEMINI_RECUSADA`, pausa as análises), limite por minuto (`GEMINI_LIMITE`, espera o tempo pedido),
+  cota do dia (`GEMINI_COTA_DIARIA`, pausa as análises — os downloads seguem — até a pessoa clicar em Retomar),
+  `GEMINI_INDISPONIVEL` (novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os outros seguem),
+  `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
-  são apagados 30 dias depois da criação do atendimento — a conversa lida continua e a tela avisa — e o
-  atendimento inteiro, 180 dias depois.
+  são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
+  — e o atendimento inteiro, 180 dias depois.
 - **Espaço em disco**: a tela Acessos mostra ao administrador quanto os arquivos dos atendimentos ocupam, quanto
   sobra no disco e quantos atendimentos estão pausados por falta de espaço.
 
@@ -323,9 +340,10 @@ download dos anexos, com o envio das ligações, do vídeo e dos prints:
 | POST | `/atendimentos` | Corpo = o PDF do Digisac (`application/pdf`), cabeçalho `X-Nome-Arquivo` (codificado): `201 {criado: true, atendimento, leitura}` · `200 {criado: false, ...}` se o chamado já tem atendimento |
 | GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada) e os anexos com a validade dos links (o link em si nunca vem) |
 | DELETE | `/atendimentos/{id}` | Apaga o atendimento e os arquivos dele |
-| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os anexos que faltam · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos}` |
+| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads e as análises que faltam · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini}` |
 | GET | `/atendimentos/{id}/progresso` · `/atendimentos/eventos` | O progresso agora · SSE do módulo (`atendimento-progresso`, só os meus atendimentos) |
-| POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | Anexo que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
+| POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | O download ou a análise que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
+| GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}` (`ANALISE_NAO_ENCONTRADA`) |
 | PUT | `/atendimentos/{id}/arquivos?origem=ligacao\|video\|print_extra&nome=&modificadoEm=` | Corpo = o arquivo: `201` com o arquivo guardado (`ORIGEM_INVALIDA`, `TIPO_NAO_SUPORTADO`, `ARQUIVO_GRANDE_DEMAIS`, `ARQUIVO_VAZIO`, `409 DISCO_CHEIO`) |
 | PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |
 | DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |
