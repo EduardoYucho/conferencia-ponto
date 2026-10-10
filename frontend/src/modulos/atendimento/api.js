@@ -22,4 +22,24 @@ export const atendimentoApi = {
   testarChaveGemini: () => http.post('/atendimentos/chave-gemini/testar'),
 
   apagarChaveGemini: () => http.delete('/atendimentos/chave-gemini'),
+
+  /** Os atendimentos da pessoa logada, do mais novo para o mais antigo. */
+  atendimentos: () => http.get('/atendimentos'),
+
+  /** Conversa lida, anexos e validade dos links (atendimento de outra pessoa: 404). */
+  atendimento: (id) => http.get(`/atendimentos/${id}`),
+
+  /**
+   * Envia o PDF da conversa do Digisac em fluxo (sem multipart). O nome vai codificado no cabeçalho, porque
+   * cabeçalho HTTP não leva acento. Devolve { criado, atendimento, leitura }; criado = false quando o chamado
+   * já tinha atendimento (nada foi criado).
+   */
+  enviarPdf: (arquivo, aoProgredir) =>
+    http.post('/atendimentos', arquivo, {
+      headers: { 'Content-Type': 'application/pdf', 'X-Nome-Arquivo': encodeURIComponent(arquivo.name) },
+      timeout: 300000,
+      onUploadProgress: (e) => aoProgredir?.(e.total ? e.loaded / e.total : null),
+    }),
+
+  apagarAtendimento: (id) => http.delete(`/atendimentos/${id}`),
 }

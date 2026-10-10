@@ -14,6 +14,17 @@ export const rotasDosModulos = [
     component: () => import('./atendimento/views/MinhaChaveGeminiView.vue'),
   },
   {
+    path: '/atendimentos/novo',
+    name: 'atendimento-novo',
+    component: () => import('./atendimento/views/NovoAtendimentoView.vue'),
+  },
+  {
+    path: '/atendimentos/:id',
+    name: 'atendimento',
+    component: () => import('./atendimento/views/AtendimentoView.vue'),
+    props: true,
+  },
+  {
     path: '/base-conhecimento',
     name: 'base-conhecimento',
     component: () => import('./conhecimento/views/BaseConhecimentoView.vue'),
