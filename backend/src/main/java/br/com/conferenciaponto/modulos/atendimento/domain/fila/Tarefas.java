@@ -35,6 +35,9 @@ public interface Tarefas {
     /** Na subida: nada está em execução de verdade, então toda tarefa "executando" volta para a fila. */
     int devolverTodasEmExecucao();
 
+    /** A tarefa foi pega mas não chegou a começar (o serviço está parando): volta a pendente, sem gastar tentativa. */
+    void devolver(long id, Instant agora);
+
     void concluir(long id, Instant agora);
 
     /** Falha temporária: volta a pendente para depois de {@code executarApos}. */

@@ -108,6 +108,18 @@ class ClienteGeminiTest {
     }
 
     @Test
+    void chaveQueOGoogleNaoAceitaNaApi() {
+        status = 401;
+        corpo = erro(401, "UNAUTHENTICATED", "ACCESS_TOKEN_TYPE_UNSUPPORTED",
+                "Request had invalid authentication credentials. Expected OAuth 2 access token, login cookie or other valid authentication credential.");
+
+        Resultado resultado = cliente().testar(CHAVE);
+
+        assertThat(resultado.tipo()).isEqualTo(Tipo.RECUSADA);
+        assertThat(resultado.detalhe()).contains("ACCESS_TOKEN_TYPE_UNSUPPORTED").contains("Crie outra chave");
+    }
+
+    @Test
     void chaveComRestricaoDeUso() {
         status = 403;
         corpo = erro(403, "PERMISSION_DENIED", "API_KEY_HTTP_REFERRER_BLOCKED", "Requests from referer <empty> are blocked.");

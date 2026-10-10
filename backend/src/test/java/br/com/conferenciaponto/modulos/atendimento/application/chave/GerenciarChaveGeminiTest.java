@@ -83,6 +83,17 @@ class GerenciarChaveGeminiTest {
     }
 
     @Test
+    void chaveNoFormatoNovoDoAiStudioETestadaComOGoogle() {
+        String nova = "AQ.Ab8RN6Kc-chave_de-teste.0123456789wxyz";
+
+        ChaveGeminiView view = gerenciar.cadastrar(maria, nova, true);
+
+        assertThat(google.chavesTestadas).containsExactly(nova);
+        assertThat(view.cadastrada()).isTrue();
+        assertThat(view.ultimosCaracteres()).isEqualTo("wxyz");
+    }
+
+    @Test
     void chaveSemCotaTambemEGuardada() {
         google.resposta = new Resultado(Tipo.SEM_COTA, "Renova à meia-noite do Pacífico.");
 
@@ -116,7 +127,8 @@ class GerenciarChaveGeminiTest {
     void recusaAntesDePerguntarAoGoogle() {
         assertCodigo(() -> gerenciar.cadastrar(maria, "   ", true), "CHAVE_GEMINI_VAZIA", "Cole a chave");
         assertCodigo(() -> gerenciar.cadastrar(maria, "AIza chave com espaço no meio", true), "CHAVE_GEMINI_FORMATO", "AIza");
-        assertCodigo(() -> gerenciar.cadastrar(maria, "curta", true), "CHAVE_GEMINI_FORMATO", "AIza");
+        assertCodigo(() -> gerenciar.cadastrar(maria, "curta", true), "CHAVE_GEMINI_FORMATO", "AQ.");
+        assertCodigo(() -> gerenciar.cadastrar(maria, "AQ.Ab8RN6Kc/chave+com:barra=", true), "CHAVE_GEMINI_FORMATO", "AQ.");
         assertCodigo(() -> gerenciar.cadastrar(maria, CHAVE, false), "NIVEL_PAGO_NAO_CONFIRMADO", "nível pago");
 
         assertThat(google.chavesTestadas).isEmpty();

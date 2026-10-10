@@ -65,6 +65,8 @@ public class CoordenadorDaFila {
 
     /** Ids das tarefas que este processo está executando agora. */
     private final Set<Long> emExecucao = ConcurrentHashMap.newKeySet();
+    /** Ligado por {@link #parar()}: nenhuma varredura pega tarefa depois disso. */
+    private volatile boolean parando;
     private final ThreadPoolExecutor pool;
     private final ScheduledExecutorService relogio;
 
@@ -126,6 +128,9 @@ public class CoordenadorDaFila {
 
     @PreDestroy
     public void parar() {
+        synchronized (this) {
+            parando = true; // espera a varredura em andamento (ela entrega o que pegou antes de o pool fechar)
+        }
         relogio.shutdownNow();
         pool.shutdown();
         try {
@@ -142,7 +147,10 @@ public class CoordenadorDaFila {
      *
      * @return quantas tarefas foram entregues
      */
-    public int varrer() {
+    public synchronized int varrer() {
+        if (parando) {
+            return 0;
+        }
         int livres = trabalhadores - emExecucao.size();
         if (livres <= 0) {
             return 0;
@@ -153,11 +161,20 @@ public class CoordenadorDaFila {
             try {
                 pool.execute(() -> executar(tarefa));
             } catch (RuntimeException e) {
-                emExecucao.remove(tarefa.id()); // pool encerrado: a tarefa volta na próxima subida
-                log.warn("Tarefa {} não pôde ser entregue: {}", tarefa.id(), e.toString());
+                emExecucao.remove(tarefa.id());
+                devolverSemFalhar(tarefa, e); // não fica "executando" até a próxima subida
             }
         }
         return pegas.size();
+    }
+
+    private void devolverSemFalhar(Tarefa tarefa, RuntimeException motivo) {
+        try {
+            tarefas.devolver(tarefa.id(), clock.instant());
+            log.warn("Tarefa {} não pôde ser entregue e voltou para a fila: {}", tarefa.id(), motivo.toString());
+        } catch (RuntimeException e) {
+            log.warn("Tarefa {} não pôde ser entregue nem devolvida (volta na próxima subida): {}", tarefa.id(), e.toString());
+        }
     }
 
     /** Quantas tarefas este processo está executando agora. */

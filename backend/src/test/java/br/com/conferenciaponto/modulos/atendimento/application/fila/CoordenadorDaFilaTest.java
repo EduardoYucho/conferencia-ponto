@@ -250,6 +250,22 @@ class CoordenadorDaFilaTest {
     }
 
     @Test
+    void depoisDeParadoNaoPegaMaisNenhumaTarefa() {
+        atendimento(2, 3);
+        AtomicInteger vezes = new AtomicInteger();
+        CoordenadorDaFila c = coordenador(4, 4, baixar(0, t -> {
+            vezes.incrementAndGet();
+            return ResultadoDaTarefa.concluida();
+        }));
+
+        c.parar();
+
+        assertThat(c.varrer()).isZero();
+        assertThat(vezes).hasValue(0);
+        assertThat(situacoes()).containsOnly(Map.entry("pendente", 2));
+    }
+
+    @Test
     void depoisDeReiniciarOQueEstavaEmExecucaoRodaDeNovo() {
         atendimento(2, 3);
         assertThat(tarefas.pegar(10, 10, Map.of(), Instant.now(), Duration.ofMinutes(15))).hasSize(2); // e o serviço parou

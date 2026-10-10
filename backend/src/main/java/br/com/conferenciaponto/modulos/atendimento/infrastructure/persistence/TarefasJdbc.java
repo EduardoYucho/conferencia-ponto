@@ -160,6 +160,19 @@ class TarefasJdbc implements Tarefas {
     }
 
     @Override
+    public void devolver(long id, Instant agora) {
+        jdbc.sql("""
+                        UPDATE atendimento.tarefa
+                           SET situacao = 'pendente', em_execucao_ate = NULL, tentativas = greatest(tentativas - 1, 0),
+                               atualizada_em = :agora
+                         WHERE id = :id AND situacao = 'executando'
+                        """)
+                .param("id", id)
+                .param("agora", utc(agora))
+                .update();
+    }
+
+    @Override
     public void concluir(long id, Instant agora) {
         terminar(id, "concluida", null, null, agora);
     }

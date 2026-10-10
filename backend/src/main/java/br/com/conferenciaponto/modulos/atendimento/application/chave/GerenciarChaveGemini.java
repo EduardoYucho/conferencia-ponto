@@ -28,8 +28,11 @@ public class GerenciarChaveGemini {
 
     private static final Logger log = LoggerFactory.getLogger(GerenciarChaveGemini.class);
 
-    /** Chaves do Google: letras, números, "-" e "_", sem espaços (as do Gemini começam com "AIza"). */
-    private static final Pattern FORMATO = Pattern.compile("[A-Za-z0-9_\\-]{20,200}");
+    /**
+     * Chaves do Google: letras, números, ".", "-" e "_", sem espaços. As do formato novo do AI Studio começam com
+     * "AQ." (têm ponto); as antigas, com "AIza". Quem decide se a chave vale é o teste com o Google.
+     */
+    private static final Pattern FORMATO = Pattern.compile("[A-Za-z0-9._\\-]{20,300}");
 
     private final ChavesGemini chaves;
     private final Cofre cofre;
@@ -58,8 +61,8 @@ public class GerenciarChaveGemini {
         }
         if (!FORMATO.matcher(limpa).matches()) {
             throw new RegraNegocioException("CHAVE_GEMINI_FORMATO", "Isso não parece uma chave da API do Gemini: ela "
-                    + "tem só letras, números, \"-\" e \"_\", sem espaços, e costuma começar com \"AIza\". Copie de novo "
-                    + "no Google AI Studio.");
+                    + "tem só letras, números, \".\", \"-\" e \"_\", sem espaços, e começa com \"AQ.\" ou \"AIza\". "
+                    + "Copie de novo no Google AI Studio, pelo botão de copiar ao lado da chave.");
         }
         if (exigirNivelPago && !nivelPagoConfirmado) {
             throw new RegraNegocioException("NIVEL_PAGO_NAO_CONFIRMADO", "Confirme que a chave é de um projeto com "

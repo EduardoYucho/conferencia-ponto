@@ -182,6 +182,25 @@ class TarefasJdbcTest {
     }
 
     @Test
+    void devolverVoltaAPendenteSemGastarTentativaESoSeEstiverEmExecucao() {
+        novo(2);
+        List<Tarefa> pegas = pegar(10, 10);
+        Tarefa devolvida = pegas.get(0);
+        Tarefa concluida = pegas.get(1);
+        tarefas.concluir(concluida.id(), agora);
+
+        tarefas.devolver(devolvida.id(), agora);
+        tarefas.devolver(concluida.id(), agora);
+
+        assertThat(situacao(devolvida.id())).isEqualTo("pendente");
+        assertThat(situacao(concluida.id())).isEqualTo("concluida");
+        assertThat(jdbc.sql("SELECT tentativas FROM atendimento.tarefa WHERE id = ?").param(devolvida.id())
+                .query(Integer.class).single()).isZero();
+        assertThat(pegar(10, 10)).extracting(Tarefa::id, Tarefa::tentativa).containsExactly(
+                org.assertj.core.groups.Tuple.tuple(devolvida.id(), 1));
+    }
+
+    @Test
     void naSubidaOQueEstavaEmExecucaoVoltaParaAFila() {
         novo(1);
         Tarefa pega = pegar(10, 10).get(0);

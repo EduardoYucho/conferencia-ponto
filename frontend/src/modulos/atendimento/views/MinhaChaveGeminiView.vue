@@ -191,7 +191,7 @@ function cancelarTroca() {
                   class="campo"
                   autocomplete="off"
                   spellcheck="false"
-                  placeholder="AIza…"
+                  placeholder="AQ.… ou AIza…"
                   :disabled="enviando"
                 />
               </label>
@@ -219,8 +219,10 @@ function cancelarTroca() {
                 site; a API é cobrada à parte, pelo uso, num projeto do Google Cloud com faturamento.
               </li>
               <li>
-                <b class="text-tinta">Onde criar:</b> no Google AI Studio (aistudio.google.com), em "Get API key", escolhendo um
-                projeto com faturamento ativo. A chave começa com "AIza".
+                <b class="text-tinta">Onde criar:</b> no Google AI Studio (aistudio.google.com), em "Chaves de API" ("Get API
+                key"), num projeto com faturamento ativo: na coluna "Nível de faturamento", o projeto não pode estar em "Nível
+                gratuito" (use "Configurar faturamento"). A chave começa com "AQ." (formato novo) ou "AIza" (antigo); copie
+                pelo botão ao lado dela.
               </li>
               <li>
                 <b class="text-tinta">Por que o nível pago:</b> no nível gratuito, o Google pode usar o que é enviado (conversas,

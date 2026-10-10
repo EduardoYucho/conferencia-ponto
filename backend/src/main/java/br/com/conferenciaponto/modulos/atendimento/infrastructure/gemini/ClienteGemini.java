@@ -82,6 +82,11 @@ public class ClienteGemini implements VerificadorDeChave {
                 return new Resultado(Tipo.RECUSADA, "A API do Gemini (Generative Language API) não está ativada no "
                         + "projeto dessa chave.");
             }
+            if (motivo.contains("ACCESS_TOKEN_TYPE_UNSUPPORTED")) {
+                return new Resultado(Tipo.RECUSADA, "O Google não aceitou essa chave na API do Gemini "
+                        + "(ACCESS_TOKEN_TYPE_UNSUPPORTED). Crie outra chave no AI Studio, no mesmo projeto com faturamento, "
+                        + "e tente de novo; se continuar, avise o administrador.");
+            }
             if (motivo.contains("BLOCKED") || motivo.contains("REFERER") || motivo.contains("IP_ADDRESS")) {
                 return new Resultado(Tipo.RECUSADA, "A chave tem uma restrição (de site, de IP ou de API) que não deixa "
                         + "este servidor usá-la. Tire a restrição ou crie outra chave.");
