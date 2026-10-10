@@ -65,7 +65,8 @@ class ClienteGeminiTest {
     }
 
     private static ClienteGemini cliente(URI base) {
-        return new ClienteGemini(new GeminiProperties(base, Duration.ofSeconds(2), Duration.ofMillis(800)),
+        return new ClienteGemini(new GeminiProperties(base, Duration.ofSeconds(2), Duration.ofMillis(800), Duration.ofSeconds(5),
+                Duration.ofSeconds(5), Duration.ofSeconds(5), Duration.ofMillis(50)),
                 new ObjectMapper());
     }
 

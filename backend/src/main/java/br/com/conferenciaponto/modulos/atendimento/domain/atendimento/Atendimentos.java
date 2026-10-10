@@ -33,6 +33,15 @@ public interface Atendimentos {
     /** @param motivo só na pausa (null limpa) */
     void mudarSituacao(UUID id, SituacaoDoAtendimento situacao, String motivo, Instant agora);
 
+    /**
+     * Muda a situação só se ela ainda é uma destas (numa única gravação): duas tarefas que terminam juntas não
+     * desfazem a mudança uma da outra (o "pronto" de uma não apaga o "pausado" da outra).
+     *
+     * @return false se a situação já era outra (nada mudou)
+     */
+    boolean mudarSituacaoSe(UUID id, java.util.Set<SituacaoDoAtendimento> de, SituacaoDoAtendimento nova, String motivo,
+                            Instant agora);
+
     /** Atendimentos cujos arquivos já passaram do prazo e ainda estão em disco. */
     List<UUID> comArquivosVencidos(Instant agora);
 

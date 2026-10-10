@@ -98,6 +98,23 @@ public final class Mascaramento {
         return mascarar(texto, false).texto();
     }
 
+    /**
+     * Só as regras que têm o contexto no próprio texto (chave do bot, "senha 1234", "AnyDesk 123 456 789"), sem a
+     * do número solto: para textos que não são mensagens da conversa (a análise de um print, por exemplo, em que um
+     * número de 9 dígitos costuma ser o de uma nota fiscal).
+     */
+    public String mascararTrechos(String texto) {
+        if (texto == null || texto.isBlank()) {
+            return texto;
+        }
+        List<String> valores = new ArrayList<>();
+        int[] contador = {0};
+        String s = trocar(texto, CHAVE_DO_MES, valores, contador);
+        s = trocar(s, CHAVE_TEMPORARIA, valores, contador);
+        s = trocar(s, SENHA, valores, contador);
+        return trocar(s, ID_COM_FERRAMENTA, valores, contador);
+    }
+
     Texto mascarar(String texto, boolean depoisDoId) {
         if (texto == null || texto.isBlank()) {
             return new Texto(texto, 0, 0, false, List.of());

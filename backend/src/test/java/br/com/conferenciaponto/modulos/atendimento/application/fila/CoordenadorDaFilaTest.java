@@ -29,6 +29,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Consumer;
 import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -41,10 +42,17 @@ class CoordenadorDaFilaTest {
     private final Tarefas tarefas = RepositoriosDeTeste.tarefas();
     private final List<String> terminadas = new CopyOnWriteArrayList<>();
     private final List<CoordenadorDaFila> coordenadores = new ArrayList<>();
+    private volatile Consumer<Tarefa> antesDeConcluir = t -> {
+    };
 
     private final AcompanhamentoDaFila acompanhamento = new AcompanhamentoDaFila() {
         @Override
         public void aoComecar(Tarefa tarefa) {
+        }
+
+        @Override
+        public void antesDeConcluir(Tarefa tarefa) {
+            antesDeConcluir.accept(tarefa);
         }
 
         @Override
@@ -226,6 +234,43 @@ class CoordenadorDaFilaTest {
         assertThat(terminadas.get(0)).endsWith("Pausar");
         assertThat(situacoes()).containsEntry("pausada", 1);
         assertThat(jdbc.sql("SELECT tentativas FROM atendimento.tarefa").query(Integer.class).single()).isZero();
+    }
+
+    @Test
+    void aEtapaSeguinteEntraNaFilaAntesDeOItemSairDela() {
+        List<UUID> criado = atendimento(1, 3);
+        UUID atendimento = criado.get(0);
+        List<String> vistas = new CopyOnWriteArrayList<>();
+        antesDeConcluir = t -> {
+            vistas.add(t.tipo().codigo() + ":" + tarefas.ativas(atendimento));
+            if (t.tipo() == TipoDeTarefa.BAIXAR) {
+                tarefas.criar(TipoDeTarefa.ANALISAR, atendimento, t.arquivoId(), null, 3, Instant.now());
+            }
+        };
+        CoordenadorDaFila coordenador = coordenador(2, 2, baixar(0, t -> ResultadoDaTarefa.concluida()));
+
+        coordenador.varrer();
+
+        await().atMost(10, TimeUnit.SECONDS).until(() -> !terminadas.isEmpty());
+        // o download ainda contava como ativo quando a análise entrou: a fila do atendimento nunca ficou vazia
+        assertThat(vistas.get(0)).isEqualTo("baixar:1");
+        assertThat(jdbc.sql("SELECT tipo FROM atendimento.tarefa WHERE situacao <> 'concluida'").query(String.class).list())
+                .containsExactly("analisar");
+    }
+
+    @Test
+    void falhaAoPedirAEtapaSeguinteNaoImpedeAConclusao() {
+        atendimento(1, 3);
+        antesDeConcluir = t -> {
+            throw new IllegalStateException("sem banco");
+        };
+        CoordenadorDaFila coordenador = coordenador(1, 1, baixar(0, t -> ResultadoDaTarefa.concluida()));
+
+        coordenador.varrer();
+
+        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
+        assertThat(terminadas.get(0)).endsWith("Concluida");
+        assertThat(situacoes()).containsEntry("concluida", 1);
     }
 
     @Test

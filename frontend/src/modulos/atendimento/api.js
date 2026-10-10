@@ -43,7 +43,7 @@ export const atendimentoApi = {
 
   apagarAtendimento: (id) => http.delete(`/atendimentos/${id}`),
 
-  /** Põe na fila o que falta (nesta versão, o download dos anexos). Devolve o progresso. */
+  /** Põe na fila o que falta (o download dos anexos e a análise de cada arquivo). Devolve o progresso. */
   processar: (id) => http.post(`/atendimentos/${id}/processar`),
   cancelar: (id) => http.post(`/atendimentos/${id}/cancelar`),
   retomar: (id) => http.post(`/atendimentos/${id}/retomar`),
@@ -77,6 +77,9 @@ export const atendimentoApi = {
       headers: { 'Content-Type': 'application/pdf', 'X-Nome-Arquivo': encodeURIComponent(arquivo.name) },
       timeout: 300000,
     }),
+
+  /** A análise de um arquivo: { categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado }. */
+  analise: (id, arquivoId) => http.get(`/atendimentos/${id}/arquivos/${arquivoId}/analise`),
 
   /** Administrador: { ocupado, livre, pausados } (bytes). */
   espaco: () => http.get('/atendimentos/acessos/espaco'),

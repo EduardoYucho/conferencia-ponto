@@ -18,10 +18,10 @@ import java.util.UUID;
  * Processamento dos atendimentos da pessoa logada e o acompanhamento ao vivo.
  *
  * <pre>
- * POST /api/v1/atendimentos/{id}/processar                          põe na fila o que falta (nesta versão, os downloads)
+ * POST /api/v1/atendimentos/{id}/processar                          põe na fila o que falta (downloads e análises)
  * POST /api/v1/atendimentos/{id}/cancelar                           cancela as tarefas que ainda não começaram
  * POST /api/v1/atendimentos/{id}/retomar                            retoma um atendimento pausado
- * POST /api/v1/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo  repete o download que falhou
+ * POST /api/v1/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo  repete o download ou a análise que falhou
  * GET  /api/v1/atendimentos/{id}/progresso                          a situação agora
  * GET  /api/v1/atendimentos/eventos                                 SSE: atendimento-progresso, só os do dono
  * </pre>

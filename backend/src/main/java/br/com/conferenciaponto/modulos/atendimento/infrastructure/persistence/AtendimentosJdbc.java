@@ -179,6 +179,25 @@ class AtendimentosJdbc implements Atendimentos {
     }
 
     @Override
+    public boolean mudarSituacaoSe(UUID id, java.util.Set<SituacaoDoAtendimento> de, SituacaoDoAtendimento nova,
+                                   String motivo, Instant agora) {
+        if (de.isEmpty()) {
+            return false;
+        }
+        return jdbc.sql("""
+                        UPDATE atendimento.atendimento
+                           SET situacao = :situacao, motivo_pausa = :motivo, atualizado_em = :agora, versao = versao + 1
+                         WHERE id = :id AND situacao IN (:de)
+                        """)
+                .param("id", id)
+                .param("situacao", nova.codigo())
+                .param("de", de.stream().map(SituacaoDoAtendimento::codigo).toList())
+                .param("motivo", motivo == null || motivo.length() <= 200 ? motivo : motivo.substring(0, 200))
+                .param("agora", utc(agora))
+                .update() > 0;
+    }
+
+    @Override
     public List<UUID> comArquivosVencidos(Instant agora) {
         return jdbc.sql("""
                         SELECT id FROM atendimento.atendimento
