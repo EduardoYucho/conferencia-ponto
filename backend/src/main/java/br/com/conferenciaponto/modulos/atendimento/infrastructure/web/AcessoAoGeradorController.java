@@ -5,6 +5,7 @@ import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.modulos.atendimento.application.acesso.AcessoAoGeradorView;
 import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.espaco.EspacoDosAtendimentos;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -24,6 +25,7 @@ import java.util.UUID;
  * GET /api/v1/atendimentos/meu-acesso          qualquer perfil: {gerador, administrador} (o menu decide por isto)
  * GET /api/v1/atendimentos/acessos             administrador: todos os usuários ativos com o acesso de cada um
  * PUT /api/v1/atendimentos/acessos/{usuarioId} administrador: {gerador: true|false}
+ * GET /api/v1/atendimentos/acessos/espaco      administrador: espaço ocupado pelos atendimentos e livre no disco
  * </pre>
  */
 @RestController
@@ -37,11 +39,18 @@ public class AcessoAoGeradorController {
     }
 
     private final GerenciarAcessosAoGerador acessos;
+    private final EspacoDosAtendimentos espaco;
     private final AcessoUsuarios acesso;
 
-    public AcessoAoGeradorController(GerenciarAcessosAoGerador acessos, AcessoUsuarios acesso) {
+    public AcessoAoGeradorController(GerenciarAcessosAoGerador acessos, EspacoDosAtendimentos espaco, AcessoUsuarios acesso) {
         this.acessos = acessos;
+        this.espaco = espaco;
         this.acesso = acesso;
+    }
+
+    @GetMapping("/acessos/espaco")
+    public ApiResponse<EspacoDosAtendimentos.EspacoView> espaco() {
+        return ApiResponse.ok(espaco.consultar(acesso.logado()));
     }
 
     @GetMapping("/meu-acesso")

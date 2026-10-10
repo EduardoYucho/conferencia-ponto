@@ -3,6 +3,7 @@ package br.com.conferenciaponto.modulos.atendimento.domain.atendimento;
 import java.io.InputStream;
 import java.nio.file.Path;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 /**
  * Os arquivos dos atendimentos em disco: uma pasta por atendimento, dentro da pasta do módulo. Nenhum nome vindo
@@ -17,6 +18,9 @@ public interface PastaDosAtendimentos {
      */
     Path receber(InputStream conteudo, long limite);
 
+    /** Como {@link #receber(InputStream, long)}, com a exceção que a pessoa deve ver quando passar do limite. */
+    Path receber(InputStream conteudo, long limite, Supplier<? extends RuntimeException> seExceder);
+
     /** Move o PDF recebido para a pasta do atendimento, como conversa.pdf (atômico: ou está inteiro, ou não está). */
     void guardarPdf(UUID atendimentoId, Path recebido);
 
@@ -25,4 +29,26 @@ public interface PastaDosAtendimentos {
 
     /** Apaga a pasta do atendimento inteira. */
     void apagar(UUID atendimentoId);
+
+    /** Onde fica o download em andamento de um anexo (continua daí se a conexão cair). */
+    Path parcialDoAnexo(UUID atendimentoId, UUID arquivoId);
+
+    /**
+     * Move um arquivo recebido ou baixado para {@code <id>/arquivos/<prefixo>_<ordem>_<nome saneado>} (atômico).
+     *
+     * @return o caminho relativo à pasta dos atendimentos, que vai para o banco
+     */
+    String guardarArquivo(UUID atendimentoId, Path origem, String prefixo, int ordem, String nomeOriginal);
+
+    /** Apaga um arquivo pelo caminho relativo guardado no banco (não falha se ele já não existe). */
+    void apagarArquivo(String caminhoRelativo);
+
+    /** Apaga o PDF e os arquivos do atendimento, mantendo a pasta (retenção). */
+    void apagarArquivosDoAtendimento(UUID atendimentoId);
+
+    /** Espaço livre no disco da pasta, em bytes. */
+    long espacoLivre();
+
+    /** Quanto a pasta dos atendimentos ocupa, em bytes (sem a base de conhecimento e a chave mestra). */
+    long espacoOcupado();
 }

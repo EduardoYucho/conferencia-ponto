@@ -50,6 +50,10 @@ public final class PdfDigisacDeTeste {
     }
 
     private String titulo = "Digisac - Ticket: " + CHAMADO;
+    /** X-Amz-Date dos links (a validade é de 24 h a partir dela). */
+    private String dataDosLinks = "20261009T120000Z";
+    /** Onde ficam os anexos (nos testes do download, um servidor HTTP local). */
+    private String host = HOST;
     private final List<Desenho> desenhos = new ArrayList<>();
     private final List<Link> links = new ArrayList<>();
     private int pagina = 0;
@@ -63,7 +67,19 @@ public final class PdfDigisacDeTeste {
 
     /** Uma conversa completa: bot com a chave do mês, transferência, texto, imagem, áudio, documento e vídeo. */
     public static PdfDigisacDeTeste exemplo() {
+        return exemplo("20261009T120000Z");
+    }
+
+    /** O mesmo exemplo, exportado de novo: os links são assinados em {@code dataDosLinks} (formato X-Amz-Date). */
+    public static PdfDigisacDeTeste exemplo(String dataDosLinks) {
+        return exemplo(dataDosLinks, HOST);
+    }
+
+    /** O exemplo com os anexos em outro servidor (o {@code ServidorDeAnexos} dos testes do download). */
+    public static PdfDigisacDeTeste exemplo(String dataDosLinks, String host) {
         return novo()
+                .linksDe(dataDosLinks)
+                .linksEm(host)
                 .cabecalho(CONTATO, CHAMADO, "09/10/2026 08:00:00", "09/10/2026 09:30:00", "-")
                 .data("09/10/2026")
                 .evento("Início do chamado - Bot-Atendimento (Bot) - 09/10/2026 08:00:00")
@@ -85,6 +101,30 @@ public final class PdfDigisacDeTeste {
                 .atendente("Eduardo", "09:00", "Pronto, a nota foi emitida.")
                 .cliente(CONTATO, "09:01", "Obrigada!")
                 .evento("Fim do chamado - Encerrado por Eduardo - 09/10/2026 09:30:00");
+    }
+
+    /** Os links dos anexos apontam para outro servidor (ex.: o {@code ServidorDeAnexos} do teste). */
+    public PdfDigisacDeTeste linksEm(String base) {
+        this.host = base;
+        return this;
+    }
+
+    /** O caminho do link de uma imagem ou áudio (no servidor dos anexos). */
+    public static String caminhoDoAnexo(String nome) {
+        return "/digisac-storage-1/a1b2c3/" + nome.hashCode() + ".bin";
+    }
+
+    /** O caminho do link do documento do exemplo. */
+    public static final String CAMINHO_DO_DOCUMENTO = "/digisac-storage/7a1c/9f2e.pdf";
+
+    /** O caminho do link de um vídeo do atendente. */
+    public static String caminhoDoVideo(String nome) {
+        return "/digisac-storage/7a1c/" + nome;
+    }
+
+    public PdfDigisacDeTeste linksDe(String data) {
+        this.dataDosLinks = data;
+        return this;
     }
 
     public PdfDigisacDeTeste titulo(String titulo) {
@@ -183,7 +223,7 @@ public final class PdfDigisacDeTeste {
         cabecalhoDoCliente(remetente, hora);
         float topo = y + 3.4f;
         retangulo(18.6f, topo, 212.4f, topo + 106, new Color(200, 200, 200));
-        String url = urlAssinada(nome, "20261009T120000Z", true);
+        String url = urlAssinada(host, nome, dataDosLinks, true);
         links.add(new Link(pagina, 18.6f, topo, 212.4f, topo + 106, url));
         links.add(new Link(pagina, 18.6f, topo + 47.6f, 207.8f, topo + 57.8f, url));
         y = topo + 106 + ENTRE_BALOES;
@@ -197,7 +237,7 @@ public final class PdfDigisacDeTeste {
         y += ENTRE_LINHAS;
         texto(18.5f, y, TEXTO, FONTE, "Áudio");
         links.add(new Link(pagina, 18.6f, y - 8, 18.6f + largura("Áudio", TEXTO) + 1, y + 2.1f,
-                urlAssinada(nome, "20261009T120000Z", true)));
+                urlAssinada(host, nome, dataDosLinks, true)));
         y += ENTRE_BALOES;
         return this;
     }
@@ -208,7 +248,7 @@ public final class PdfDigisacDeTeste {
         cabecalhoDoCliente(remetente, hora);
         y += ENTRE_LINHAS;
         texto(18.5f, y, TEXTO, FONTE, nome);
-        String url = HOST + "/digisac-storage/7a1c/9f2e.pdf?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20261009T120000Z"
+        String url = host + CAMINHO_DO_DOCUMENTO + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=" + dataDosLinks
                 + "&X-Amz-Expires=86400&X-Amz-Signature=0f0f&X-Amz-SignedHeaders=host"
                 + "&response-content-disposition=attachment%3B%20filename%2A%3DUTF-8%27%27"
                 + java.net.URLEncoder.encode(java.net.URLEncoder.encode(nome, java.nio.charset.StandardCharsets.UTF_8)
@@ -226,14 +266,14 @@ public final class PdfDigisacDeTeste {
         texto(555.1f - largura(hora, HORA), y, HORA, FONTE, hora);
         float topo = y + 3.4f;
         retangulo(x0, topo, 577.4f, topo + 100, new Color(90, 90, 90));
-        links.add(new Link(pagina, x0, topo, 577.4f, topo + 100, HOST + "/digisac-storage/7a1c/" + nomeNoCaminho
-                + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20261009T120000Z&X-Amz-Expires=86400&X-Amz-Signature=abcd"));
+        links.add(new Link(pagina, x0, topo, 577.4f, topo + 100, host + caminhoDoVideo(nomeNoCaminho)
+                + "?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=" + dataDosLinks + "&X-Amz-Expires=86400&X-Amz-Signature=abcd"));
         y = topo + 100 + ENTRE_BALOES;
         return this;
     }
 
-    public static String urlAssinada(String nome, String data, boolean comNome) {
-        return HOST + "/digisac-storage-1/a1b2c3/" + nome.hashCode() + ".bin?X-Amz-Algorithm=AWS4-HMAC-SHA256"
+    public static String urlAssinada(String host, String nome, String data, boolean comNome) {
+        return host + caminhoDoAnexo(nome) + "?X-Amz-Algorithm=AWS4-HMAC-SHA256"
                 + "&X-Amz-Credential=teste%2F20261009%2Fsa-vinhedo-1%2Fs3%2Faws4_request&X-Amz-Date=" + data
                 + "&X-Amz-Expires=86400&X-Amz-Signature=5ec7e7&X-Amz-SignedHeaders=host"
                 + (comNome ? "&response-content-disposition=attachment%3B%20filename%3D" + nome : "");

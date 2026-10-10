@@ -7,6 +7,7 @@ atendimento:
     # PDF, anexos, ligações, vídeos, prints e imagens geradas; base/ guarda as imagens da base de conhecimento
     # (o "ponto backup" copia base/ e a chave mestra)
     diretorio: ${PONTO_ATENDIMENTOS_DIR:${user.home}/.conferencia-ponto/atendimentos}
+    espaco-minimo: 200MB                     # abaixo disso no disco, downloads e envios param (DISCO_CHEIO)
   chave-mestra:
     arquivo: ${atendimento.armazenamento.diretorio}/chave-mestra   # cifra as chaves do Gemini (E3)
   retencao:                                  # (E5)
@@ -25,16 +26,20 @@ atendimento:
     # de onde os anexos podem ser baixados (o link vem de um arquivo enviado pelo usuário)
     hosts-permitidos:
       - "*.compat.objectstorage.sa-vinhedo-1.oraclecloud.com"
-  download:
+  download:                                  # (E5)
     paralelos: 4
     tempo-conexao: 10s
-    tempo-leitura: 60s
+    tempo-leitura: 60s                       # sem receber nada por este tempo, a conexão é retomada
     tamanho-maximo: 2GB                      # limite da Files API do Gemini
+    tentativas: 5                            # por anexo, contando a primeira
   fila:                                      # (E5)
     trabalhadores: 8                         # tarefas ao mesmo tempo, no total
     por-usuario: 4                           # e por usuário (limite de requisições do Gemini é por projeto)
-    prazo-execucao: 15m                      # tarefa "executando" há mais tempo volta para a fila
+    prazo-execucao: 15m                      # tarefa "executando" há mais tempo volta para a fila (renovado enquanto roda)
     varredura: 2s
+    espera-inicial: 10s                      # depois de uma falha passageira; dobra a cada tentativa
+    espera-maxima: 10m
+    ativa: true                              # false desliga o processamento em segundo plano
   gemini:
     url-base: https://generativelanguage.googleapis.com
     exigir-nivel-pago: true                  # o usuário confirma que a chave é de projeto com faturamento (E3)

@@ -8,6 +8,7 @@ import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.espaco.EspacoDosAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.web.AcessoAoGeradorController;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.web.WebDoGerador;
@@ -87,6 +88,8 @@ class AcessosAosModulosWebTest {
     private GerenciarAcessosAoGerador gerador;
     @MockitoBean
     private GerenciarAcessosABase base;
+    @MockitoBean
+    private EspacoDosAtendimentos espaco;
 
     private Usuario admin;
     private Usuario maria;
@@ -107,6 +110,18 @@ class AcessosAosModulosWebTest {
                 .andExpect(jsonPath("$.erros[0].codigo").value("NAO_AUTENTICADO"));
         mvc.perform(post("/api/v1/conhecimento/rota-de-teste"))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    void soOAdministradorVeOEspacoOcupadoPelosAtendimentos() throws Exception {
+        when(espaco.consultar(admin)).thenReturn(new EspacoDosAtendimentos.EspacoView(1024, 4096, 0));
+
+        mvc.perform(get("/api/v1/atendimentos/acessos/espaco").with(como(admin)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.ocupado").value(1024))
+                .andExpect(jsonPath("$.dados.livre").value(4096));
+        mvc.perform(get("/api/v1/atendimentos/acessos/espaco").with(como(maria)))
+                .andExpect(status().isForbidden());
     }
 
     @Test
