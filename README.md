@@ -61,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 340 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
+.\iniciar.ps1 -Testes    # 414 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -260,14 +260,14 @@ Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador 
 PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
-deles. Chegam em etapas; por enquanto existem os acessos e a chave do Gemini:
+deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini e a leitura do PDF do Digisac:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
   ponto**: a coordenação pode ser liberada, e o administrador também precisa se liberar.
 - Os itens **Atendimentos** e **Base de conhecimento** só aparecem no menu de quem foi liberado. Toda rota dos
   módulos confere a liberação a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar o acesso vale na hora.
-- **Minha chave do Gemini** (Atendimentos → Abrir): cada pessoa cadastra a própria chave da API do Gemini
+- **Minha chave do Gemini** (botão na tela Atendimentos): cada pessoa cadastra a própria chave da API do Gemini
   (Google AI Studio, projeto com faturamento) e confirma que ela é do nível pago — no gratuito o Google pode usar
   o conteúdo enviado. O servidor testa a chave com o Google antes de guardar (listando um modelo, sem gastar cota),
   guarda cifrada (AES-256-GCM) e nunca a devolve: a tela mostra só os 4 últimos caracteres. A chave vai ao Google
@@ -275,6 +275,18 @@ deles. Chegam em etapas; por enquanto existem os acessos e a chave do Gemini:
   `%USERPROFILE%\.conferencia-ponto\atendimentos\chave-mestra` (`atendimento.chave-mestra.arquivo`), fora do
   banco, legível só pelo usuário do serviço, e entra no `ponto backup`. Se ela se perder, as chaves guardadas
   deixam de abrir (`CHAVE_MESTRA_TROCADA`) e cada pessoa cadastra a sua de novo.
+- **Novo atendimento**: a pessoa solta o PDF da conversa exportada do Digisac e vê na hora o que foi lido —
+  contato, chamado, período, mensagens (lado, remetente e horário), eventos do sistema e anexos (imagem, áudio,
+  documento, vídeo), cada anexo ligado à mensagem em que foi enviado, e até quando os links valem (o Digisac
+  assina por 24 h a partir da exportação). A leitura é feita pelo servidor, sem IA (`LeitorConversaDigisac`, com
+  PDFBox); a versão do leitor fica gravada em cada atendimento. **Antes de guardar**, a chave temporária do bot e os
+  dados de acesso remoto (IDs e senhas de UltraViewer, AnyDesk, TeamViewer...) viram `[omitido]`; o telefone do
+  contato não é guardado. O PDF chega em fluxo (sem multipart, até `atendimento.pdf.tamanho-maximo`, 50 MB) e fica
+  em `%USERPROFILE%\.conferencia-ponto\atendimentos\<id>\conversa.pdf`. Cada pessoa vê só os próprios
+  atendimentos (o de outra pessoa responde 404, inclusive para o administrador). Enviar de novo o PDF de um chamado
+  que já tem atendimento não cria outro: a tela oferece abrir o existente. O download dos anexos vem na próxima
+  etapa. Recusas: `PDF_INVALIDO`, `PDF_PROTEGIDO`, `PDF_NAO_E_DIGISAC`, `PDF_LAYOUT_DESCONHECIDO` (o formato do
+  Digisac mudou: a tela mostra o protocolo para avisar o administrador), `PDF_GRANDE_DEMAIS`, `PDF_SEM_MENSAGENS`.
 
 | Método | Rota | Descrição |
 |---|---|---|
@@ -284,6 +296,9 @@ deles. Chegam em etapas; por enquanto existem os acessos e a chave do Gemini:
 | GET | `/atendimentos/chave-gemini` | A minha chave: `{cadastrada, ultimosCaracteres, nivelPagoConfirmado, situacao, testadaEm, atualizadaEm, exigirNivelPago}` |
 | PUT | `/atendimentos/chave-gemini` | `{chave, nivelPagoConfirmado}`: testa com o Google e guarda cifrada (`CHAVE_GEMINI_RECUSADA`, `NIVEL_PAGO_NAO_CONFIRMADO`, `GEMINI_INDISPONIVEL`, `SEM_INTERNET`...) |
 | POST · DELETE | `/atendimentos/chave-gemini/testar` · `/atendimentos/chave-gemini` | Testa de novo (situação: `valida`, `sem_cota`, `recusada`) · apaga |
+| POST | `/atendimentos` | Corpo = o PDF do Digisac (`application/pdf`), cabeçalho `X-Nome-Arquivo` (codificado): `201 {criado: true, atendimento, leitura}` · `200 {criado: false, ...}` se o chamado já tem atendimento |
+| GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada) e os anexos com a validade dos links (o link em si nunca vem) |
+| DELETE | `/atendimentos/{id}` | Apaga o atendimento e os arquivos dele |
 
 ## Erros, protocolo e logs
 
