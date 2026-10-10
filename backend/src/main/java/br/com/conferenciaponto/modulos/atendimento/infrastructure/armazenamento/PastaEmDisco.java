@@ -20,6 +20,7 @@ import java.nio.file.StandardCopyOption;
 import java.text.Normalizer;
 import java.util.Comparator;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Stream;
 
 /**
@@ -42,6 +43,9 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     private static final Logger log = LoggerFactory.getLogger(PastaEmDisco.class);
     private static final String RECEBENDO = ".recebendo";
     private static final String PDF_DA_CONVERSA = "conversa.pdf";
+    private static final String ARQUIVOS = "arquivos";
+    private static final String BASE = "base";
+    private static final String CHAVE_MESTRA = "chave-mestra";
     private static final int TAMANHO_DO_NOME = 80;
 
     private final Path raiz;
@@ -66,6 +70,11 @@ public class PastaEmDisco implements PastaDosAtendimentos {
 
     @Override
     public Path receber(InputStream conteudo, long limite) {
+        return receber(conteudo, limite, () -> LeituraDoPdfException.grandeDemais(DataSize.ofBytes(limite).toMegabytes() + " MB"));
+    }
+
+    @Override
+    public Path receber(InputStream conteudo, long limite, Supplier<? extends RuntimeException> seExceder) {
         Path temporario;
         try {
             temporario = Files.createTempFile(criar(raiz.resolve(RECEBENDO)), "envio-", ".parcial");
@@ -79,7 +88,7 @@ public class PastaEmDisco implements PastaDosAtendimentos {
             while ((lidos = conteudo.read(buffer)) != -1) {
                 total += lidos;
                 if (total > limite) {
-                    throw LeituraDoPdfException.grandeDemais(DataSize.ofBytes(limite).toMegabytes() + " MB");
+                    throw seExceder.get();
                 }
                 saida.write(buffer, 0, lidos);
             }
@@ -139,9 +148,106 @@ public class PastaEmDisco implements PastaDosAtendimentos {
         }
     }
 
-    /** Onde fica (ou ficará) um anexo: {@code <id>/arquivos/<ordem>_<nome saneado>}, sempre dentro da pasta. */
-    public Path caminhoDoAnexo(UUID atendimentoId, int ordem, String nomeOriginal) {
-        return dentroDaRaiz(pastaDo(atendimentoId).resolve("arquivos").resolve("%03d_%s".formatted(ordem, nomeSeguro(nomeOriginal))));
+    @Override
+    public Path parcialDoAnexo(UUID atendimentoId, UUID arquivoId) {
+        return dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(".parcial-" + arquivoId));
+    }
+
+    @Override
+    public String guardarArquivo(UUID atendimentoId, Path origem, String prefixo, int ordem, String nomeOriginal) {
+        Path destino = caminhoDoArquivo(atendimentoId, prefixo, ordem, nomeOriginal);
+        try {
+            criar(destino.getParent());
+            try {
+                Files.move(origem, destino, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+            } catch (AtomicMoveNotSupportedException e) {
+                Files.move(origem, destino, StandardCopyOption.REPLACE_EXISTING);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não foi possível guardar o arquivo do atendimento " + atendimentoId, e);
+        }
+        return raiz.relativize(destino).toString().replace('\\', '/');
+    }
+
+    @Override
+    public void apagarArquivo(String caminhoRelativo) {
+        if (caminhoRelativo == null || caminhoRelativo.isBlank()) {
+            return;
+        }
+        Path arquivo = dentroDaRaiz(raiz.resolve(caminhoRelativo));
+        try {
+            Files.deleteIfExists(arquivo);
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não foi possível apagar o arquivo " + arquivo.getFileName(), e);
+        }
+    }
+
+    @Override
+    public void apagarArquivosDoAtendimento(UUID atendimentoId) {
+        Path pasta = pastaDo(atendimentoId);
+        apagarArvore(pasta.resolve(ARQUIVOS));
+        try {
+            Files.deleteIfExists(pasta.resolve(PDF_DA_CONVERSA));
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não foi possível apagar o PDF do atendimento " + atendimentoId, e);
+        }
+    }
+
+    @Override
+    public long espacoLivre() {
+        try {
+            Path existente = raiz;
+            while (existente != null && !Files.exists(existente)) {
+                existente = existente.getParent();
+            }
+            return existente == null ? Long.MAX_VALUE : Files.getFileStore(existente).getUsableSpace();
+        } catch (IOException e) {
+            log.warn("Não foi possível consultar o espaço livre: {}", e.toString());
+            return Long.MAX_VALUE;
+        }
+    }
+
+    @Override
+    public long espacoOcupado() {
+        if (!Files.isDirectory(raiz)) {
+            return 0;
+        }
+        try (Stream<Path> caminhos = Files.walk(raiz)) {
+            return caminhos.filter(Files::isRegularFile)
+                    .filter(c -> !c.startsWith(raiz.resolve(BASE)) && !c.getFileName().toString().equals(CHAVE_MESTRA))
+                    .mapToLong(PastaEmDisco::tamanho)
+                    .sum();
+        } catch (IOException | UncheckedIOException e) {
+            log.warn("Não foi possível somar o espaço ocupado: {}", e.toString());
+            return -1;
+        }
+    }
+
+    /** Onde fica (ou ficará) um arquivo: {@code <id>/arquivos/<prefixo>_<ordem>_<nome saneado>}, sempre dentro da pasta. */
+    public Path caminhoDoArquivo(UUID atendimentoId, String prefixo, int ordem, String nomeOriginal) {
+        return dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS)
+                .resolve("%s_%03d_%s".formatted(nomeSeguro(prefixo), ordem, nomeSeguro(nomeOriginal))));
+    }
+
+    private static long tamanho(Path arquivo) {
+        try {
+            return Files.size(arquivo);
+        } catch (IOException e) {
+            return 0;
+        }
+    }
+
+    private static void apagarArvore(Path pasta) {
+        if (!Files.exists(pasta)) {
+            return;
+        }
+        try (Stream<Path> caminhos = Files.walk(pasta)) {
+            for (Path caminho : caminhos.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(caminho);
+            }
+        } catch (IOException e) {
+            throw new UncheckedIOException("Não foi possível apagar " + pasta.getFileName(), e);
+        }
     }
 
     Path pastaDo(UUID atendimentoId) {

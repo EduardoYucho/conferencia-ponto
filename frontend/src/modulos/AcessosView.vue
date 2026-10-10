@@ -7,6 +7,7 @@ import { useAuthStore } from '@/stores/auth'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
 import { mensagemDe } from '@/utils/erros'
+import { tamanho } from '@/modulos/atendimento/formato'
 
 /**
  * Quem usa o gerador de atendimentos e a base de conhecimento (administrador). Vale pessoa por pessoa e não
@@ -56,6 +57,20 @@ async function carregar() {
   }
 }
 onMounted(carregar)
+
+/** O espaço em disco dos atendimentos vem à parte: se falhar, a tabela de acessos continua de pé. */
+const espaco = ref(null)
+const erroDoEspaco = ref('')
+async function carregarEspaco() {
+  erroDoEspaco.value = ''
+  try {
+    espaco.value = await atendimentoApi.espaco()
+  } catch (e) {
+    espaco.value = null
+    erroDoEspaco.value = mensagemDe(e)
+  }
+}
+onMounted(carregarEspaco)
 
 function maisRecente(...mudancas) {
   const comData = mudancas.filter((m) => m?.atualizadoEm).sort((a, b) => (a.atualizadoEm < b.atualizadoEm ? 1 : -1))
@@ -135,6 +150,22 @@ const ultima = (linha) =>
       também precisa se liberar para usar. <b class="text-tinta">Curar</b> é editar qualquer registro da base e mudar
       a situação no desenvolvimento (inclui pesquisar).
     </p>
+
+    <section class="mt-4 max-w-3xl text-sm" aria-label="Espaço em disco dos atendimentos">
+      <p v-if="espaco" class="text-tinta-suave">
+        Arquivos dos atendimentos:
+        <b class="text-tinta">{{ espaco.ocupado >= 0 ? tamanho(espaco.ocupado) : 'não deu para somar' }}</b> ocupados<template v-if="espaco.livre >= 0">
+          · <b class="text-tinta">{{ tamanho(espaco.livre) }}</b> livres no disco</template>.
+      </p>
+      <p v-if="espaco?.pausados" role="alert" class="mt-1 font-semibold text-carimbo">
+        {{ espaco.pausados }} atendimento(s) pausado(s) por falta de espaço. Libere espaço no disco; cada pessoa retoma o seu
+        no próprio atendimento.
+      </p>
+      <p v-else-if="erroDoEspaco" class="text-carimbo">
+        Não deu para ver o espaço em disco: {{ erroDoEspaco }}
+        <button type="button" class="ml-1 font-semibold underline underline-offset-4" @click="carregarEspaco">Tentar de novo</button>
+      </p>
+    </section>
 
     <p v-if="aviso" role="status" class="mt-3 text-sm font-semibold text-credito">{{ aviso }}</p>
 

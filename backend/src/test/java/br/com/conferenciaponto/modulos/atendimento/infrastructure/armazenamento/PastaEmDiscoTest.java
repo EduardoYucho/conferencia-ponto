@@ -110,7 +110,7 @@ class PastaEmDiscoTest {
         PastaEmDisco pasta = pasta();
         UUID id = UUID.randomUUID();
         pasta.guardarPdf(id, pasta.receber(bytes(10), 100));
-        Path anexo = pasta.caminhoDoAnexo(id, 1, "foto.jpeg");
+        Path anexo = pasta.caminhoDoArquivo(id, "anexo", 1, "foto.jpeg");
         Files.createDirectories(anexo.getParent());
         Files.writeString(anexo, "imagem");
 
@@ -126,10 +126,10 @@ class PastaEmDiscoTest {
         UUID id = UUID.randomUUID();
         Path dele = raiz.resolve(id.toString()).resolve("arquivos");
 
-        assertThat(pasta.caminhoDoAnexo(id, 1, "..\\..\\..\\Windows\\System32\\x.dll")).startsWithRaw(dele).hasFileName("001_x.dll");
-        assertThat(pasta.caminhoDoAnexo(id, 2, "../../../etc/passwd")).startsWithRaw(dele).hasFileName("002_passwd");
-        assertThat(pasta.caminhoDoAnexo(id, 3, "..")).startsWithRaw(dele).hasFileName("003_arquivo");
-        assertThat(pasta.caminhoDoAnexo(id, 4, "C:\\Users\\x\\a.txt")).startsWithRaw(dele).hasFileName("004_a.txt");
+        assertThat(pasta.caminhoDoArquivo(id, "anexo", 1, "..\\..\\..\\Windows\\System32\\x.dll")).startsWithRaw(dele).hasFileName("anexo_001_x.dll");
+        assertThat(pasta.caminhoDoArquivo(id, "anexo", 2, "../../../etc/passwd")).startsWithRaw(dele).hasFileName("anexo_002_passwd");
+        assertThat(pasta.caminhoDoArquivo(id, "../..", 3, "..")).startsWithRaw(dele).hasFileName("arquivo_003_arquivo");
+        assertThat(pasta.caminhoDoArquivo(id, "ligacao", 4, "C:\\Users\\x\\a.txt")).startsWithRaw(dele).hasFileName("ligacao_004_a.txt");
     }
 
     @Test

@@ -105,7 +105,7 @@ class AtendimentoWebTest {
         when(atendimentos.receberPdf(eq(maria), corpo.capture(), eq((long) PDF.length), eq("Conversa do cliente (1).pdf")))
                 .thenAnswer(chamada -> {
                     lido[0] = chamada.<InputStream>getArgument(1).readAllBytes();
-                    return new ResultadoDoEnvio(true, RESUMO, LEITURA);
+                    return new ResultadoDoEnvio(true, RESUMO, LEITURA, 0);
                 });
 
         mvc.perform(post("/api/v1/atendimentos").with(como(maria)).contentType(MediaType.APPLICATION_PDF)
@@ -122,7 +122,7 @@ class AtendimentoWebTest {
     @Test
     void chamadoQueJaTemAtendimentoResponde200ComOExistente() throws Exception {
         when(acessos.liberado(coordenacao)).thenReturn(true);
-        when(atendimentos.receberPdf(eq(coordenacao), any(), anyLong(), any())).thenReturn(new ResultadoDoEnvio(false, RESUMO, LEITURA));
+        when(atendimentos.receberPdf(eq(coordenacao), any(), anyLong(), any())).thenReturn(new ResultadoDoEnvio(false, RESUMO, LEITURA, 0));
 
         mvc.perform(post("/api/v1/atendimentos").with(como(coordenacao)).contentType(MediaType.APPLICATION_OCTET_STREAM).content(PDF))
                 .andExpect(status().isOk())
@@ -156,10 +156,10 @@ class AtendimentoWebTest {
         when(acessos.liberado(maria)).thenReturn(true);
         when(atendimentos.listar(maria)).thenReturn(List.of(RESUMO));
         when(atendimentos.detalhe(maria, ID)).thenReturn(new AtendimentoView(ID, "20261009000001", "Loja Exemplo", null, null,
-                "novo", Instant.parse("2026-10-09T15:00:00Z"), Instant.parse("2026-11-08T15:00:00Z"), null, null,
-                Instant.parse("2026-10-10T12:00:00Z"), false, new Omitidos(1, 2), 1,
+                "novo", null, 100, Instant.parse("2026-10-09T15:00:00Z"), Instant.parse("2026-11-08T15:00:00Z"), null, null,
+                null, Instant.parse("2026-10-10T12:00:00Z"), false, new Omitidos(1, 2), 1,
                 List.of(new AtendimentoView.Item(1, "mensagem", "cliente", "Loja Exemplo", null, "Bom dia", List.of())),
-                List.of()));
+                List.of(), List.of()));
 
         mvc.perform(get("/api/v1/atendimentos").with(como(maria)))
                 .andExpect(status().isOk())

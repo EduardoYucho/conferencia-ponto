@@ -58,13 +58,13 @@ export const SITUACOES = {
 }
 
 export const SITUACOES_DO_ANEXO = {
-  aguardando: 'aguardando download',
-  baixando: 'baixando…',
-  pronto: 'baixado',
-  falhou: 'falhou',
-  vencido: 'link vencido',
-  nao_suportado: 'tipo não suportado',
-  removido: 'removido',
+  aguardando: { rotulo: 'aguardando download', classe: 'text-tinta-suave' },
+  baixando: { rotulo: 'baixando…', classe: 'text-tinta' },
+  pronto: { rotulo: 'baixado', classe: 'text-credito' },
+  falhou: { rotulo: 'falhou', classe: 'font-semibold text-carimbo' },
+  vencido: { rotulo: 'link vencido', classe: 'font-semibold text-carimbo' },
+  nao_suportado: { rotulo: 'não suportado', classe: 'font-semibold text-carimbo' },
+  removido: { rotulo: 'tirado', classe: 'text-tinta-apagada' },
 }
 
 /** Quantos trechos saíram da conversa ("2 trechos omitidos: chave do bot e acesso remoto"). */
@@ -78,3 +78,33 @@ export function textoDosOmitidos(omitidos) {
   const total = chave + acesso
   return `${total} ${total === 1 ? 'trecho omitido' : 'trechos omitidos'}: ${partes.join(' e ')}. Aparecem como [omitido].`
 }
+
+/** "1 mensagem", "3 eventos". */
+export function contagem(n, singular, plural) {
+  return `${n} ${n === 1 ? singular : plural}`
+}
+
+/** "1,2 MB" a partir dos bytes. */
+export function tamanho(bytes) {
+  if (bytes == null || bytes < 0) return ''
+  if (bytes < 1024) return `${bytes} B`
+  const unidades = ['KB', 'MB', 'GB', 'TB']
+  let valor = bytes / 1024
+  let i = 0
+  while (valor >= 1024 && i < unidades.length - 1) {
+    valor /= 1024
+    i++
+  }
+  return `${valor.toLocaleString('pt-BR', { maximumFractionDigits: valor < 10 ? 1 : 0 })} ${unidades[i]}`
+}
+
+/** De onde veio o arquivo enviado pela pessoa. */
+export const ORIGENS = {
+  ligacao: 'Ligação',
+  video: 'Vídeo de reprodução',
+  print_extra: 'Print',
+}
+
+/** O que se aceita no envio (as extensões que o Gemini lê). */
+export const ACEITOS_NO_ENVIO =
+  '.png,.jpg,.jpeg,.webp,.heic,.heif,.mp3,.m4a,.wav,.ogg,.oga,.opus,.aac,.flac,.mp4,.mov,.webm,.avi,.mkv,.pdf,.txt'

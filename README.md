@@ -61,7 +61,7 @@ Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na prime
 cd backend
 .\iniciar.ps1            # compila e sobe (mvn spring-boot:run) — Ctrl+C para parar
 .\iniciar.ps1 -Jar       # gera o .jar sem rodar os testes e sobe com java -jar
-.\iniciar.ps1 -Testes    # 414 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
+.\iniciar.ps1 -Testes    # 491 testes (domínio, casos de uso, PDFs, monitor, arquivo, RBAC, ajuste, ciclo, conciliação, usuários, horários, planilha, presença, logs, mensagens de erro, migrações num PostgreSQL temporário, isolamento dos módulos)
 ```
 
 No `cmd`, use `iniciar.cmd` com os mesmos parâmetros. No Linux/macOS: `./mvnw spring-boot:run`.
@@ -260,7 +260,8 @@ Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador 
 PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
-deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini e a leitura do PDF do Digisac:
+deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac e o
+download dos anexos, com o envio das ligações, do vídeo e dos prints:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
@@ -284,9 +285,32 @@ deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini e a 
   contato não é guardado. O PDF chega em fluxo (sem multipart, até `atendimento.pdf.tamanho-maximo`, 50 MB) e fica
   em `%USERPROFILE%\.conferencia-ponto\atendimentos\<id>\conversa.pdf`. Cada pessoa vê só os próprios
   atendimentos (o de outra pessoa responde 404, inclusive para o administrador). Enviar de novo o PDF de um chamado
-  que já tem atendimento não cria outro: a tela oferece abrir o existente. O download dos anexos vem na próxima
-  etapa. Recusas: `PDF_INVALIDO`, `PDF_PROTEGIDO`, `PDF_NAO_E_DIGISAC`, `PDF_LAYOUT_DESCONHECIDO` (o formato do
+  que já tem atendimento não cria outro: a tela oferece abrir o existente (e, se o PDF novo trouxe links novos, os
+  dos anexos que faltam são renovados). Recusas: `PDF_INVALIDO`, `PDF_PROTEGIDO`, `PDF_NAO_E_DIGISAC`, `PDF_LAYOUT_DESCONHECIDO` (o formato do
   Digisac mudou: a tela mostra o protocolo para avisar o administrador), `PDF_GRANDE_DEMAIS`, `PDF_SEM_MENSAGENS`.
+- **Download dos anexos** (botão *Baixar os anexos*, na tela do atendimento ou logo depois de enviar o PDF): cada
+  anexo vira uma tarefa na fila do módulo (`atendimento.tarefa`), que roda em segundo plano — a tela pode ser
+  fechada e o serviço reiniciado: ao subir, o que estava em execução volta para a fila e o download **continua de
+  onde parou** (`Range`). São até 8 tarefas ao mesmo tempo, 4 por pessoa e 4 downloads (`atendimento.fila.*`,
+  `atendimento.download.paralelos`); uma falha passageira espera 10 s, depois 20 s, 40 s... até 10 min, e na 5ª
+  tentativa o anexo fica como *falhou*, com o motivo. O link vem de um arquivo enviado pela pessoa, então o
+  servidor só baixa por HTTPS, dos hosts de `atendimento.digisac.hosts-permitidos`, sem seguir redirecionamento e
+  recusando endereço de rede interna; o link sai do banco depois do download e nunca vai para o log nem para a
+  tela. O tipo é conferido pelos bytes (não pela extensão): Word, Excel, GIF e outros que o Gemini não lê ficam
+  como *não suportado*. A tela acompanha ao vivo pelo canal SSE do módulo (`GET /atendimentos/eventos`, evento
+  `atendimento-progresso`, só para o dono). Por anexo há **Tentar de novo**, **Enviar o arquivo à mão** (quando o
+  link venceu ou o download falhou) e **Tirar**. Com links vencidos, soltar na tela do atendimento um PDF novo do
+  mesmo chamado renova os links que faltam. Com o disco abaixo de `atendimento.armazenamento.espaco-minimo`
+  (200 MB), o atendimento fica **pausado** (`DISCO_CHEIO`) até a pessoa retomar.
+- **Ligações, vídeo e prints**: a pessoa escolhe o que são e solta os arquivos (vários de uma vez); cada um vai em
+  fluxo com a data de modificação, que entra na linha do tempo. Limites por tipo em `atendimento.envio.tamanho-maximo`
+  (imagem e documento 50 MB, áudio 500 MB, vídeo 2 GB). Ficam em `atendimentos\<id>\arquivos\` com nomes como
+  `ligacao_001_<nome>`.
+- **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
+  são apagados 30 dias depois da criação do atendimento — a conversa lida continua e a tela avisa — e o
+  atendimento inteiro, 180 dias depois.
+- **Espaço em disco**: a tela Acessos mostra ao administrador quanto os arquivos dos atendimentos ocupam, quanto
+  sobra no disco e quantos atendimentos estão pausados por falta de espaço.
 
 | Método | Rota | Descrição |
 |---|---|---|
@@ -299,6 +323,14 @@ deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini e a 
 | POST | `/atendimentos` | Corpo = o PDF do Digisac (`application/pdf`), cabeçalho `X-Nome-Arquivo` (codificado): `201 {criado: true, atendimento, leitura}` · `200 {criado: false, ...}` se o chamado já tem atendimento |
 | GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada) e os anexos com a validade dos links (o link em si nunca vem) |
 | DELETE | `/atendimentos/{id}` | Apaga o atendimento e os arquivos dele |
+| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os anexos que faltam · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos}` |
+| GET | `/atendimentos/{id}/progresso` · `/atendimentos/eventos` | O progresso agora · SSE do módulo (`atendimento-progresso`, só os meus atendimentos) |
+| POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | Anexo que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
+| PUT | `/atendimentos/{id}/arquivos?origem=ligacao\|video\|print_extra&nome=&modificadoEm=` | Corpo = o arquivo: `201` com o arquivo guardado (`ORIGEM_INVALIDA`, `TIPO_NAO_SUPORTADO`, `ARQUIVO_GRANDE_DEMAIS`, `ARQUIVO_VAZIO`, `409 DISCO_CHEIO`) |
+| PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |
+| DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |
+| PUT | `/atendimentos/{id}/pdf` | PDF novo do mesmo chamado: renova os links dos anexos que faltam (`CHAMADO_DIFERENTE`) |
+| GET | `/atendimentos/acessos/espaco` | (ADMIN) `{ocupado, livre, pausados}` em bytes |
 
 ## Erros, protocolo e logs
 
