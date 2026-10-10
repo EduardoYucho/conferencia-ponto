@@ -90,6 +90,33 @@ class TarefasJdbcTest {
     }
 
     @Test
+    void doisPedidosAoMesmoTempoParaOMesmoItemCriamUmaTarefaSo() throws Exception {
+        UUID usuario = PostgresDeTeste.novoUsuario(true);
+        List<UUID> criado = atendimentoComTarefas(usuario, 1);
+        jdbc.sql("DELETE FROM atendimento.tarefa WHERE atendimento_id = ?").param(criado.get(0)).update();
+        ExecutorService varios = Executors.newFixedThreadPool(8);
+        CountDownLatch largada = new CountDownLatch(1);
+        try {
+            List<Future<Boolean>> pedidos = new ArrayList<>();
+            for (int i = 0; i < 16; i++) {
+                pedidos.add(varios.submit(() -> {
+                    largada.await();
+                    return tarefas.criar(TipoDeTarefa.ANALISAR, criado.get(0), criado.get(1), null, 3, Instant.now());
+                }));
+            }
+            largada.countDown();
+            int criadas = 0;
+            for (Future<Boolean> pedido : pedidos) {
+                criadas += pedido.get() ? 1 : 0;
+            }
+            assertThat(criadas).isEqualTo(1);
+            assertThat(tarefas.ativas(criado.get(0))).isEqualTo(1);
+        } finally {
+            varios.shutdownNow();
+        }
+    }
+
+    @Test
     void pegaMarcaComoEmExecucaoComPrazoENaoEntregaDuasVezes() {
         UUID atendimento = novo(2);
 

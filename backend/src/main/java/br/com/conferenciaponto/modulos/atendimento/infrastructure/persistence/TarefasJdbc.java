@@ -36,26 +36,35 @@ class TarefasJdbc implements Tarefas {
         this.transacao = transacao;
     }
 
+    /**
+     * Dois pedidos ao mesmo tempo para o mesmo item (o download que terminou e o "Processar", por exemplo) passam
+     * um de cada vez por uma trava do PostgreSQL só daquele item: o segundo vê a tarefa do primeiro e não cria outra.
+     */
     @Override
     public boolean criar(TipoDeTarefa tipo, UUID atendimentoId, UUID arquivoId, UUID saidaId, int maxTentativas,
                          Instant agora) {
-        return jdbc.sql("""
-                        INSERT INTO atendimento.tarefa (atendimento_id, arquivo_id, saida_id, tipo, max_tentativas,
-                                                        executar_apos, criada_em, atualizada_em)
-                        SELECT :atendimento, :arquivo, :saida, :tipo, :max, :agora, :agora, :agora
-                         WHERE NOT EXISTS (SELECT 1 FROM atendimento.tarefa
-                                            WHERE tipo = :tipo AND atendimento_id = :atendimento
-                                              AND arquivo_id IS NOT DISTINCT FROM :arquivo
-                                              AND saida_id IS NOT DISTINCT FROM :saida
-                                              AND situacao IN %s)
-                        """.formatted(ATIVA))
-                .param("atendimento", atendimentoId)
-                .param("arquivo", arquivoId)
-                .param("saida", saidaId)
-                .param("tipo", tipo.codigo())
-                .param("max", (short) Math.max(1, maxTentativas))
-                .param("agora", utc(agora))
-                .update() > 0;
+        String item = tipo.codigo() + ":" + atendimentoId + ":" + arquivoId + ":" + saidaId;
+        Boolean criada = transacao.execute(status -> {
+            jdbc.sql("SELECT pg_advisory_xact_lock(hashtextextended(:item, 0))").param("item", item).query().singleRow();
+            return jdbc.sql("""
+                            INSERT INTO atendimento.tarefa (atendimento_id, arquivo_id, saida_id, tipo, max_tentativas,
+                                                            executar_apos, criada_em, atualizada_em)
+                            SELECT :atendimento, :arquivo, :saida, :tipo, :max, :agora, :agora, :agora
+                             WHERE NOT EXISTS (SELECT 1 FROM atendimento.tarefa
+                                                WHERE tipo = :tipo AND atendimento_id = :atendimento
+                                                  AND arquivo_id IS NOT DISTINCT FROM :arquivo
+                                                  AND saida_id IS NOT DISTINCT FROM :saida
+                                                  AND situacao IN %s)
+                            """.formatted(ATIVA))
+                    .param("atendimento", atendimentoId)
+                    .param("arquivo", arquivoId)
+                    .param("saida", saidaId)
+                    .param("tipo", tipo.codigo())
+                    .param("max", (short) Math.max(1, maxTentativas))
+                    .param("agora", utc(agora))
+                    .update() > 0;
+        });
+        return Boolean.TRUE.equals(criada);
     }
 
     @Override
@@ -231,6 +240,21 @@ class TarefasJdbc implements Tarefas {
                          WHERE atendimento_id = :atendimento AND situacao = 'pendente'
                         """)
                 .param("atendimento", atendimentoId)
+                .param("agora", utc(agora))
+                .update();
+    }
+
+    @Override
+    public int pausarDoAtendimento(UUID atendimentoId, java.util.Set<TipoDeTarefa> tipos, Instant agora) {
+        if (tipos.isEmpty()) {
+            return 0;
+        }
+        return jdbc.sql("""
+                        UPDATE atendimento.tarefa SET situacao = 'pausada', atualizada_em = :agora
+                         WHERE atendimento_id = :atendimento AND situacao = 'pendente' AND tipo IN (:tipos)
+                        """)
+                .param("atendimento", atendimentoId)
+                .param("tipos", tipos.stream().map(TipoDeTarefa::codigo).toList())
                 .param("agora", utc(agora))
                 .update();
     }

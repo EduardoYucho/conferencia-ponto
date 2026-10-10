@@ -27,6 +27,14 @@ public final class RepositoriosDeTeste {
         return new TarefasJdbc(PostgresDeTeste.jdbc(), transacao());
     }
 
+    public static br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises analises() {
+        return new AnalisesJdbc(PostgresDeTeste.jdbc());
+    }
+
+    public static br.com.conferenciaponto.modulos.atendimento.domain.chave.ChavesGemini chaves() {
+        return new ChavesGeminiJdbc(PostgresDeTeste.jdbc());
+    }
+
     public static TransactionOperations transacao() {
         return new TransactionTemplate(new DataSourceTransactionManager(PostgresDeTeste.banco()));
     }

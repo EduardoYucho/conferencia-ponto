@@ -237,7 +237,12 @@ public class CoordenadorDaFila {
                     tarefa.atendimentoId(), p.codigo());
             return p;
         }
-        tarefas.concluir(tarefa.id(), agora);
+        try {
+            acompanhamento.antesDeConcluir(tarefa);
+        } catch (RuntimeException e) {
+            log.error("Não foi possível pedir a etapa seguinte da tarefa {} ({}): {}", tarefa.id(), tarefa.tipo().codigo(), e.toString());
+        }
+        tarefas.concluir(tarefa.id(), clock.instant());
         return resultado;
     }
 

@@ -4,7 +4,10 @@ import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.EstadoDaAnalise;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.PanoramaDasAnalises;
 import br.com.conferenciaponto.modulos.atendimento.application.arquivo.ArquivoView;
+import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.PublicadorDeProgresso;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
@@ -13,7 +16,6 @@ import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendiment
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ConversaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.NovoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
-import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ProgressoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ResumoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.AnexoLido;
@@ -223,21 +225,21 @@ public class GerenciarAtendimentos {
                 .map(i -> new AtendimentoView.Item(i.ordem(), i.tipo().codigo(), i.lado() == null ? null : i.lado().codigo(),
                         i.remetente(), i.momento(), i.texto(), i.anexos()))
                 .toList();
+        PanoramaDasAnalises analises = publicador.panorama(id);
         List<AtendimentoView.Anexo> anexos = guardado.arquivos().stream()
                 .filter(ArquivoDoAtendimento::daConversa)
-                .map(a -> anexo(a, agora))
+                .map(a -> anexo(a, agora, analises.de(a.id())))
                 .toList();
         List<ArquivoView> extras = guardado.arquivos().stream()
                 .filter(a -> !a.daConversa())
-                .map(ArquivoView::de)
+                .map(a -> ArquivoView.de(a, analises.de(a.id())))
                 .toList();
-        int percentual = new ProgressoDoAtendimento(r.id(), usuario.id(), r.situacao(), guardado.motivoPausa(),
-                guardado.arquivos()).percentual();
+        int percentual = ProgressoView.percentual(guardado.arquivos(), analises);
         return new AtendimentoView(r.id(), r.chamado(), r.contato(), r.inicio(), r.fim(), r.situacao().codigo(),
                 guardado.motivoPausa(), percentual, r.criadoEm(), guardado.apagarArquivosEm(), guardado.arquivosApagadosEm(),
                 conversa.cabecalho().assunto(), conversa.cabecalho().resumo(), r.linksValidosAte(),
                 ResumoView.vencido(r.linksValidosAte(), agora), conversa.omitidos(), guardado.versaoLeitor(), itens, anexos,
-                extras);
+                extras, analises.tokensEntrada(), analises.tokensSaida(), analises.semChaveGemini());
     }
 
     /** Apaga o atendimento e os arquivos dele (primeiro os arquivos: se um estiver preso, nada é apagado). */
@@ -271,11 +273,13 @@ public class GerenciarAtendimentos {
                 ResumoView.vencido(validoAte, agora), mascarado.omitidos(), conversa.linhasSemCabecalho());
     }
 
-    private static AtendimentoView.Anexo anexo(ArquivoDoAtendimento a, Instant agora) {
+    private static AtendimentoView.Anexo anexo(ArquivoDoAtendimento a, Instant agora, EstadoDaAnalise analise) {
         boolean semArquivo = Set.of("aguardando", "falhou", "vencido").contains(a.situacao());
         boolean vencido = "vencido".equals(a.situacao()) || semArquivo && ResumoView.vencido(a.urlValidaAte(), agora);
         return new AtendimentoView.Anexo(a.id(), a.ordem(), a.nome(), a.categoria().codigo(), a.situacao(), a.urlValidaAte(),
-                vencido, a.mensagemOrdem(), a.momento(), a.tamanho(), a.erroMensagem());
+                vencido, a.mensagemOrdem(), a.momento(), a.tamanho(), a.erroMensagem(),
+                analise == null ? null : analise.situacao().codigo(), analise == null ? null : analise.codigo(),
+                analise == null ? null : analise.mensagem());
     }
 
     private void apagarPastaSemFalhar(UUID id) {

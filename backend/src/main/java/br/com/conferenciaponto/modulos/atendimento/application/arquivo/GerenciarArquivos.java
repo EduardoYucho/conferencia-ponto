@@ -120,6 +120,7 @@ public class GerenciarArquivos {
             }
             log.info("Atendimento {}: {} {} recebido ({} bytes, {})", atendimentoId, origem.codigo(), view.ordem(),
                     recebido.tamanho(), recebido.tipo().tipoDeMidia());
+            processamento.arquivoNovo(atendimentoId, view.id());
             publicador.publicar(atendimentoId);
             return view;
         } finally {
@@ -149,6 +150,7 @@ public class GerenciarArquivos {
             pasta.descartar(pasta.parcialDoAnexo(atendimentoId, arquivoId));
             log.info("Atendimento {}: anexo {} enviado à mão ({} bytes, {})", atendimentoId, anexo.ordem(), recebido.tamanho(),
                     recebido.tipo().tipoDeMidia());
+            processamento.conteudoTrocado(atendimentoId, arquivoId);
             processamento.atualizarSituacao(atendimentoId);
             publicador.publicar(atendimentoId);
             return arquivos.buscar(atendimentoId, arquivoId).map(ArquivoView::de).orElseThrow();
@@ -181,6 +183,7 @@ public class GerenciarArquivos {
             arquivos.apagar(arquivoId);
         }
         log.info("Atendimento {}: {} {} tirado", atendimentoId, arquivo.origem(), arquivo.ordem());
+        processamento.arquivoTirado(arquivoId);
         processamento.atualizarSituacao(atendimentoId);
         publicador.publicar(atendimentoId);
     }

@@ -40,6 +40,9 @@ public interface PastaDosAtendimentos {
      */
     String guardarArquivo(UUID atendimentoId, Path origem, String prefixo, int ordem, String nomeOriginal);
 
+    /** Onde está, no disco, um arquivo pelo caminho relativo guardado no banco (sempre dentro da pasta). */
+    Path localDoArquivo(String caminhoRelativo);
+
     /** Apaga um arquivo pelo caminho relativo guardado no banco (não falha se ele já não existe). */
     void apagarArquivo(String caminhoRelativo);
 

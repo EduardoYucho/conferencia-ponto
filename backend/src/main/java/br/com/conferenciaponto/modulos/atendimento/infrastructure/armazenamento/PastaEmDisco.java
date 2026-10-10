@@ -170,6 +170,14 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     }
 
     @Override
+    public Path localDoArquivo(String caminhoRelativo) {
+        if (caminhoRelativo == null || caminhoRelativo.isBlank()) {
+            throw new IllegalArgumentException("Arquivo sem caminho");
+        }
+        return dentroDaRaiz(raiz.resolve(caminhoRelativo));
+    }
+
+    @Override
     public void apagarArquivo(String caminhoRelativo) {
         if (caminhoRelativo == null || caminhoRelativo.isBlank()) {
             return;

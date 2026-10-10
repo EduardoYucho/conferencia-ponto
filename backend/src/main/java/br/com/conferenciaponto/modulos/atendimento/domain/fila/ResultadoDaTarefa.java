@@ -34,6 +34,11 @@ public sealed interface ResultadoDaTarefa {
         return new FalhaTemporaria(codigo, mensagem, null);
     }
 
+    /** Passageira, esperando pelo menos o tempo pedido (ex.: o limite por minuto do Gemini). */
+    static ResultadoDaTarefa temporaria(String codigo, String mensagem, Duration esperar) {
+        return new FalhaTemporaria(codigo, mensagem, esperar);
+    }
+
     static ResultadoDaTarefa definitiva(String codigo, String mensagem) {
         return new FalhaDefinitiva(codigo, mensagem);
     }
