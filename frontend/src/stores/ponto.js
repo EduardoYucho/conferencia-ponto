@@ -63,6 +63,8 @@ export const usePontoStore = defineStore('ponto', () => {
   const presencaMudouEm = ref(null)
   /** Momento da última reconexão do tempo real (as telas recarregam o que podem ter perdido). */
   const reconectouEm = ref(null)
+  /** O banco de horas da pessoa em tela mudou por fora do mês (ciclo fechado ou corrigido, lançamento no banco). */
+  const bancoMudouEm = ref(null)
   let encerrarEventos = null
   let timerSaldos = null
   let timerMes = null
@@ -351,7 +353,10 @@ export const usePontoStore = defineStore('ponto', () => {
       },
       onCiclo: (payload) => {
         // banco de horas fechado/corrigido: saldos novos e avisos de prazo do ciclo antigo arquivados
-        if (daTela(payload)) agendarSaldos()
+        if (daTela(payload)) {
+          agendarSaldos()
+          bancoMudouEm.value = Date.now()
+        }
         if (meu(payload)) useNotificacoesStore().carregar().catch(() => {})
       },
       onNotificacao: (payload) => meu(payload) && useNotificacoesStore().receber(payload),
@@ -368,6 +373,7 @@ export const usePontoStore = defineStore('ponto', () => {
       },
       onBanco: (payload) => {
         if (!daTela(payload)) return
+        bancoMudouEm.value = Date.now()
         if (afetaMesExibido(payload.data, payload.data)) agendarRecargaMes()
         else agendarSaldos()
       },
@@ -492,6 +498,7 @@ export const usePontoStore = defineStore('ponto', () => {
     erroPlanilha.value = null
     desatualizado.value = false
     reconectouEm.value = null
+    bancoMudouEm.value = null
     ultimoEvento.value = null
     ultimaConciliacao.value = null
     erro.value = null
@@ -552,7 +559,7 @@ export const usePontoStore = defineStore('ponto', () => {
     configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
     dataSelecionada, carregando, salvando,
     erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
-    erroPlanilha, desatualizado, reconectouEm, presencaMudouEm,
+    erroPlanilha, desatualizado, reconectouEm, bancoMudouEm, presencaMudouEm,
     // getters
     hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
     saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual, temDados,

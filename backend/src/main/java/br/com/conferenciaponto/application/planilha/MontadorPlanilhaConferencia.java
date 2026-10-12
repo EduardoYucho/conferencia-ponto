@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.planilha;
 
+import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.TextoDuracao;
@@ -39,7 +40,6 @@ import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -405,7 +405,7 @@ public class MontadorPlanilhaConferencia {
                 "Tolerância", "Saldo dos dias", "Lançamentos no banco", "Saldo do mês", "Banco de horas no fim do mês"));
         int linhaTotal = linhas.size();
         linhas.add(List.of());
-        Map<YearMonth, Integer> bancoNoFimDoMes = bancoNoFimDoMes(ciclosDoUsuario);
+        Map<YearMonth, BancoDeHorasPorMes.NoMes> bancoNoFimDoMes = BancoDeHorasPorMes.de(ciclosDoUsuario);
         int primeiraLinhaDeMes = linhas.size();
         long[] totais = new long[8];
         for (AbaDoMes m : meses) {
@@ -426,9 +426,9 @@ public class MontadorPlanilhaConferencia {
             linha[7] = Celula.formulaDuracao(lancamentos, m.lancamentos(), Estilo.NORMAL.corDoSaldo(m.lancamentos()));
             linha[8] = Celula.formulaDuracao(saldo + "+" + lancamentos, m.saldoDoMes(),
                     Estilo.ROTULO.corDoSaldo(m.saldoDoMes()));
-            Integer banco = bancoNoFimDoMes.get(m.mes());
+            BancoDeHorasPorMes.NoMes banco = bancoNoFimDoMes.get(m.mes());
             if (banco != null) {
-                linha[9] = Celula.duracao(banco, Estilo.NORMAL.corDoSaldo(banco));
+                linha[9] = Celula.duracao(banco.saldoSegundos(), Estilo.NORMAL.corDoSaldo(banco.saldoSegundos()));
             }
             linhas.add(List.of(linha));
             long[] valores = {m.diasRegistrados(), m.diasEmAberto(), m.trabalhado(), m.previsto(), m.tolerancia(),
@@ -478,18 +478,6 @@ public class MontadorPlanilhaConferencia {
         List<Integer> larguras = new ArrayList<>(List.of(190));
         larguras.addAll(Arrays.asList(118, 118, 118, 118, 118, 118, 118, 118, 132));
         return new Aba(Aba.ID_RESUMO, "Resumo", linhas, larguras, 0);
-    }
-
-    /**
-     * Saldo do banco de horas (do ciclo que cobre o mês) acumulado até o fim de cada mês. Quando um ciclo fecha
-     * no meio do mês, vale o do ciclo seguinte.
-     */
-    private static Map<YearMonth, Integer> bancoNoFimDoMes(List<CicloBancoView> ciclosDoUsuario) {
-        Map<YearMonth, Integer> porMes = new HashMap<>();
-        ciclosDoUsuario.stream()
-                .sorted(Comparator.comparing((CicloBancoView v) -> v.ciclo().dataInicio()))
-                .forEach(v -> v.meses().forEach(m -> porMes.put(mes(m), m.saldoAnualAcumuladoSegundos())));
-        return porMes;
     }
 
     // ------------------------------------------------------------------ apoio
