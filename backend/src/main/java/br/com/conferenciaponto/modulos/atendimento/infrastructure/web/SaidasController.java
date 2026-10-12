@@ -51,6 +51,7 @@ import java.util.UUID;
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/copia?modo=         com_imagens, so_texto ou codigo_fonte
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens/{imagemId}  a imagem (miniatura na tela)
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens.zip         Imagem_01..., na ordem do texto
+ * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens/{imagemId}/marcacao  {ligada}: marcações em vermelho
  * </pre>
  */
 @RestController
@@ -80,6 +81,10 @@ public class SaidasController {
 
     /** A Tela/Funcionalidade do cabeçalho dos chamados. */
     public record PedidoDeTela(String telaFuncionalidade) {
+    }
+
+    /** Liga ou desliga as marcações em vermelho de uma imagem. */
+    public record PedidoDeMarcacao(Boolean ligada) {
     }
 
     /** As imagens que ficam no texto, na ordem. */
@@ -154,6 +159,13 @@ public class SaidasController {
                 .cacheControl(CacheControl.noStore())
                 .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.inline().filename(imagem.nome()).build().toString())
                 .body(new FileSystemResource(imagem.local()));
+    }
+
+    @PutMapping("/saidas/{saidaId}/imagens/{imagemId}/marcacao")
+    public ApiResponse<SaidaView> marcacao(@PathVariable UUID id, @PathVariable UUID saidaId, @PathVariable UUID imagemId,
+                                           @RequestBody PedidoDeMarcacao pedido) {
+        return ApiResponse.ok(saidas.marcar(acesso.logado(), id, saidaId, imagemId, pedido == null || pedido.ligada() == null
+                || pedido.ligada()));
     }
 
     @GetMapping("/saidas/{saidaId}/imagens.zip")

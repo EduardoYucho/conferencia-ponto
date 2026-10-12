@@ -60,6 +60,13 @@ public interface Saidas {
 
     void salvarAssunto(UUID saidaId, String assunto);
 
+    /**
+     * Liga ou desliga a marcação de uma imagem (as áreas ficam guardadas para ligar de novo).
+     *
+     * @param marcacoes as áreas, em JSON (null mantém as que já estão)
+     */
+    void salvarMarcacao(UUID imagemId, String marcacoes, boolean ligada, Integer largura, Integer altura);
+
     /** A Tela/Funcionalidade do cabeçalho dos chamados (fica na estrutura do texto). */
     void salvarTela(UUID saidaId, String telaFuncionalidade);
 

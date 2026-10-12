@@ -388,6 +388,15 @@ com a pesquisa exata:
   dando para copiar e baixar as imagens; `TEXTO_CONFIRMADO` se tentar mudar), e confirmar de novo dá
   `TEXTO_JA_CONFIRMADO`. Imagem que a retenção já apagou não vai, com aviso. Se uma versão anterior do mesmo texto já
   foi para a base, a tela avisa que confirmar a nova cria outro registro.
+- **Marcações em vermelho** (experimental, `atendimento.imagens.marcacoes`, ligado por padrão; cada imagem começa
+  sem): nas imagens do texto que têm análise de imagem, a caixa **Marcações em vermelho** desenha uma borda vermelha
+  em volta das áreas que a análise apontou (a mensagem de erro, o campo com problema; até 5, nas coordenadas de 0 a
+  1000 que o Gemini devolve) numa **cópia em PNG** em `arquivos\marcadas\` do atendimento (a retenção apaga junto);
+  o original não muda. Com a marcação ligada, a cópia é a imagem que vale na miniatura, na cópia com imagens, no .zip
+  (`Imagem_NN.png`) e na base, ao confirmar; desligar volta ao original e apaga a cópia. As áreas ficam guardadas na
+  imagem do texto na primeira vez (ligar de novo usa as mesmas, mesmo que a análise mude). Quadro de vídeo, imagem
+  sem áreas na análise (`SEM_AREAS`) e formato que o servidor não abre (só PNG, JPEG, GIF e BMP; `MARCACAO_FALHOU`)
+  não marcam; texto confirmado não muda (`TEXTO_CONFIRMADO`). A precisão depende do Gemini: confira em telas reais.
 - **Base de conhecimento** (menu, para quem pesquisa): a **pesquisa exata** em português e sem diferença de acento
   nem de maiúsculas, pelo índice de busca do PostgreSQL (`tsvector`, mantido por gatilho; pesos: título, código,
   tela e erro > sintoma, causa, módulo e cliente > resolução; quem procura "configurações" acha "configuração"), mais
@@ -448,6 +457,7 @@ com a pesquisa exata:
 | PUT · POST | `.../saidas/{saidaId}/assunto` · `/texto` · `/imagens` · `/desfazer` | `{assunto}` até 150 (`ASSUNTO_LONGO`) · `{html}` editado (limpo no servidor) · `{incluidas: [ids]}` na ordem (o servidor renumera) · volta ao texto gerado |
 | GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência (nos chamados, com o cabeçalho e o rodapé) |
 | GET | `.../saidas/{saidaId}/imagens/{imagemId}` · `/imagens.zip` | Uma imagem · todas, na ordem do texto (`IMAGEM_APAGADA` depois da retenção) |
+| PUT | `.../saidas/{saidaId}/imagens/{imagemId}/marcacao` | `{ligada}`: liga ou desliga as marcações em vermelho da imagem; devolve o texto (`SEM_AREAS`, `MARCACAO_FALHOU`, `MARCACOES_DESLIGADAS`, `TEXTO_CONFIRMADO`) |
 | POST | `.../saidas/{saidaId}/confirmar` | O registro revisado `{titulo, tipo, cliente, contato, modulo, telaNome, telaCodigo, sintoma, mensagemErro, causa, resolucao, situacao, chamadoDev}`: confirma o texto e cria o registro na base. Devolve `{saida, avisos}` (`TEXTO_JA_CONFIRMADO`, `TEXTO_MUDOU`, `REGISTRO_INVALIDO`, `SEM_PERMISSAO_NA_BASE`, `IMAGEM_NAO_COPIADA`) |
 | GET | `/conhecimento/registros?q=&tipo=&situacao=&cliente=&modulo=&autor=&de=&ate=&validadas=&pagina=` | A pesquisa: `{registros[{id, tipo, situacao, titulo[], telaCodigo[], trecho[], porSignificado, similaridade, ...}], total, pagina, paginas, tamanho, comTexto, significado{ativa, aviso, pendentes}}`; os destaques vêm em partes `{texto, destaque}` (`FILTRO_INVALIDO`, `PERIODO_INVALIDO`) |
 | POST | `/conhecimento/registros/parecidos` | `{titulo, texto, telaCodigo, atendimentoId}`: `{registros[{id, titulo, situacao, chamadoDev, versaoCorrecao, telaCodigo, similaridade, mesmaTela}], porSignificado, aviso}` |

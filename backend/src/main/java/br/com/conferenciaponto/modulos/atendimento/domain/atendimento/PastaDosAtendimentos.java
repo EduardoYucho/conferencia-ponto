@@ -52,6 +52,12 @@ public interface PastaDosAtendimentos {
      */
     String caminhoDoQuadro(UUID atendimentoId, UUID arquivoId, long instanteMs);
 
+    /**
+     * Onde fica a cópia marcada (em vermelho) de uma imagem de um texto: junto dos arquivos do atendimento, para a
+     * retenção apagar com eles. Relativo à pasta dos atendimentos.
+     */
+    String caminhoDaMarcada(UUID atendimentoId, UUID imagemId);
+
     /** Apaga os quadros tirados de um vídeo (o vídeo saiu do atendimento). */
     void apagarQuadros(UUID atendimentoId, UUID arquivoId);
 

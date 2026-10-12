@@ -70,7 +70,7 @@ atendimento:
     caminho:                                 # o ffmpeg.exe (ou a pasta dele); vazio = procurar no PATH e no winget
     tempo-limite: 60s                        # para cada quadro
   imagens:
-    marcacoes: false                         # marcações em vermelho, experimental (E12)
+    marcacoes: true                          # oferece as marcações em vermelho (experimental, E12); cada imagem começa sem
 
 conhecimento:
   vetor:                                     # pesquisa por significado (E11), com a chave do Gemini de cada pessoa
