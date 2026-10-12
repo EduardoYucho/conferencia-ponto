@@ -5,6 +5,8 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.AnaliseGuardada;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
@@ -13,14 +15,20 @@ import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.CabecalhoDoChamado;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.ConferenciaDoTexto;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.ImagemDaSaida;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.Marcacao;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.MarcadorDeImagens;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SituacaoDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoRedigido;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.support.TransactionOperations;
@@ -66,11 +74,15 @@ public class GerenciarSaidas {
     private final ApplicationEventPublisher eventos;
     private final TransactionOperations transacao;
     private final Clock clock;
+    private final Analises analises;
+    private final MarcadorDeImagens marcador;
+    private final boolean marcacoes;
 
     @Autowired
     public GerenciarSaidas(Atendimentos atendimentos, Saidas saidas, PastaDosAtendimentos pasta,
                            ConfiguracaoDaRedacao configuracao, ObjectMapper json, ApplicationEventPublisher eventos,
-                           TransactionOperations transacao, Clock clock) {
+                           TransactionOperations transacao, Clock clock, Analises analises, MarcadorDeImagens marcador,
+                           @Value("${atendimento.imagens.marcacoes:true}") boolean marcacoes) {
         this.atendimentos = atendimentos;
         this.saidas = saidas;
         this.pasta = pasta;
@@ -79,6 +91,16 @@ public class GerenciarSaidas {
         this.eventos = eventos;
         this.transacao = transacao;
         this.clock = clock;
+        this.analises = analises;
+        this.marcador = marcador;
+        this.marcacoes = marcacoes && marcador != null && analises != null;
+    }
+
+    /** Sem as marcações em vermelho. */
+    public GerenciarSaidas(Atendimentos atendimentos, Saidas saidas, PastaDosAtendimentos pasta,
+                           ConfiguracaoDaRedacao configuracao, ObjectMapper json, ApplicationEventPublisher eventos,
+                           TransactionOperations transacao, Clock clock) {
+        this(atendimentos, saidas, pasta, configuracao, json, eventos, transacao, clock, null, null, false);
     }
 
     /** Sem a base de conhecimento (testes do gerador): confirmar só marca a saída. */
@@ -191,7 +213,7 @@ public class GerenciarSaidas {
         String html;
         if (modo == ModoDeCopia.COM_IMAGENS) {
             Map<UUID, ImagemDaSaida> imagens = new HashMap<>();
-            saidas.imagens(saida.id()).forEach(i -> imagens.put(i.id(), i));
+            imagensQueValem(saida).forEach(i -> imagens.put(i.id(), i));
             html = HtmlDaSaida.paraCopiar(completo, id -> embutida(imagens.get(id), avisos));
         } else {
             html = HtmlDaSaida.paraCopiar(completo, null);
@@ -233,7 +255,7 @@ public class GerenciarSaidas {
         String html = HtmlDaSaida.paraCopiar(completo(saida), null);
         List<TextoConfirmado.Imagem> imagens = new ArrayList<>();
         List<String> avisos = new ArrayList<>();
-        for (ImagemDaSaida imagem : saidas.imagens(saida.id())) {
+        for (ImagemDaSaida imagem : imagensQueValem(saida)) {
             if (!imagem.incluida()) {
                 continue;
             }
@@ -258,6 +280,110 @@ public class GerenciarSaidas {
         return new ConfirmacaoView(detalhe(usuario, atendimentoId, saidaId), List.copyOf(avisos));
     }
 
+    /**
+     * Liga (ou desliga) as marcações em vermelho de uma imagem do texto (experimental): as áreas que a análise da
+     * imagem apontou (a mensagem de erro, o campo com problema) ganham uma borda vermelha numa cópia; o original não
+     * muda. Com a marcação ligada, a cópia é a imagem que vale na tela, na cópia para o chamado, no .zip e na base.
+     */
+    public SaidaView marcar(Usuario usuario, UUID atendimentoId, UUID saidaId, UUID imagemId, boolean ligar) {
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
+        if (!marcacoes) {
+            throw new RegraNegocioException("MARCACOES_DESLIGADAS", "As marcações em vermelho estão desligadas neste "
+                    + "servidor (atendimento.imagens.marcacoes).");
+        }
+        ImagemDaSaida imagem = daSaida(saida, imagemId);
+        String caminhoDaMarcada = pasta.caminhoDaMarcada(saida.atendimentoId(), imagem.id());
+        if (!ligar) {
+            saidas.salvarMarcacao(imagem.id(), null, false, null, null);
+            try {
+                pasta.apagarArquivo(caminhoDaMarcada);
+            } catch (RuntimeException e) {
+                log.warn("Não foi possível apagar a cópia marcada da imagem {}: {}", imagem.id(), e.toString());
+            }
+            return detalhe(usuario, atendimentoId, saidaId);
+        }
+        if (imagem.doVideo() || imagem.arquivoId() == null) {
+            throw new RegraNegocioException("SEM_AREAS", imagem.doVideo()
+                    ? "Os quadros do vídeo não têm áreas apontadas pela análise: não dá para marcar."
+                    : "A imagem não tem mais a análise de origem (o arquivo foi tirado): não dá para marcar.");
+        }
+        List<Marcacao> areas = imagem.marcacoes() != null ? lerMarcacoes(imagem.marcacoes()) : daAnalise(imagem.arquivoId());
+        if (areas.isEmpty()) {
+            throw new RegraNegocioException("SEM_AREAS", "A análise desta imagem não apontou nenhuma área para marcar.");
+        }
+        Path origem = pasta.localDoArquivo(imagem.caminho());
+        if (!Files.isRegularFile(origem)) {
+            throw imagemApagada();
+        }
+        MarcadorDeImagens.Tamanho tamanho;
+        try {
+            tamanho = marcador.marcar(origem, pasta.localDoArquivo(caminhoDaMarcada), areas);
+        } catch (MarcadorDeImagens.FalhaNaMarcacao falha) {
+            throw new RegraNegocioException("MARCACAO_FALHOU", falha.getMessage());
+        }
+        try {
+            saidas.salvarMarcacao(imagem.id(), json.writeValueAsString(areas), true, tamanho.largura(), tamanho.altura());
+        } catch (JsonProcessingException e) {
+            throw new IllegalStateException("marcações sem JSON", e);
+        }
+        log.info("Saída {}: imagem {} marcada ({} área(s))", saida.id(), imagem.numero(), areas.size());
+        return detalhe(usuario, atendimentoId, saidaId);
+    }
+
+    /** As áreas da análise mais recente do arquivo ("regioes": [ymin, xmin, ymax, xmax] de 0 a 1000), as válidas. */
+    private List<Marcacao> daAnalise(UUID arquivoId) {
+        Optional<AnaliseGuardada> analise = analises.maisRecente(arquivoId);
+        if (analise.isEmpty() || analise.get().resultado() == null) {
+            return List.of();
+        }
+        List<Marcacao> areas = new ArrayList<>();
+        try {
+            for (JsonNode regiao : json.readTree(analise.get().resultado()).path("regioes")) {
+                JsonNode caixa = regiao.path("caixa");
+                if (caixa.isArray() && caixa.size() == 4 && areas.size() < 5) {
+                    Marcacao m = new Marcacao(regiao.path("descricao").asText(""), caixa.get(0).asInt(-1),
+                            caixa.get(1).asInt(-1), caixa.get(2).asInt(-1), caixa.get(3).asInt(-1));
+                    if (m.valida()) {
+                        areas.add(m);
+                    }
+                }
+            }
+        } catch (JsonProcessingException e) {
+            log.warn("Análise do arquivo {} sem JSON legível para as marcações", arquivoId);
+        }
+        return areas;
+    }
+
+    private List<Marcacao> lerMarcacoes(String guardadas) {
+        try {
+            return json.readValue(guardadas, new TypeReference<List<Marcacao>>() { }).stream().filter(Marcacao::valida).toList();
+        } catch (JsonProcessingException e) {
+            return List.of();
+        }
+    }
+
+    private ImagemDaSaida daSaida(SaidaGuardada saida, UUID imagemId) {
+        return saidas.imagens(saida.id()).stream().filter(i -> i.id().equals(imagemId)).findFirst()
+                .orElseThrow(() -> new RecursoNaoEncontradoException("IMAGEM_NAO_ENCONTRADA", "Imagem não encontrada."));
+    }
+
+    /** A imagem como vale agora: a cópia marcada, se a marcação está ligada e a cópia existe; senão, o original. */
+    private ImagemDaSaida queVale(SaidaGuardada saida, ImagemDaSaida i) {
+        if (!i.comMarcacao()) {
+            return i;
+        }
+        String marcada = pasta.caminhoDaMarcada(saida.atendimentoId(), i.id());
+        if (!Files.isRegularFile(pasta.localDoArquivo(marcada))) {
+            return i;
+        }
+        return new ImagemDaSaida(i.id(), i.saidaId(), i.numero(), i.arquivoId(), marcada, i.legenda(), i.incluida(),
+                i.instanteVideoMs(), i.marcacoes(), true);
+    }
+
+    private List<ImagemDaSaida> imagensQueValem(SaidaGuardada saida) {
+        return saidas.imagens(saida.id()).stream().map(i -> queVale(saida, i)).toList();
+    }
+
     /** O texto inteiro: cabeçalho, corpo (o editado, se houver) e rodapé. */
     private String completo(SaidaGuardada saida) {
         if (!saida.tipo().paraODesenvolvimento()) {
@@ -272,8 +398,7 @@ public class GerenciarSaidas {
     /** O arquivo de uma imagem da saída (para a miniatura na tela). */
     public ArquivoDaImagem imagem(Usuario usuario, UUID atendimentoId, UUID saidaId, UUID imagemId) {
         SaidaGuardada saida = daPessoa(usuario, atendimentoId, saidaId);
-        ImagemDaSaida imagem = saidas.imagens(saida.id()).stream().filter(i -> i.id().equals(imagemId)).findFirst()
-                .orElseThrow(() -> new RecursoNaoEncontradoException("IMAGEM_NAO_ENCONTRADA", "Imagem não encontrada."));
+        ImagemDaSaida imagem = queVale(saida, daSaida(saida, imagemId));
         Path local = pasta.localDoArquivo(imagem.caminho());
         if (!Files.isRegularFile(local)) {
             throw imagemApagada();
@@ -286,7 +411,7 @@ public class GerenciarSaidas {
         SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
         List<ArquivoDaImagem> arquivos = new ArrayList<>();
         boolean faltou = false;
-        for (ImagemDaSaida imagem : saidas.imagens(saida.id())) {
+        for (ImagemDaSaida imagem : imagensQueValem(saida)) {
             if (!imagem.incluida()) {
                 continue;
             }
@@ -310,9 +435,10 @@ public class GerenciarSaidas {
 
     private SaidaView view(SaidaGuardada saida) {
         TextoRedigido texto = EstruturaDaSaida.ler(json, saida.estrutura());
-        List<SaidaView.Imagem> imagens = saidas.imagens(saida.id()).stream()
+        List<SaidaView.Imagem> imagens = imagensQueValem(saida).stream()
                 .map(i -> new SaidaView.Imagem(i.id(), i.numero(), i.legenda(), i.incluida(),
-                        Files.isRegularFile(pasta.localDoArquivo(i.caminho())), nomeNoZip(i)))
+                        Files.isRegularFile(pasta.localDoArquivo(i.caminho())), nomeNoZip(i), i.comMarcacao(),
+                        marcacoes && !i.doVideo() && i.arquivoId() != null))
                 .toList();
         boolean apagadas = !imagens.isEmpty() && imagens.stream().noneMatch(SaidaView.Imagem::disponivel);
         CamposInformados campos = atendimentos.camposInformados(saida.atendimentoId());

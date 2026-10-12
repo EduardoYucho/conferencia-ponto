@@ -195,14 +195,33 @@ class SaidasJdbc implements Saidas {
     @Override
     public List<ImagemDaSaida> imagens(UUID saidaId) {
         return jdbc.sql("""
-                        SELECT id, saida_id, numero, arquivo_id, caminho, legenda, incluida
+                        SELECT id, saida_id, numero, arquivo_id, caminho, legenda, incluida, instante_video_ms,
+                               marcacoes::text AS marcacoes, com_marcacao
                           FROM atendimento.imagem WHERE saida_id = :saida ORDER BY numero
                         """)
                 .param("saida", saidaId)
                 .query((rs, linha) -> new ImagemDaSaida(rs.getObject("id", UUID.class), rs.getObject("saida_id", UUID.class),
                         rs.getInt("numero"), rs.getObject("arquivo_id", UUID.class), rs.getString("caminho"),
-                        rs.getString("legenda"), rs.getBoolean("incluida")))
+                        rs.getString("legenda"), rs.getBoolean("incluida"),
+                        rs.getObject("instante_video_ms") == null ? null : rs.getLong("instante_video_ms"),
+                        rs.getString("marcacoes"), rs.getBoolean("com_marcacao")))
                 .list();
+    }
+
+    @Override
+    public void salvarMarcacao(UUID imagemId, String marcacoes, boolean ligada, Integer largura, Integer altura) {
+        jdbc.sql("""
+                        UPDATE atendimento.imagem
+                           SET marcacoes = coalesce(CAST(:marcacoes AS jsonb), marcacoes), com_marcacao = :ligada,
+                               largura = coalesce(:largura, largura), altura = coalesce(:altura, altura)
+                         WHERE id = :id
+                        """)
+                .param("id", imagemId)
+                .param("marcacoes", marcacoes, java.sql.Types.VARCHAR)
+                .param("ligada", ligada)
+                .param("largura", largura, java.sql.Types.INTEGER)
+                .param("altura", altura, java.sql.Types.INTEGER)
+                .update();
     }
 
     @Override

@@ -123,12 +123,16 @@ function aplicar(view) {
   carregarMiniaturas()
 }
 
+/** A miniatura muda quando a marcação liga ou desliga (a imagem que vale passa a ser outra). */
+const chaveDaMiniatura = (imagem) => `${imagem.id}:${imagem.comMarcacao ? 'marcada' : 'original'}`
+
 async function carregarMiniaturas() {
   for (const imagem of saida.value?.imagens ?? []) {
-    if (!imagem.disponivel || miniaturas.value[imagem.id]) continue
+    const chave = chaveDaMiniatura(imagem)
+    if (!imagem.disponivel || miniaturas.value[chave]) continue
     try {
       const resposta = await atendimentoApi.imagem(props.atendimentoId, props.saidaId, imagem.id)
-      miniaturas.value = { ...miniaturas.value, [imagem.id]: URL.createObjectURL(resposta.data) }
+      miniaturas.value = { ...miniaturas.value, [chave]: URL.createObjectURL(resposta.data) }
     } catch {
       // sem miniatura: a imagem continua listada com o número e a legenda
     }
@@ -296,6 +300,15 @@ function mover(imagem, passo) {
 
 const tirar = (imagem) => ordenar(incluidas.value.map((i) => i.id).filter((id) => id !== imagem.id))
 const devolver = (imagem) => ordenar([...incluidas.value.map((i) => i.id), imagem.id])
+
+async function marcar(imagem, caixa) {
+  const ligada = caixa.checked
+  const view = await executar(`marcar-${imagem.id}`,
+    () => atendimentoApi.marcarImagem(props.atendimentoId, props.saidaId, imagem.id, ligada),
+    ligada ? `Imagem ${imagem.numero} com as marcações em vermelho.` : `Imagem ${imagem.numero} sem as marcações.`)
+  if (view) aplicar(view)
+  else caixa.checked = !!imagem.comMarcacao // não mudou: a caixa volta a mostrar o que vale
+}
 
 async function baixarZip() {
   const resposta = await executar('zip', () => atendimentoApi.imagensZip(props.atendimentoId, props.saidaId))
@@ -565,11 +578,23 @@ function copiarAgora() {
         </p>
         <ul class="mt-2 grid gap-2 sm:grid-cols-2">
           <li v-for="(imagem, i) in incluidas" :key="imagem.id" class="flex gap-3 rounded-[3px] border border-linha bg-cartao p-2">
-            <img v-if="miniaturas[imagem.id]" :src="miniaturas[imagem.id]" :alt="`Imagem ${imagem.numero}`" class="h-20 w-28 shrink-0 rounded-[2px] border border-linha object-contain bg-white" />
+            <img v-if="miniaturas[chaveDaMiniatura(imagem)]" :src="miniaturas[chaveDaMiniatura(imagem)]" :alt="`Imagem ${imagem.numero}${imagem.comMarcacao ? ' com marcações' : ''}`" class="h-20 w-28 shrink-0 rounded-[2px] border border-linha object-contain bg-white" />
             <div v-else class="grid h-20 w-28 shrink-0 place-items-center rounded-[2px] border border-dashed border-linha text-xs text-tinta-apagada">sem prévia</div>
             <div class="min-w-0 flex-1 text-sm">
               <p class="font-semibold">Imagem {{ imagem.numero }} <span class="carimbo text-xs font-normal text-tinta-suave">{{ imagem.arquivo }}</span></p>
               <p class="break-words text-tinta-suave">{{ imagem.legenda ?? 'sem legenda' }}</p>
+              <p v-if="imagem.comMarcacao && travado" class="mt-1 text-xs text-carimbo">Com as marcações em vermelho</p>
+              <label v-if="imagem.podeMarcar && !travado" class="mt-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs" :title="'As áreas que a análise apontou ganham uma borda vermelha numa cópia; o original não muda.'">
+                <input
+                  type="checkbox"
+                  :checked="imagem.comMarcacao"
+                  :disabled="!!acao || editando"
+                  :aria-label="`Marcações em vermelho na imagem ${imagem.numero}`"
+                  @change="marcar(imagem, $event.target)"
+                />
+                <span class="whitespace-nowrap">{{ acao === `marcar-${imagem.id}` ? 'Marcando…' : 'Marcações em vermelho' }}</span>
+                <span class="rounded-[2px] border border-linha px-1 text-[10px] uppercase tracking-wide text-tinta-apagada">experimental</span>
+              </label>
               <div v-if="!travado" class="mt-1 flex flex-wrap gap-x-3 text-xs">
                 <button type="button" class="underline underline-offset-4 disabled:opacity-40" :disabled="!!acao || editando || i === 0" :aria-label="`Subir a imagem ${imagem.numero}`" @click="mover(imagem, -1)">Subir</button>
                 <button type="button" class="underline underline-offset-4 disabled:opacity-40" :disabled="!!acao || editando || i === incluidas.length - 1" :aria-label="`Descer a imagem ${imagem.numero}`" @click="mover(imagem, 1)">Descer</button>

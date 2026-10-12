@@ -32,7 +32,8 @@ import java.util.stream.Stream;
  * └── &lt;id do atendimento&gt;/
  *     ├── conversa.pdf
  *     └── arquivos/         anexo_001_&lt;nome saneado&gt;.jpeg, video_001_... (os arquivos do atendimento)
- *         └── quadros/&lt;id do vídeo&gt;/000135000.png   quadros tirados dos vídeos (o nome é o instante, em ms)
+ *         ├── quadros/&lt;id do vídeo&gt;/000135000.png   quadros tirados dos vídeos (o nome é o instante, em ms)
+ *         └── marcadas/&lt;id da imagem&gt;.png      cópias das imagens dos textos com as marcações em vermelho
  * </pre>
  *
  * Os arquivos são gravados num temporário da própria pasta e movidos no fim (nunca fica um arquivo pela metade com o
@@ -46,6 +47,7 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     private static final String PDF_DA_CONVERSA = "conversa.pdf";
     private static final String ARQUIVOS = "arquivos";
     private static final String QUADROS = "quadros";
+    private static final String MARCADAS = "marcadas";
     private static final String BASE = "base";
     private static final String CHAVE_MESTRA = "chave-mestra";
     private static final int TAMANHO_DO_NOME = 80;
@@ -197,6 +199,12 @@ public class PastaEmDisco implements PastaDosAtendimentos {
         Path quadro = dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(QUADROS).resolve(arquivoId.toString())
                 .resolve("%09d.png".formatted(Math.max(0, instanteMs))));
         return raiz.relativize(quadro).toString().replace('\\', '/');
+    }
+
+    @Override
+    public String caminhoDaMarcada(UUID atendimentoId, UUID imagemId) {
+        Path marcada = dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(MARCADAS).resolve(imagemId + ".png"));
+        return raiz.relativize(marcada).toString().replace('\\', '/');
     }
 
     @Override

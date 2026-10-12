@@ -163,6 +163,35 @@ class SaidasWebTest {
     }
 
     @Test
+    void ligaEDesligaAsMarcacoesDeUmaImagem() throws Exception {
+        when(acessos.liberado(maria)).thenReturn(true);
+        when(saidas.marcar(maria, ID, SAIDA, IMAGEM, true)).thenReturn(view("marcada"));
+        when(saidas.marcar(maria, ID, SAIDA, IMAGEM, false)).thenReturn(view("sem marcação"));
+        when(saidas.marcar(maria, ID, UUID.fromString("2a7e1c3d-0000-4000-8000-0000000000dd"), IMAGEM, true))
+                .thenThrow(new RegraNegocioException("SEM_AREAS", "A análise desta imagem não apontou nenhuma área para marcar."));
+
+        mvc.perform(put(ROTA + "/imagens/" + IMAGEM + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ligada\":true}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.assunto").value("marcada"))
+                .andExpect(jsonPath("$.dados.imagens[0].comMarcacao").value(false))
+                .andExpect(jsonPath("$.dados.imagens[0].podeMarcar").value(false));
+        mvc.perform(put(ROTA + "/imagens/" + IMAGEM + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ligada\":false}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.assunto").value("sem marcação"));
+        mvc.perform(put("/api/v1/atendimentos/" + ID + "/saidas/2a7e1c3d-0000-4000-8000-0000000000dd/imagens/" + IMAGEM
+                        + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON).content("{\"ligada\":true}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.erros[0].codigo").value("SEM_AREAS"));
+
+        when(acessos.liberado(maria)).thenReturn(false);
+        mvc.perform(put(ROTA + "/imagens/" + IMAGEM + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ligada\":true}"))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
     void gerarDeNovoECopiaNosTresModos() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
         when(processamento.gerar(maria, ID, TipoDeSaida.RESUMO))

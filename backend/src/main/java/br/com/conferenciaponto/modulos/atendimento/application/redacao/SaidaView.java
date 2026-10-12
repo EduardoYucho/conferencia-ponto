@@ -48,10 +48,17 @@ public record SaidaView(UUID id, String tipo, String rotulo, int versao, String 
     /**
      * Uma imagem da saída.
      *
-     * @param incluida   está no texto (as tiradas ficam para poder voltar)
-     * @param disponivel o arquivo ainda está no servidor
-     * @param arquivo    o nome no .zip e para anexar ao chamado (ex.: Imagem_01.png)
+     * @param incluida    está no texto (as tiradas ficam para poder voltar)
+     * @param disponivel  o arquivo ainda está no servidor
+     * @param arquivo     o nome no .zip e para anexar ao chamado (ex.: Imagem_01.png)
+     * @param comMarcacao a imagem que vale é a cópia com as marcações em vermelho
+     * @param podeMarcar  as marcações estão ligadas no servidor e a imagem tem análise de imagem (não é quadro de vídeo)
      */
-    public record Imagem(UUID id, int numero, String legenda, boolean incluida, boolean disponivel, String arquivo) {
+    public record Imagem(UUID id, int numero, String legenda, boolean incluida, boolean disponivel, String arquivo,
+                         boolean comMarcacao, boolean podeMarcar) {
+
+        public Imagem(UUID id, int numero, String legenda, boolean incluida, boolean disponivel, String arquivo) {
+            this(id, numero, legenda, incluida, disponivel, arquivo, false, false);
+        }
     }
 }
