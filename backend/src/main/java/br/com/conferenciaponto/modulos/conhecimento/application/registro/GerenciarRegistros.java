@@ -6,6 +6,7 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.vetor.VetoresDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.DadosDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.ImagemDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.MudancaDeSituacao;
@@ -15,6 +16,7 @@ import br.com.conferenciaponto.modulos.conhecimento.domain.registro.Registros;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.SituacaoDoRegistro;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.nio.file.Files;
@@ -41,12 +43,21 @@ public class GerenciarRegistros {
     private final PastaDaBase pasta;
     private final GerenciarAcessosABase acessos;
     private final Clock clock;
+    private final VetoresDaBase vetores;
 
-    public GerenciarRegistros(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos, Clock clock) {
+    @Autowired
+    public GerenciarRegistros(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos, Clock clock,
+                              VetoresDaBase vetores) {
         this.registros = registros;
         this.pasta = pasta;
         this.acessos = acessos;
         this.clock = clock;
+        this.vetores = vetores;
+    }
+
+    /** Sem a pesquisa por significado. */
+    public GerenciarRegistros(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos, Clock clock) {
+        this(registros, pasta, acessos, clock, null);
     }
 
     /** Uma imagem do registro para a tela. */
@@ -74,6 +85,9 @@ public class GerenciarRegistros {
             return view(usuario, registro);
         }
         conferirGravacao(id, registros.editar(id, registro.versao(), dados, clock.instant()));
+        if (vetores != null) {
+            vetores.textoMudou(id, dados.titulo(), dados.sintoma(), dados.mensagemErro(), dados.causa(), dados.resolucao());
+        }
         log.info("Registro {} editado por {}", id, usuario.login());
         return detalhe(usuario, id);
     }
@@ -120,6 +134,9 @@ public class GerenciarRegistros {
             throw naoEncontrado();
         }
         pasta.apagar(id);
+        if (vetores != null) {
+            vetores.esquecer(id);
+        }
         log.info("Registro {} apagado por {}", id, usuario.login());
     }
 
@@ -187,7 +204,8 @@ public class GerenciarRegistros {
                 d.resolucao(), r.resolucaoHtml(), r.situacao().codigo(), r.situacao().rotulo(), r.chamadoDev(),
                 r.versaoCorrecao(), r.solucaoValidada(), r.validadaPor(), r.validadaEm(), r.versao(), r.criadoEm(),
                 r.atualizadoEm(), new RegistroView.Autor(r.autorId(), r.autorNome(), r.autorLogin()), r.atendimentoId(),
-                r.saidaId(), imagens, historico, podeMudar(usuario, r), r.autorId().equals(usuario.id()));
+                r.saidaId(), imagens, historico, podeMudar(usuario, r), r.autorId().equals(usuario.id()),
+                vetores != null && vetores.tem(r.id()));
     }
 
     private static String versaoCorrigida(String versao) {

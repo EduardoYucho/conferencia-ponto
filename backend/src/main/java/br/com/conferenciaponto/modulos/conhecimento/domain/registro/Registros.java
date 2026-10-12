@@ -43,6 +43,16 @@ public interface Registros {
     /** Quem já escreveu algum registro (para o filtro por autor), por nome. */
     List<Autor> autores();
 
+    /** O essencial de cada registro (para o aviso de caso parecido), na ordem que vier do banco. */
+    List<Resumo> resumos(List<UUID> ids);
+
+    /** Os registros da mesma tela (código igual, sem diferença de maiúsculas), do mais novo para o mais antigo. */
+    List<UUID> comCodigoDeTela(String codigo, int limite);
+
+    record Resumo(UUID id, String titulo, TipoDoRegistro tipo, SituacaoDoRegistro situacao, String chamadoDev,
+                  String versaoCorrecao, String telaNome, String telaCodigo, UUID atendimentoId) {
+    }
+
     record Pagina(List<Encontrado> registros, long total) {
 
         public Pagina {

@@ -79,3 +79,6 @@ const DATA_HORA = { ...DATA, hour: '2-digit', minute: '2-digit' }
 
 export const data = (iso) => (iso ? new Date(iso).toLocaleDateString('pt-BR', DATA) : '—')
 export const dataHora = (iso) => (iso ? new Date(iso).toLocaleString('pt-BR', DATA_HORA).replace(', ', ' às ') : '—')
+
+/** "87%" (a similaridade pelo significado, de 0 a 1). */
+export const porcentagem = (similaridade) => (similaridade == null ? '' : `${Math.round(similaridade * 100)}%`)

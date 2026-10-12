@@ -91,7 +91,7 @@ class ArquiteturaModulosTest {
             .that().resideInAPackage(MODULOS + ".conhecimento..")
             .should().dependOnClassesThat(resideInAPackage(MODULOS + ".atendimento..")
                     .and(not(resideInAPackage(MODULOS + ".atendimento.application.evento.."))))
-            .because("a base recebe do gerador só o evento de texto confirmado")
+            .because("a base usa do gerador só o que ele publica: o evento do texto confirmado e os vetores")
             .allowEmptyShould(true);
 
     static ArchRule regraDosModulos() {

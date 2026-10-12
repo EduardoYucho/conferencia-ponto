@@ -215,6 +215,10 @@ function descricaoDaMudanca(m) {
         <span v-if="registro.solucaoValidada" class="rounded-[2px] border border-credito/50 px-1.5 py-0.5 text-xs font-semibold text-credito">✓ solução validada</span>
         <span class="text-xs text-tinta-suave">por {{ registro.autor.nome }} em {{ dataHora(registro.criadoEm) }}<template v-if="registro.atualizadoEm && registro.atualizadoEm !== registro.criadoEm"> · alterado em {{ dataHora(registro.atualizadoEm) }}</template></span>
       </div>
+      <p v-if="registro && !registro.naPesquisaPorSignificado" class="mt-1 text-xs text-tinta-suave" aria-label="Pesquisa por significado">
+        Ainda fora da pesquisa por significado: o cálculo é feito em segundo plano, com a chave do Gemini do autor (sem a
+        chave, o registro aparece só na pesquisa exata).
+      </p>
     </header>
 
     <div class="mt-6">

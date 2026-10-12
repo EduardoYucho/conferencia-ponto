@@ -331,4 +331,38 @@ class ModeloGeminiTest {
         assertThat(enviado.estado()).isEqualTo(ArquivoRemoto.Estado.FALHOU);
         assertThat(gemini.arquivoRecebido(enviado.nome())).hasSize(10);
     }
+
+    // ------------------------------------------------------------------------------------------- vetores
+
+    @Test
+    void vetorPeloEmbedContentNormalizadoComAChaveSoNoCabecalho() throws IOException {
+        gemini.responder(200, "{\"embedding\":{\"values\":[3, 4, 0, 99]}}");
+
+        float[] vetor = modelo().vetor(CHAVE, "gemini-embedding-2", 3, "title: Erro | text: nota duplicada");
+
+        assertThat(vetor).containsExactly(0.6f, 0.8f, 0f);
+        ServidorDoGemini.Pedido pedido = gemini.pedidos().get(0);
+        assertThat(pedido.caminho()).isEqualTo("/v1beta/models/gemini-embedding-2:embedContent");
+        assertThat(pedido.cabecalhos()).containsEntry("x-goog-api-key", CHAVE);
+        assertThat(pedido.consulta()).isNull();
+        JsonNode corpo = JSON.readTree(pedido.texto());
+        assertThat(corpo.path("outputDimensionality").asInt()).isEqualTo(3);
+        assertThat(corpo.path("content").path("parts").path(0).path("text").asText()).isEqualTo("title: Erro | text: nota duplicada");
+    }
+
+    @Test
+    void vetorComFalhaTraduzida() {
+        gemini.responder(200, "{\"embedding\":{\"values\":[1, 2]}}");
+        assertThatThrownBy(() -> modelo().vetor(CHAVE, "gemini-embedding-2", 3, "texto"))
+                .isInstanceOf(FalhaDoModelo.class).extracting("tipo").isEqualTo(Tipo.RESPOSTA_INVALIDA);
+        gemini.responder(429, ServidorDoGemini.erro(429, "RESOURCE_EXHAUSTED", "Quota exceeded", null));
+        assertThatThrownBy(() -> modelo().vetor(CHAVE, "gemini-embedding-2", 3, "texto"))
+                .isInstanceOf(FalhaDoModelo.class).extracting("tipo").isEqualTo(Tipo.LIMITE);
+        gemini.responder(403, ServidorDoGemini.erro(403, "PERMISSION_DENIED", "denied", null));
+        assertThatThrownBy(() -> modelo().vetor(CHAVE, "gemini-embedding-2", 3, "texto"))
+                .isInstanceOf(FalhaDoModelo.class).extracting("tipo").isEqualTo(Tipo.CHAVE_RECUSADA);
+        assertThatThrownBy(() -> modelo().vetor(CHAVE, "modelo/../x", 3, "texto"))
+                .isInstanceOf(FalhaDoModelo.class).extracting("tipo").isEqualTo(Tipo.MODELO_INEXISTENTE);
+        assertThat(gemini.pedidos()).hasSize(3);
+    }
 }

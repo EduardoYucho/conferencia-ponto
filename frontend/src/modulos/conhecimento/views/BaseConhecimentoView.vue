@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { useAuthStore } from '@/stores/auth'
 import { conhecimentoApi } from '@/modulos/conhecimento/api'
-import { data, SITUACOES_DO_REGISTRO, situacaoDoRegistro, TIPOS_DO_REGISTRO } from '@/modulos/conhecimento/formato'
+import { data, porcentagem, SITUACOES_DO_REGISTRO, situacaoDoRegistro, TIPOS_DO_REGISTRO } from '@/modulos/conhecimento/formato'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import TextoDestacado from '@/modulos/conhecimento/components/TextoDestacado.vue'
 
@@ -219,13 +219,18 @@ const situacao = (codigo) => situacaoDoRegistro(codigo) ?? { rotulo: codigo, cla
               @tentar="carregar"
             >
               <template #vazio>
-                <template v-if="pesquisado">Nada encontrado. Tente outras palavras, um pedaço do código ou tire filtros.</template>
+                <template v-if="pesquisado">Nada encontrado. Tente outras palavras, um pedaço do código ou tire filtros.<template v-if="resultado?.significado && !resultado.significado.ativa"> {{ resultado.significado.aviso }}</template></template>
                 <template v-else>A base ainda não tem registros. Eles nascem quando alguém confirma um texto no gerador de atendimentos.</template>
               </template>
 
               <template v-if="resultado">
                 <p class="text-sm text-tinta-suave" role="status">
                   <b class="text-tinta">{{ resultado.total }}</b> {{ resultado.total === 1 ? 'registro' : 'registros' }}<template v-if="resultado.comTexto">, do que mais bate para o que menos bate</template><template v-else>, do mais novo para o mais antigo</template>.
+                </p>
+                <p v-if="resultado.significado" class="mt-1 text-xs" :class="resultado.significado.ativa ? 'text-credito' : 'text-tinta-suave'" aria-label="Pesquisa por significado">
+                  <template v-if="resultado.significado.ativa">Pesquisa por significado ligada: entram também os casos com outras palavras e o mesmo assunto.</template>
+                  <template v-else>{{ resultado.significado.aviso }}</template>
+                  <span v-if="resultado.significado.pendentes" class="ml-1">{{ resultado.significado.pendentes === 1 ? '1 registro ainda está' : `${resultado.significado.pendentes} registros ainda estão` }} sem o cálculo do significado (entram só pela pesquisa exata até o vetor ser gerado, com a chave do autor).</span>
                 </p>
 
                 <ul class="mt-3 grid gap-3" aria-label="Registros encontrados">
@@ -235,10 +240,13 @@ const situacao = (codigo) => situacaoDoRegistro(codigo) ?? { rotulo: codigo, cla
                         <h2 class="min-w-0 flex-1 font-sans text-base leading-snug font-bold break-words">
                           <TextoDestacado :partes="r.titulo" />
                         </h2>
-                        <div class="flex shrink-0 flex-wrap gap-1.5">
+                        <div class="flex min-w-0 flex-wrap gap-1.5">
                           <span class="rounded-[2px] border border-linha px-1.5 py-0.5 text-xs font-semibold">{{ r.tipoRotulo }}</span>
                           <span class="rounded-[2px] border px-1.5 py-0.5 text-xs font-bold tracking-wide uppercase" :class="situacao(r.situacao).classe">{{ r.situacaoRotulo }}</span>
                           <span v-if="r.solucaoValidada" class="rounded-[2px] border border-credito/50 px-1.5 py-0.5 text-xs font-semibold text-credito">✓ solução validada</span>
+                          <span v-if="r.similaridade != null" class="rounded-[2px] border border-tinta/30 px-1.5 py-0.5 text-xs" :title="r.porSignificado ? 'Nenhuma palavra bateu: entrou pelo assunto' : 'Bateu no texto e também pelo assunto'">
+                            {{ r.porSignificado ? 'pelo significado' : 'parecido' }} {{ porcentagem(r.similaridade) }}
+                          </span>
                         </div>
                       </div>
                       <p class="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-tinta-suave">

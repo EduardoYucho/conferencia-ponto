@@ -12,6 +12,7 @@ import br.com.conferenciaponto.modulos.conhecimento.domain.registro.Registro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.Registros;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.SituacaoDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.TipoDoRegistro;
+import br.com.conferenciaponto.modulos.conhecimento.domain.vetor.Semelhante;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.support.TransactionOperations;
@@ -198,14 +199,28 @@ class RegistrosJdbc implements Registros {
     @Override
     public Pagina pesquisar(Pesquisa pesquisa) {
         Map<String, Object> parametros = new LinkedHashMap<>();
-        String consulta = consulta(pesquisa.texto(), parametros);
-        String onde = onde(pesquisa, parametros);
+        String noTexto = noTexto(pesquisa.texto(), parametros);
         String relevancia = pesquisa.texto().vazia() ? "0::float8" : """
                 coalesce(ts_rank_cd(r.busca, c.todas), 0) * 2 + coalesce(ts_rank_cd(r.busca, c.qualquer), 0) * 0.5
                   + greatest(coalesce(word_similarity(c.termo, r.tela_codigo), 0),
                              coalesce(similarity(conhecimento.sem_acento(r.mensagem_erro), c.termo), 0),
                              coalesce(word_similarity(c.termo, conhecimento.sem_acento(r.cliente)), 0) * 0.5)""";
-        long total = jdbc.sql(consulta + " SELECT count(*) FROM conhecimento.registro r CROSS JOIN c WHERE " + onde)
+        // a pesquisa exata e a por significado, cada uma com a sua ordem; a ordem final soma 1/(60 + posição) das
+        // duas (fusão por posições): quem aparece bem nas duas sobe
+        String base = consulta(pesquisa.texto(), parametros) + semelhantes(pesquisa.porSignificado(), parametros) + """
+                , achados AS (
+                    SELECT r.id, r.criado_em, (%1$s) AS textual, %2$s AS relevancia, s.pos AS pos_sem
+                      FROM conhecimento.registro r CROSS JOIN c LEFT JOIN sem s ON s.id = r.id
+                     WHERE %3$s AND ((%1$s) OR s.id IS NOT NULL)),
+                ordenados AS (
+                    SELECT a.*, CASE WHEN a.textual THEN row_number() OVER (ORDER BY a.textual DESC, a.relevancia DESC,
+                                                                              a.criado_em DESC, a.id) END AS pos_txt
+                      FROM achados a),
+                fundidos AS (
+                    SELECT o.*, coalesce(1.0 / (60 + o.pos_txt), 0) + coalesce(1.0 / (60 + o.pos_sem), 0) AS pontos
+                      FROM ordenados o)
+                """.formatted(noTexto, relevancia, filtros(pesquisa, parametros));
+        long total = jdbc.sql(base + " SELECT count(*) FROM fundidos")
                 .params(parametros)
                 .query(Long.class)
                 .single();
@@ -216,14 +231,10 @@ class RegistrosJdbc implements Registros {
         parametros.put("deslocamento", pesquisa.deslocamento());
         parametros.put("opcoesDoTitulo", OPCOES_DO_TITULO);
         parametros.put("opcoesDoTrecho", OPCOES_DO_TRECHO);
-        String sql = consulta + """
-                , achados AS (
-                    SELECT r.id, %s AS relevancia, r.criado_em
-                      FROM conhecimento.registro r CROSS JOIN c
-                     WHERE %s
-                     ORDER BY relevancia DESC, r.criado_em DESC, r.id
-                     LIMIT :tamanho OFFSET :deslocamento)
-                SELECT %s, a.relevancia,
+        String sql = base + """
+                , pagina AS (
+                    SELECT * FROM fundidos ORDER BY pontos DESC, criado_em DESC, id LIMIT :tamanho OFFSET :deslocamento)
+                SELECT %s, a.pontos AS relevancia, a.textual,
                        conhecimento.sem_acento(r.titulo) AS titulo_sa,
                        CASE WHEN c.qualquer IS NULL THEN NULL
                             ELSE ts_headline('pg_catalog.portuguese', conhecimento.sem_acento(r.titulo), c.qualquer, :opcoesDoTitulo)
@@ -232,21 +243,60 @@ class RegistrosJdbc implements Registros {
                        CASE WHEN c.qualquer IS NULL OR t.texto = '' THEN NULL
                             ELSE ts_headline('pg_catalog.portuguese', conhecimento.sem_acento(t.texto), c.qualquer, :opcoesDoTrecho)
                        END AS trecho_destacado
-                  FROM achados a
+                  FROM pagina a
                   JOIN conhecimento.registro r ON r.id = a.id
                   JOIN public.tb_usuario u ON u.id = r.autor_id
                  CROSS JOIN c
                  CROSS JOIN LATERAL (SELECT regexp_replace(concat_ws(' · ', r.sintoma, r.mensagem_erro, r.causa,
                                             r.resolucao_texto), '\\s+', ' ', 'g') AS texto) t
-                 ORDER BY a.relevancia DESC, a.criado_em DESC, a.id
-                """.formatted(relevancia, onde, COLUNAS);
+                 ORDER BY a.pontos DESC, a.criado_em DESC, a.id
+                """.formatted(COLUNAS);
+        Map<UUID, Double> similaridades = new java.util.HashMap<>();
+        pesquisa.porSignificado().forEach(s -> similaridades.put(s.registroId(), s.similaridade()));
         List<Encontrado> registros = jdbc.sql(sql)
                 .params(parametros)
-                .query((rs, linha) -> new Encontrado(registro(rs, linha), rs.getDouble("relevancia"),
-                        new Encontrado.Destaque(rs.getString("titulo"), rs.getString("titulo_sa"), rs.getString("titulo_destacado")),
-                        new Encontrado.Destaque(rs.getString("trecho"), rs.getString("trecho_sa"), rs.getString("trecho_destacado"))))
+                .query((rs, linha) -> {
+                    Registro registro = registro(rs, linha);
+                    return new Encontrado(registro, rs.getDouble("relevancia"),
+                            new Encontrado.Destaque(rs.getString("titulo"), rs.getString("titulo_sa"), rs.getString("titulo_destacado")),
+                            new Encontrado.Destaque(rs.getString("trecho"), rs.getString("trecho_sa"), rs.getString("trecho_destacado")),
+                            rs.getBoolean("textual") && !pesquisa.texto().vazia(), similaridades.get(registro.id()));
+                })
                 .list();
         return new Pagina(registros, total);
+    }
+
+    @Override
+    public List<Resumo> resumos(List<UUID> ids) {
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                        SELECT id, titulo, tipo, situacao, chamado_dev, versao_correcao, tela_nome, tela_codigo, atendimento_id
+                          FROM conhecimento.registro WHERE id IN (:ids)
+                        """)
+                .param("ids", ids)
+                .query((rs, linha) -> new Resumo(rs.getObject("id", UUID.class), rs.getString("titulo"),
+                        TipoDoRegistro.doCodigo(rs.getString("tipo")).orElseThrow(), situacao(rs.getString("situacao")),
+                        rs.getString("chamado_dev"), rs.getString("versao_correcao"), rs.getString("tela_nome"),
+                        rs.getString("tela_codigo"), rs.getObject("atendimento_id", UUID.class)))
+                .list();
+    }
+
+    @Override
+    public List<UUID> comCodigoDeTela(String codigo, int limite) {
+        if (codigo == null || codigo.isBlank()) {
+            return List.of();
+        }
+        return jdbc.sql("""
+                        SELECT id FROM conhecimento.registro
+                         WHERE lower(btrim(tela_codigo)) = lower(btrim(:codigo))
+                         ORDER BY criado_em DESC, id LIMIT :limite
+                        """)
+                .param("codigo", codigo)
+                .param("limite", limite)
+                .query(UUID.class)
+                .list();
     }
 
     @Override
@@ -276,7 +326,8 @@ class RegistrosJdbc implements Registros {
                                   lower(conhecimento.sem_acento(CAST(:termo AS text))) AS termo)""";
     }
 
-    private static String onde(Pesquisa pesquisa, Map<String, Object> parametros) {
+    /** Os filtros da tela (sem o texto). */
+    private static String filtros(Pesquisa pesquisa, Map<String, Object> parametros) {
         StringBuilder onde = new StringBuilder("TRUE");
         if (pesquisa.tipo() != null) {
             onde.append(" AND r.tipo = :tipo");
@@ -309,24 +360,44 @@ class RegistrosJdbc implements Registros {
         if (pesquisa.soValidadas()) {
             onde.append(" AND r.solucao_validada");
         }
-        ConsultaDeTexto texto = pesquisa.texto();
-        if (!texto.vazia()) {
-            StringBuilder casa = new StringBuilder("r.busca @@ c.todas");
-            List<String> pedacos = texto.pedacosDeCodigo();
-            for (int i = 0; i < pedacos.size(); i++) {
-                casa.append(" OR r.tela_codigo ILIKE :codigo").append(i);
-                parametros.put("codigo" + i, "%" + pedacos.get(i) + "%"); // só letras e números: nada a escapar
-            }
-            if (texto.termo().length() >= 4) {
-                casa.append(" OR conhecimento.sem_acento(r.mensagem_erro) % c.termo")
-                        .append(" OR c.termo <% conhecimento.sem_acento(r.mensagem_erro)");
-            }
-            if (texto.termo().length() >= 3) {
-                casa.append(" OR c.termo <% conhecimento.sem_acento(r.cliente)");
-            }
-            onde.append(" AND (").append(casa).append(')');
-        }
         return onde.toString();
+    }
+
+    /**
+     * O que bate no texto: a busca textual e os trigramas (pedaço do código da tela, mensagem de erro parecida,
+     * pedaço do cliente). Sem texto, tudo bate.
+     */
+    private static String noTexto(ConsultaDeTexto texto, Map<String, Object> parametros) {
+        if (texto.vazia()) {
+            return "TRUE";
+        }
+        StringBuilder casa = new StringBuilder("r.busca @@ c.todas");
+        List<String> pedacos = texto.pedacosDeCodigo();
+        for (int i = 0; i < pedacos.size(); i++) {
+            casa.append(" OR r.tela_codigo ILIKE :codigo").append(i);
+            parametros.put("codigo" + i, "%" + pedacos.get(i) + "%"); // só letras e números: nada a escapar
+        }
+        if (texto.termo().length() >= 4) {
+            casa.append(" OR conhecimento.sem_acento(r.mensagem_erro) % c.termo")
+                    .append(" OR c.termo <% conhecimento.sem_acento(r.mensagem_erro)");
+        }
+        if (texto.termo().length() >= 3) {
+            casa.append(" OR c.termo <% conhecimento.sem_acento(r.cliente)");
+        }
+        return casa.toString();
+    }
+
+    /** Os parecidos pelo significado, com a posição de cada um ({@code sem}); vazio sem eles. */
+    private static String semelhantes(List<Semelhante> semelhantes, Map<String, Object> parametros) {
+        if (semelhantes.isEmpty()) {
+            return ", sem(id, pos) AS (SELECT NULL::uuid, NULL::int WHERE FALSE)";
+        }
+        StringBuilder valores = new StringBuilder(", sem(id, pos) AS (VALUES ");
+        for (int i = 0; i < semelhantes.size(); i++) {
+            valores.append(i == 0 ? "" : ", ").append("(CAST(:sem").append(i).append(" AS uuid), ").append(i + 1).append(')');
+            parametros.put("sem" + i, semelhantes.get(i).registroId());
+        }
+        return valores.append(')').toString();
     }
 
     private static String paraLike(String valor) {

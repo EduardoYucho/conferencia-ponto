@@ -73,9 +73,13 @@ atendimento:
     marcacoes: false                         # marcações em vermelho, experimental (E12)
 
 conhecimento:
-  vetor:                                     # pesquisa por significado (E11)
-    modelo: gemini-embedding-2
+  vetor:                                     # pesquisa por significado (E11), com a chave do Gemini de cada pessoa
+    modelo: gemini-embedding-2               # trocar o modelo ou o tamanho = recalcular todos (em segundo plano)
     dimensao: 768
-  parecidos:
+    similaridade-minima: 0.6                 # cosseno mínimo para entrar na pesquisa só pelo significado
+    maximo-na-pesquisa: 30                   # quantos parecidos entram na fusão com a pesquisa exata
+    lote: 20                                 # vetores pendentes gerados por rodada (com a chave do autor)
+    intervalo: 60s                           # entre as rodadas (um registro novo ou editado não espera)
+  parecidos:                                 # aviso de caso parecido nos chamados
     limite: 5
     similaridade-minima: 0.75                # ajustada na validação

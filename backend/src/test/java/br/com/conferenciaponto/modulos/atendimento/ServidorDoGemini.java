@@ -166,7 +166,7 @@ public final class ServidorDoGemini implements AutoCloseable {
             }
             byte[] corpo = ler(troca.getRequestBody());
             pedidos.add(new Pedido(troca.getRequestMethod(), caminho, troca.getRequestURI().getQuery(), cabecalhos, corpo));
-            if (caminho.endsWith(":generateContent")) {
+            if (caminho.endsWith(":generateContent") || caminho.endsWith(":embedContent")) {
                 Resposta r;
                 synchronized (this) {
                     r = respostas.isEmpty() ? new Resposta(200, padrao, 0) : respostas.removeFirst();

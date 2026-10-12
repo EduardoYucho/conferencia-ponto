@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.conhecimento.infrastructure.web;
 
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
+import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.CasosParecidos;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.FiltrosDaPesquisa;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.PesquisarNaBase;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.ResultadoDaPesquisa;
@@ -38,6 +39,7 @@ import java.util.UUID;
  * GET    /api/v1/conhecimento/registros?q=&amp;tipo=&amp;situacao=&amp;cliente=&amp;modulo=&amp;autor=&amp;de=&amp;ate=&amp;validadas=&amp;pagina=
  * GET    /api/v1/conhecimento/autores                           quem já escreveu registros (filtro)
  * GET    /api/v1/conhecimento/registros/da-saida/{saidaId}      {id} do registro de um texto confirmado
+ * POST   /api/v1/conhecimento/registros/parecidos               {titulo, texto, telaCodigo, atendimentoId}: até 5 parecidos
  * GET    /api/v1/conhecimento/registros/{id}                    o registro, as imagens e o histórico
  * PUT    /api/v1/conhecimento/registros/{id}                    {versao, campos...}
  * PUT    /api/v1/conhecimento/registros/{id}/situacao           {versao, situacao, chamadoDev, versaoCorrecao}
@@ -52,11 +54,14 @@ public class RegistrosController {
 
     private final PesquisarNaBase pesquisa;
     private final GerenciarRegistros registros;
+    private final CasosParecidos parecidos;
     private final AcessoUsuarios acesso;
 
-    public RegistrosController(PesquisarNaBase pesquisa, GerenciarRegistros registros, AcessoUsuarios acesso) {
+    public RegistrosController(PesquisarNaBase pesquisa, GerenciarRegistros registros, CasosParecidos parecidos,
+                               AcessoUsuarios acesso) {
         this.pesquisa = pesquisa;
         this.registros = registros;
+        this.parecidos = parecidos;
         this.acesso = acesso;
     }
 
@@ -96,6 +101,11 @@ public class RegistrosController {
     @GetMapping("/registros/da-saida/{saidaId}")
     public ApiResponse<Map<String, UUID>> daSaida(@PathVariable UUID saidaId) {
         return ApiResponse.ok(Map.of("id", registros.daSaida(saidaId)));
+    }
+
+    @PostMapping("/registros/parecidos")
+    public ApiResponse<CasosParecidos.Resultado> parecidos(@RequestBody(required = false) CasosParecidos.Pedido pedido) {
+        return ApiResponse.ok(parecidos.procurar(acesso.logado(), pedido));
     }
 
     @GetMapping("/registros/{id}")

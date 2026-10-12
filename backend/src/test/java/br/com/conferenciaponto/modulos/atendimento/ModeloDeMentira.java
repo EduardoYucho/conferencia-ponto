@@ -220,6 +220,60 @@ public final class ModeloDeMentira implements ModeloDeIA {
         apagados.add(nome);
     }
 
+    /** Os pedidos de vetor: a chave e o texto. */
+    public record PedidoDeVetor(String chave, String modelo, int dimensao, String texto) {
+    }
+
+    private final List<PedidoDeVetor> vetoresPedidos = new CopyOnWriteArrayList<>();
+    private final Deque<FalhaDoModelo> falhasDeVetor = new ArrayDeque<>();
+
+    public List<PedidoDeVetor> vetoresPedidos() {
+        return vetoresPedidos;
+    }
+
+    /** A próxima chamada de vetor falha assim. */
+    public synchronized ModeloDeMentira falharVetor(FalhaDoModelo falha) {
+        falhasDeVetor.add(falha);
+        return this;
+    }
+
+    /**
+     * Um vetor de "palavras": cada palavra do texto soma 1 numa posição (sempre a mesma para a mesma palavra), e o
+     * vetor sai normalizado. Textos com as mesmas palavras ficam parecidos.
+     */
+    @Override
+    public float[] vetor(String chave, String modelo, int dimensao, String texto) {
+        vetoresPedidos.add(new PedidoDeVetor(chave, modelo, dimensao, texto));
+        synchronized (this) {
+            if (!falhasDeVetor.isEmpty()) {
+                throw falhasDeVetor.removeFirst();
+            }
+        }
+        return vetorDePalavras(texto, dimensao);
+    }
+
+    public static float[] vetorDePalavras(String texto, int dimensao) {
+        float[] v = new float[dimensao];
+        for (String palavra : texto.toLowerCase(java.util.Locale.ROOT).split("[^\\p{L}\\p{N}]+")) {
+            if (palavra.length() > 2 && !palavra.equals("title") && !palavra.equals("text") && !palavra.equals("task")
+                    && !palavra.equals("query") && !palavra.equals("search") && !palavra.equals("result")) {
+                v[Math.floorMod(palavra.hashCode(), dimensao)] += 1;
+            }
+        }
+        double soma = 0;
+        for (float x : v) {
+            soma += x * x;
+        }
+        if (soma == 0) {
+            v[0] = 1;
+            return v;
+        }
+        for (int k = 0; k < dimensao; k++) {
+            v[k] = (float) (v[k] / Math.sqrt(soma));
+        }
+        return v;
+    }
+
     @Override
     public RespostaDoModelo gerar(String chave, PedidoAoModelo pedido) {
         geracoes.add(new Geracao(chave, pedido));
