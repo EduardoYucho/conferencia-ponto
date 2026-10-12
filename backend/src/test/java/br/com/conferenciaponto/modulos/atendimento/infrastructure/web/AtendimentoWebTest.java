@@ -14,6 +14,7 @@ import br.com.conferenciaponto.modulos.atendimento.application.atendimento.Leitu
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.ResultadoDoEnvio;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.ResumoView;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.LeituraDoPdfException;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.Omitidos;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +48,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -191,6 +193,22 @@ class AtendimentoWebTest {
         mvc.perform(delete("/api/v1/atendimentos/" + ID).with(como(maria))).andExpect(status().isOk());
 
         verify(atendimentos).apagar(maria, ID);
+    }
+
+    @Test
+    void camposDosChamadosVaoParaOServicoEVoltamLimpos() throws Exception {
+        when(acessos.liberado(maria)).thenReturn(true);
+        CamposInformados pedido = new CamposInformados("01/10/2026", false, "Z:\\Bases\\Loja", null);
+        when(atendimentos.salvarCampos(maria, ID, pedido)).thenReturn(pedido);
+
+        mvc.perform(put("/api/v1/atendimentos/" + ID + "/campos").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"versaoCliente\":\" 01/10/2026 \",\"testadoUltimaVersao\":false,"
+                                + "\"caminhoBackup\":\"Z:\\\\Bases\\\\Loja\",\"chamadoRelacionado\":\"\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.versaoCliente").value("01/10/2026"))
+                .andExpect(jsonPath("$.dados.testadoUltimaVersao").value(false))
+                .andExpect(jsonPath("$.dados.caminhoBackup").value("Z:\\Bases\\Loja"));
+        verify(atendimentos).salvarCampos(maria, ID, pedido);
     }
 
     @Test

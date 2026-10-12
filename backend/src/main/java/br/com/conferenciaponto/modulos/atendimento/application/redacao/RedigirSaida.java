@@ -17,7 +17,9 @@ import br.com.conferenciaponto.modulos.atendimento.domain.ia.PedidoAoModelo;
 import br.com.conferenciaponto.modulos.atendimento.domain.ia.RespostaDoModelo;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.ItemDaLinha;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
+import br.com.conferenciaponto.modulos.atendimento.domain.linha.SugestaoDaTela;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.ConferenciaDoTexto;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.ModeloDoTexto;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.MontagemDoHtml;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
@@ -116,8 +118,13 @@ public class RedigirSaida implements ExecutorDeTarefa {
             ConferenciaDoTexto conferencia = new ConferenciaDoTexto(
                     linha.get().todos().map(ItemDaLinha::id).collect(Collectors.toSet()), imagens,
                     mascaramento::mascararTrechos, UUID::randomUUID);
-            ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(lida.resultado()), contato);
-            TextoRedigido texto = conferido.texto();
+            ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(saida.tipo());
+            ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(lida.resultado(), modeloDoTexto), contato);
+            TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
+            if (semValor(texto.telaFuncionalidade())) {
+                // a sugestão pelos códigos lidos nas imagens
+                texto = texto.comTela(SugestaoDaTela.de(linha.get()).orElse(texto.telaFuncionalidade()));
+            }
             int entrada = lida.tokensEntrada();
             int saidaDeTokens = lida.tokensSaida();
             if (conferido.assuntoLongo()) {
@@ -126,7 +133,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
                 saidaDeTokens += curto.tokensSaida();
                 texto = ConferenciaDoTexto.comAssunto(texto, contato, curto.assunto());
             }
-            String html = MontagemDoHtml.montar(texto.blocos());
+            String html = MontagemDoHtml.montar(texto.blocos(), modeloDoTexto);
             boolean salva = saidas.salvarRedacao(saida.id(), EstruturaDaSaida.escrever(json, texto), html, texto.assunto(),
                     configuracao.modelo(), prompt.get().versao(), entrada, saidaDeTokens, conferido.imagens());
             gemini.usoDeuCerto(tarefa.usuarioId(), dono);
@@ -214,8 +221,41 @@ public class RedigirSaida implements ExecutorDeTarefa {
 
     /** O JSON do Gemini nos registros da conferência (o que faltar vira vazio). */
     static ConferenciaDoTexto.Bruto bruto(JsonNode lido) {
+        return bruto(lido, ModeloDoTexto.RESUMO);
+    }
+
+    /**
+     * No resumo, os trechos vêm em "blocos"; nos chamados para o desenvolvimento, em "secoes" (uma lista de trechos
+     * por parte), e entram na ordem do modelo.
+     */
+    static ConferenciaDoTexto.Bruto bruto(JsonNode lido, ModeloDoTexto modelo) {
+        List<ConferenciaDoTexto.BlocoBruto> blocos;
+        if (modelo.comSecoes()) {
+            JsonNode secoes = lido.path("secoes");
+            if (!secoes.isObject()) {
+                throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "faltou o campo secoes");
+            }
+            Map<String, List<ConferenciaDoTexto.BlocoBruto>> porSecao = new LinkedHashMap<>();
+            for (Map.Entry<String, JsonNode> secao : secoes.properties()) {
+                porSecao.put(secao.getKey(), blocos(secao.getValue()));
+            }
+            blocos = modelo.ordenar(porSecao);
+        } else {
+            blocos = blocos(lido.path("blocos"));
+        }
+        Map<String, String> base = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> campo : lido.path("base").properties()) {
+            base.put(campo.getKey(), campo.getValue().isNull() ? "" : campo.getValue().asText(""));
+        }
+        List<String> variantes = new ArrayList<>();
+        lido.path("variantes").forEach(v -> variantes.add(v.asText()));
+        return new ConferenciaDoTexto.Bruto(lido.path("assunto").asText(""), blocos, base,
+                lido.path("telaFuncionalidade").asText(""), variantes);
+    }
+
+    private static List<ConferenciaDoTexto.BlocoBruto> blocos(JsonNode lista) {
         List<ConferenciaDoTexto.BlocoBruto> blocos = new ArrayList<>();
-        for (JsonNode b : lido.path("blocos")) {
+        for (JsonNode b : lista) {
             List<String> fontes = new ArrayList<>();
             b.path("fontes").forEach(f -> fontes.add(f.asText()));
             List<ConferenciaDoTexto.ImagemBruta> imagens = new ArrayList<>();
@@ -224,11 +264,10 @@ public class RedigirSaida implements ExecutorDeTarefa {
             }
             blocos.add(new ConferenciaDoTexto.BlocoBruto(b.path("tipo").asText(null), b.path("texto").asText(""), fontes, imagens));
         }
-        Map<String, String> base = new LinkedHashMap<>();
-        for (Map.Entry<String, JsonNode> campo : lido.path("base").properties()) {
-            base.put(campo.getKey(), campo.getValue().isNull() ? "" : campo.getValue().asText(""));
-        }
-        return new ConferenciaDoTexto.Bruto(lido.path("assunto").asText(""), blocos, base,
-                lido.path("telaFuncionalidade").asText(""));
+        return blocos;
+    }
+
+    private static boolean semValor(String texto) {
+        return texto == null || texto.isBlank() || texto.strip().equalsIgnoreCase("não identificado");
     }
 }

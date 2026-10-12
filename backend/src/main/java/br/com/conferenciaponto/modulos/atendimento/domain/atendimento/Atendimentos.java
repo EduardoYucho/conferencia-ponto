@@ -52,6 +52,12 @@ public interface Atendimentos {
      */
     boolean finalizarSeOcioso(UUID id, SituacaoDoAtendimento nova, Instant agora);
 
+    /** O que a pessoa informou para os chamados do desenvolvimento. */
+    CamposInformados camposInformados(UUID id);
+
+    /** Grava o que a pessoa informou (campo vazio = não informado). */
+    void salvarCampos(UUID id, CamposInformados campos, Instant agora);
+
     /** A linha do tempo montada para a redação (substitui a anterior). */
     void salvarLinhaDoTempo(UUID id, LinhaDoTempo linha, Instant agora);
 

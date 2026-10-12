@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence;
 
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoGuardado;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.EstadoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.NovoAtendimento;
@@ -215,6 +216,37 @@ class AtendimentosJdbc implements Atendimentos {
                 .param("situacao", nova.codigo())
                 .param("agora", utc(agora))
                 .update() > 0;
+    }
+
+    @Override
+    public CamposInformados camposInformados(UUID id) {
+        return jdbc.sql("""
+                        SELECT versao_cliente, testado_ultima_versao, caminho_backup, chamado_relacionado
+                          FROM atendimento.atendimento WHERE id = :id
+                        """)
+                .param("id", id)
+                .query((rs, linha) -> new CamposInformados(rs.getString("versao_cliente"),
+                        rs.getObject("testado_ultima_versao", Boolean.class), rs.getString("caminho_backup"),
+                        rs.getString("chamado_relacionado")))
+                .optional()
+                .orElse(CamposInformados.VAZIO);
+    }
+
+    @Override
+    public void salvarCampos(UUID id, CamposInformados campos, Instant agora) {
+        jdbc.sql("""
+                        UPDATE atendimento.atendimento
+                           SET versao_cliente = :versao, testado_ultima_versao = :testado, caminho_backup = :backup,
+                               chamado_relacionado = :chamado, atualizado_em = :agora, versao = versao + 1
+                         WHERE id = :id
+                        """)
+                .param("id", id)
+                .param("versao", campos.versaoCliente())
+                .param("testado", campos.testadoUltimaVersao())
+                .param("backup", campos.caminhoBackup())
+                .param("chamado", campos.chamadoRelacionado())
+                .param("agora", utc(agora))
+                .update();
     }
 
     @Override

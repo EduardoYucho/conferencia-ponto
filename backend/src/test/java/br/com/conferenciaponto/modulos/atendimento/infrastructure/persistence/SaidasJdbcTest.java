@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence;
 
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.ItemDaLinha;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
@@ -150,6 +151,25 @@ class SaidasJdbcTest {
         assertThat(atendimentos.estado(atd).orElseThrow().situacao()).isEqualTo(SituacaoDoAtendimento.COM_FALHAS);
         assertThat(saidas.buscar(saida).orElseThrow().erroMensagem()).isEqualTo("linha do tempo falhou");
         assertThat(atendimentos.finalizarSeOcioso(atd, SituacaoDoAtendimento.PRONTO, AGORA)).as("já não processava").isFalse();
+    }
+
+    @Test
+    void camposDosChamadosEATelaDoCabecalho() {
+        UUID atd = atendimento();
+        assertThat(atendimentos.camposInformados(atd)).isEqualTo(CamposInformados.VAZIO);
+        atendimentos.salvarCampos(atd, new CamposInformados("01/10/2026", true, "Z:\\Loja", "OTRS 1"), AGORA);
+        assertThat(atendimentos.camposInformados(atd)).isEqualTo(new CamposInformados("01/10/2026", true, "Z:\\Loja", "OTRS 1"));
+        atendimentos.salvarCampos(atd, CamposInformados.VAZIO, AGORA);
+        assertThat(atendimentos.camposInformados(atd)).isEqualTo(CamposInformados.VAZIO);
+
+        UUID saida = saidas.criar(atd, TipoDeSaida.DEV_ERRO, SEM_TEXTO, AGORA).orElseThrow();
+        saidas.salvarRedacao(saida, "{\"versao\":1,\"telaFuncionalidade\":\"Notas\",\"avisos\":[\"a\"]}", "<p>x</p>",
+                "Digisac: Maria : erro", "m", 1, 1, 1, List.of());
+        saidas.salvarTela(saida, "Pedidos (VEN010)");
+        assertThat(saidas.buscar(saida).orElseThrow().estrutura()).contains("\"telaFuncionalidade\": \"Pedidos (VEN010)\"")
+                .contains("\"avisos\": [\"a\"]");
+        saidas.salvarTela(saida, null);
+        assertThat(saidas.buscar(saida).orElseThrow().estrutura()).contains("\"telaFuncionalidade\": null");
     }
 
     @Test

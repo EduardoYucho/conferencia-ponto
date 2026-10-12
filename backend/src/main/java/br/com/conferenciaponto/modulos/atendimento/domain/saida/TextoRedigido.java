@@ -13,9 +13,11 @@ import java.util.Map;
  *                           causa, resolução), na ordem
  * @param telaFuncionalidade a sugestão para o campo Tela/Funcionalidade dos chamados
  * @param avisos             o que a conferência mudou ou quer que a pessoa confira
+ * @param variantes          nos chamados de erro, o que o Gemini identificou: comparacao, sem_causa_identificada,
+ *                           apos_atualizacao
  */
 public record TextoRedigido(int versao, String assunto, List<BlocoDoTexto> blocos, Map<String, String> base,
-                            String telaFuncionalidade, List<String> avisos) {
+                            String telaFuncionalidade, List<String> avisos, List<String> variantes) {
 
     public static final int VERSAO = 1;
 
@@ -23,9 +25,23 @@ public record TextoRedigido(int versao, String assunto, List<BlocoDoTexto> bloco
         blocos = List.copyOf(blocos);
         base = base == null ? Map.of() : Collections.unmodifiableMap(new LinkedHashMap<>(base));
         avisos = List.copyOf(avisos);
+        variantes = variantes == null ? List.of() : List.copyOf(variantes);
+    }
+
+    public TextoRedigido(int versao, String assunto, List<BlocoDoTexto> blocos, Map<String, String> base,
+                         String telaFuncionalidade, List<String> avisos) {
+        this(versao, assunto, blocos, base, telaFuncionalidade, avisos, List.of());
     }
 
     public TextoRedigido comAssunto(String novo, List<String> novosAvisos) {
-        return new TextoRedigido(versao, novo, blocos, base, telaFuncionalidade, novosAvisos);
+        return new TextoRedigido(versao, novo, blocos, base, telaFuncionalidade, novosAvisos, variantes);
+    }
+
+    public TextoRedigido comBlocos(List<BlocoDoTexto> novos) {
+        return new TextoRedigido(versao, assunto, novos, base, telaFuncionalidade, avisos, variantes);
+    }
+
+    public TextoRedigido comTela(String tela) {
+        return new TextoRedigido(versao, assunto, blocos, base, tela, avisos, variantes);
     }
 }

@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.modulos.atendimento.domain.saida;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Monta o HTML de uma saída a partir dos blocos conferidos, com todo texto escapado (nada do que vem do Gemini vira
@@ -15,6 +16,7 @@ import java.util.List;
  * </pre>
  *
  * Os passos seguidos formam uma lista numerada; a imagem fica logo depois do parágrafo ou do passo que ela ilustra.
+ * Nos chamados para o desenvolvimento, cada parte vem com o título (ver {@link ModeloDoTexto}).
  * Os atributos {@code data-*} servem à tela (fontes de cada trecho, posição de cada imagem) e saem na cópia.
  */
 public final class MontagemDoHtml {
@@ -22,10 +24,35 @@ public final class MontagemDoHtml {
     private MontagemDoHtml() {
     }
 
+    /** O resumo (sem partes). */
     public static String montar(List<BlocoDoTexto> blocos) {
+        return montar(blocos, ModeloDoTexto.RESUMO);
+    }
+
+    /**
+     * O texto no modelo do tipo: a abertura, e o título de cada parte ({@code <p><strong>Passos para
+     * reproduzir</strong></p>}) antes dos trechos dela. Trecho escrito pelo sistema não leva {@code data-fontes}.
+     */
+    public static String montar(List<BlocoDoTexto> blocos, ModeloDoTexto modelo) {
         StringBuilder html = new StringBuilder();
+        if (modelo.abertura() != null) {
+            html.append("<p><strong>").append(escapar(modelo.abertura())).append("</strong></p>\n");
+        }
+        Map<String, String> titulos = modelo.titulos();
         boolean emLista = false;
+        String secaoAtual = null;
         for (BlocoDoTexto bloco : blocos) {
+            if (bloco.secao() != null && !bloco.secao().equals(secaoAtual)) {
+                if (emLista) {
+                    html.append("</ol>\n");
+                    emLista = false;
+                }
+                secaoAtual = bloco.secao();
+                String titulo = titulos.get(secaoAtual);
+                if (titulo != null) {
+                    html.append("<p><strong>").append(escapar(titulo)).append("</strong></p>\n");
+                }
+            }
             boolean passo = bloco.tipo() == BlocoDoTexto.Tipo.PASSO;
             if (passo && !emLista) {
                 html.append("<ol>\n");
@@ -34,14 +61,14 @@ public final class MontagemDoHtml {
                 html.append("</ol>\n");
                 emLista = false;
             }
-            String fontes = escapar(String.join(" ", bloco.fontes()));
+            String fontes = bloco.doSistema() ? "" : " data-fontes=\"" + escapar(String.join(" ", bloco.fontes())) + "\"";
             if (passo) {
-                html.append("<li data-fontes=\"").append(fontes).append("\">").append(texto(bloco.texto()));
+                html.append("<li").append(fontes).append(">").append(texto(bloco.texto()));
                 bloco.imagens().forEach(i -> html.append(imagem(i)));
                 html.append("</li>\n");
             } else {
                 if (!bloco.texto().isBlank()) {
-                    html.append("<p data-fontes=\"").append(fontes).append("\">").append(texto(bloco.texto())).append("</p>\n");
+                    html.append("<p").append(fontes).append(">").append(texto(bloco.texto())).append("</p>\n");
                 }
                 bloco.imagens().forEach(i -> html.append(imagem(i)).append('\n'));
             }

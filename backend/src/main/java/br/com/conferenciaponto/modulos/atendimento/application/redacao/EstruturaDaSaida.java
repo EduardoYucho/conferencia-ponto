@@ -19,9 +19,9 @@ import java.util.UUID;
  *
  * <pre>
  * { "versao": 1, "assunto",
- *   "blocos": [ { "tipo": "paragrafo|passo", "texto", "fontes": ["M2", "A1"],
+ *   "blocos": [ { "tipo": "paragrafo|passo", "secao" (chamados), "doSistema" (se true), "texto", "fontes": ["M2", "A1"],
  *                 "imagens": [ { "id": "A1", "imagem": "&lt;uuid&gt;", "numero": 1, "legenda" } ] } ],
- *   "base": { "cliente", "modulo", ... }, "telaFuncionalidade", "avisos": [] }
+ *   "base": { "cliente", "modulo", ... }, "telaFuncionalidade", "avisos": [], "variantes": [] }
  * </pre>
  */
 final class EstruturaDaSaida {
@@ -37,6 +37,12 @@ final class EstruturaDaSaida {
         for (BlocoDoTexto b : texto.blocos()) {
             ObjectNode bloco = blocos.addObject();
             bloco.put("tipo", b.tipo().codigo());
+            if (b.secao() != null) {
+                bloco.put("secao", b.secao());
+            }
+            if (b.doSistema()) {
+                bloco.put("doSistema", true);
+            }
             bloco.put("texto", b.texto());
             ArrayNode fontes = bloco.putArray("fontes");
             b.fontes().forEach(fontes::add);
@@ -51,6 +57,8 @@ final class EstruturaDaSaida {
         raiz.put("telaFuncionalidade", texto.telaFuncionalidade());
         ArrayNode avisos = raiz.putArray("avisos");
         texto.avisos().forEach(avisos::add);
+        ArrayNode variantes = raiz.putArray("variantes");
+        texto.variantes().forEach(variantes::add);
         try {
             return json.writeValueAsString(raiz);
         } catch (JsonProcessingException e) {
@@ -78,7 +86,7 @@ final class EstruturaDaSaida {
                         i.path("numero").asInt(), i.path("legenda").isNull() ? null : i.path("legenda").asText(null)));
             }
             blocos.add(new BlocoDoTexto(BlocoDoTexto.Tipo.doCodigo(b.path("tipo").asText()), b.path("texto").asText(""),
-                    fontes, imagens));
+                    fontes, imagens, b.hasNonNull("secao") ? b.path("secao").asText() : null, b.path("doSistema").asBoolean(false)));
         }
         Map<String, String> base = new LinkedHashMap<>();
         for (Map.Entry<String, JsonNode> campo : raiz.path("base").properties()) {
@@ -86,8 +94,10 @@ final class EstruturaDaSaida {
         }
         List<String> avisos = new ArrayList<>();
         raiz.path("avisos").forEach(a -> avisos.add(a.asText()));
+        List<String> variantes = new ArrayList<>();
+        raiz.path("variantes").forEach(v -> variantes.add(v.asText()));
         return new TextoRedigido(raiz.path("versao").asInt(TextoRedigido.VERSAO), texto(raiz, "assunto"), blocos, base,
-                texto(raiz, "telaFuncionalidade"), avisos);
+                texto(raiz, "telaFuncionalidade"), avisos, variantes);
     }
 
     private static String texto(JsonNode raiz, String campo) {

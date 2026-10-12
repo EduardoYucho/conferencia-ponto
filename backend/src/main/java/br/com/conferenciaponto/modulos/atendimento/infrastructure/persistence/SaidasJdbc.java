@@ -234,6 +234,18 @@ class SaidasJdbc implements Saidas {
     }
 
     @Override
+    public void salvarTela(UUID saidaId, String telaFuncionalidade) {
+        jdbc.sql("""
+                        UPDATE atendimento.saida
+                           SET estrutura = jsonb_set(coalesce(estrutura, '{}'::jsonb), '{telaFuncionalidade}', coalesce(to_jsonb(CAST(:tela AS text)), 'null'::jsonb))
+                         WHERE id = :id
+                        """)
+                .param("id", saidaId)
+                .param("tela", limitar(telaFuncionalidade, 200))
+                .update();
+    }
+
+    @Override
     public long[] tokens(UUID atendimentoId) {
         return jdbc.sql("""
                         SELECT coalesce(sum(tokens_entrada), 0) AS entrada, coalesce(sum(tokens_saida), 0) AS saida

@@ -54,9 +54,51 @@ public final class ModeloDeMentira implements ModeloDeIA {
                      "resolucao":"nota emitida de novo"},
              "telaFuncionalidade":"Pedidos (VEN010)"}""";
 
-    /** As respostas válidas de cada esquema (imagem, áudio, documento, resumo, assunto mais curto). */
+    /**
+     * O chamado de erro padrão: as partes fora de ordem, uma parte que não existe, a causa vazia (o sistema escreve
+     * "Causa não identificada.") e a Tela/Funcionalidade vazia (o sistema sugere pela tela lida no print).
+     */
+    public static final String DEV_ERRO = """
+            {"assunto":"Erro ao gravar pedido de venda com desconto","variantes":["sem_causa_identificada"],
+             "secoes":{
+               "pedido":[{"tipo":"paragrafo","texto":"Verificar e corrigir a gravação do pedido.","fontes":["M1"],"imagens":[]}],
+               "relato":[{"tipo":"paragrafo","texto":"Ao gravar o pedido, aparece uma mensagem de erro.","fontes":["M1","A1"],
+                          "imagens":[{"id":"A1","legenda":"tela Pedidos com o erro"}]}],
+               "caminhoTela":[{"tipo":"paragrafo","texto":"Vendas -> Pedidos (VEN010)","fontes":["A1"],"imagens":[]}],
+               "passos":[{"tipo":"paragrafo","texto":"Abrir a tela Pedidos.","fontes":["A1"],"imagens":[]},
+                         {"tipo":"paragrafo","texto":"Clicar em Gravar.","fontes":["A1"],"imagens":[]}],
+               "resultadoObtido":[{"tipo":"paragrafo","texto":"Aparece \\"Erro ao gravar o pedido\\".","fontes":["A1"],"imagens":[]}],
+               "causa":[],
+               "comparacao":[],"resultadoEsperado":[],"dadosDoRegistro":[],"desdeQuando":[],"tentativas":[],
+               "inventada":[{"tipo":"paragrafo","texto":"parte que não existe","fontes":["M1"],"imagens":[]}]},
+             "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
+                     "sintoma":"erro ao gravar","mensagemErro":"Erro ao gravar o pedido","causa":"não identificado",
+                     "resolucao":"enviado ao desenvolvimento"},
+             "telaFuncionalidade":"não identificado"}""";
+
+    /** O chamado de alteração padrão. */
+    public static final String DEV_ALTERACAO = """
+            {"assunto":"Novo campo de desconto máximo no pedido",
+             "secoes":{
+               "modulo":[{"tipo":"paragrafo","texto":"Vendas -> Pedidos (VEN010)","fontes":["A1"],
+                          "imagens":[{"id":"A1","legenda":"tela Pedidos"}]}],
+               "tipoDeSolicitacao":[{"tipo":"paragrafo","texto":"Novo campo.","fontes":["M1"],"imagens":[]}],
+               "descricao":[{"tipo":"paragrafo","texto":"Limitar o desconto por vendedor.","fontes":["M1"],"imagens":[]}],
+               "contexto":[],
+               "comportamentoAtual":[{"tipo":"paragrafo","texto":"Hoje qualquer desconto é aceito.","fontes":["M1"],"imagens":[]}],
+               "comportamentoEsperado":[{"tipo":"paragrafo","texto":"Desconto acima do limite pede senha do gerente.","fontes":["M1"],"imagens":[]}],
+               "regras":[],"observacaoComercial":[]},
+             "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
+                     "sintoma":"precisa limitar o desconto","mensagemErro":"não identificado","causa":"não identificado",
+                     "resolucao":"enviado ao desenvolvimento"},
+             "telaFuncionalidade":"Pedidos de Venda (VEN010)"}""";
+
+    /** As respostas válidas de cada esquema (imagem, áudio, documento, resumo, chamados, assunto mais curto). */
     public static String respostaPadrao(PedidoAoModelo pedido) {
         String esquema = pedido.esquemaJson();
+        if (esquema.contains("\"secoes\"")) {
+            return esquema.contains("\"resultadoObtido\"") ? DEV_ERRO : DEV_ALTERACAO;
+        }
         if (esquema.contains("\"blocos\"")) {
             return RESUMO;
         }

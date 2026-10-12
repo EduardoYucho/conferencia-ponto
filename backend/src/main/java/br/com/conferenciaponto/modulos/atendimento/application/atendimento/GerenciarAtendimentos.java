@@ -12,6 +12,7 @@ import br.com.conferenciaponto.modulos.atendimento.application.processamento.Pub
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoGuardado;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ConversaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.NovoAtendimento;
@@ -241,7 +242,31 @@ public class GerenciarAtendimentos {
                 conversa.cabecalho().assunto(), conversa.cabecalho().resumo(), r.linksValidosAte(),
                 ResumoView.vencido(r.linksValidosAte(), agora), conversa.omitidos(), guardado.versaoLeitor(), itens, anexos,
                 extras, analises.tokensEntrada() + tokensDaRedacao[0], analises.tokensSaida() + tokensDaRedacao[1],
-                analises.semChaveGemini(), publicador.saidas(id));
+                analises.semChaveGemini(), publicador.saidas(id), atendimentos.camposInformados(id));
+    }
+
+    /**
+     * O que a pessoa informa para os chamados do desenvolvimento (versão do cliente, testado na última versão, caminho
+     * do backup e chamado relacionado). Vale na hora para o cabeçalho e o rodapé dos chamados, sem gerar de novo.
+     */
+    public CamposInformados salvarCampos(Usuario usuario, UUID id, CamposInformados campos) {
+        if (!atendimentos.existe(id, usuario.id())) {
+            throw naoEncontrado();
+        }
+        CamposInformados c = campos == null ? CamposInformados.VAZIO : campos;
+        limite(c.versaoCliente(), CamposInformados.LIMITE_DA_VERSAO, "versaoCliente", "A versão do cliente");
+        limite(c.caminhoBackup(), CamposInformados.LIMITE_DO_BACKUP, "caminhoBackup", "O caminho do backup");
+        limite(c.chamadoRelacionado(), CamposInformados.LIMITE_DO_CHAMADO, "chamadoRelacionado", "O chamado relacionado");
+        atendimentos.salvarCampos(id, c, clock.instant());
+        log.info("Atendimento {}: campos dos chamados atualizados", id);
+        return atendimentos.camposInformados(id);
+    }
+
+    private static void limite(String valor, int limite, String campo, String nome) {
+        if (valor != null && valor.length() > limite) {
+            throw new RegraNegocioException("CAMPO_LONGO", nome + " tem " + valor.length() + " caracteres; o limite é "
+                    + limite + ".");
+        }
     }
 
     /** Apaga o atendimento e os arquivos dele (primeiro os arquivos: se um estiver preso, nada é apagado). */

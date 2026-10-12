@@ -6,11 +6,11 @@ import java.util.Optional;
 /** O que a pessoa pede para gerar a partir do atendimento. */
 public enum TipoDeSaida {
     RESUMO("Resumo do atendimento", true),
-    DEV_ERRO("Desenvolvimento: erro", false),
-    DEV_ALTERACAO("Desenvolvimento: alteração", false);
+    DEV_ERRO("Desenvolvimento: erro", true),
+    DEV_ALTERACAO("Desenvolvimento: alteração", true);
 
     private final String rotulo;
-    /** As de desenvolvimento chegam na etapa seguinte. */
+    /** Um tipo pode existir no banco antes de a versão do sistema saber redigi-lo. */
     private final boolean disponivel;
 
     TipoDeSaida(String rotulo, boolean disponivel) {
@@ -28,6 +28,11 @@ public enum TipoDeSaida {
 
     public boolean disponivel() {
         return disponivel;
+    }
+
+    /** Os chamados para o desenvolvimento têm cabeçalho, rodapé e os campos que a pessoa informa. */
+    public boolean paraODesenvolvimento() {
+        return this != RESUMO;
     }
 
     public static Optional<TipoDeSaida> doCodigo(String codigo) {

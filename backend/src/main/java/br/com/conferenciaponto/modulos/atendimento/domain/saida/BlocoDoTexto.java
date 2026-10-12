@@ -7,8 +7,12 @@ import java.util.UUID;
 /**
  * Um parágrafo ou um passo do texto, com as fontes (os identificadores da linha do tempo em que se baseia) e as
  * imagens que vêm logo depois dele.
+ *
+ * @param secao     a parte do chamado (ex.: passos, causa) nos textos para o desenvolvimento; null no resumo
+ * @param doSistema escrito pelo sistema, não pelo Gemini (ex.: "Causa não identificada."): não tem fonte a conferir
  */
-public record BlocoDoTexto(Tipo tipo, String texto, List<String> fontes, List<ImagemCitada> imagens) {
+public record BlocoDoTexto(Tipo tipo, String texto, List<String> fontes, List<ImagemCitada> imagens, String secao,
+                           boolean doSistema) {
 
     public enum Tipo {
         PARAGRAFO, PASSO;
@@ -27,6 +31,16 @@ public record BlocoDoTexto(Tipo tipo, String texto, List<String> fontes, List<Im
         texto = texto == null ? "" : texto;
         fontes = fontes == null ? List.of() : List.copyOf(fontes);
         imagens = imagens == null ? List.of() : List.copyOf(imagens);
+    }
+
+    /** Um trecho do resumo (sem seção). */
+    public BlocoDoTexto(Tipo tipo, String texto, List<String> fontes, List<ImagemCitada> imagens) {
+        this(tipo, texto, fontes, imagens, null, false);
+    }
+
+    /** O que o sistema escreve numa seção que veio vazia. */
+    public static BlocoDoTexto doSistema(String secao, String texto) {
+        return new BlocoDoTexto(Tipo.PARAGRAFO, texto, List.of(), List.of(), secao, true);
     }
 
     /**

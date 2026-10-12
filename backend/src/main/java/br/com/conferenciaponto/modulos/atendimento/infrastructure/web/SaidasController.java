@@ -42,6 +42,7 @@ import java.util.UUID;
  * GET  /api/v1/atendimentos/{id}/linha-do-tempo                       o material da redação (fontes de cada trecho)
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}                     o texto, as imagens e os avisos
  * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/assunto             {assunto} até 150 caracteres
+ * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/tela                {telaFuncionalidade} do cabeçalho dos chamados
  * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/texto               {html} editado (limpo no servidor)
  * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens             {incluidas: [ids na ordem]} (o servidor renumera)
  * POST /api/v1/atendimentos/{id}/saidas/{saidaId}/desfazer            volta ao texto gerado
@@ -75,6 +76,10 @@ public class SaidasController {
     public record PedidoDeAssunto(String assunto) {
     }
 
+    /** A Tela/Funcionalidade do cabeçalho dos chamados. */
+    public record PedidoDeTela(String telaFuncionalidade) {
+    }
+
     /** As imagens que ficam no texto, na ordem. */
     public record PedidoDeImagens(List<UUID> incluidas) {
     }
@@ -103,6 +108,11 @@ public class SaidasController {
     public ApiResponse<SaidaView> assunto(@PathVariable UUID id, @PathVariable UUID saidaId,
                                           @RequestBody PedidoDeAssunto pedido) {
         return ApiResponse.ok(saidas.salvarAssunto(acesso.logado(), id, saidaId, pedido == null ? null : pedido.assunto()));
+    }
+
+    @PutMapping("/saidas/{saidaId}/tela")
+    public ApiResponse<SaidaView> tela(@PathVariable UUID id, @PathVariable UUID saidaId, @RequestBody PedidoDeTela pedido) {
+        return ApiResponse.ok(saidas.salvarTela(acesso.logado(), id, saidaId, pedido == null ? null : pedido.telaFuncionalidade()));
     }
 
     @PutMapping("/saidas/{saidaId}/texto")

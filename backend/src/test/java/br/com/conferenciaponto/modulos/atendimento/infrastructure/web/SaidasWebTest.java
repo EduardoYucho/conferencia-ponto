@@ -97,7 +97,7 @@ class SaidasWebTest {
                 "<p data-fontes=\"M1\">texto</p>", false, List.of("1 fonte citada não existe no material e foi tirada."),
                 Map.of("cliente", "Loja"), "Pedidos (VEN010)",
                 List.of(new SaidaView.Imagem(IMAGEM, 1, "tela", true, true, "Imagem_01.png")), "gemini-3.8-flash", 1, 1000,
-                200, Instant.parse("2026-10-12T15:00:00Z"), false);
+                200, Instant.parse("2026-10-12T15:00:00Z"), false, "", "", List.of());
     }
 
     @Test
@@ -135,6 +135,11 @@ class SaidasWebTest {
                         .content("{\"incluidas\":[\"" + IMAGEM + "\"]}"))
                 .andExpect(status().isOk());
         mvc.perform(post(ROTA + "/desfazer").with(como(maria))).andExpect(status().isOk());
+        when(saidas.salvarTela(maria, ID, SAIDA, "Pedidos (VEN010)")).thenReturn(view("x"));
+        mvc.perform(put(ROTA + "/tela").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"telaFuncionalidade\":\"Pedidos (VEN010)\"}"))
+                .andExpect(status().isOk());
+        verify(saidas).salvarTela(maria, ID, SAIDA, "Pedidos (VEN010)");
     }
 
     @Test
