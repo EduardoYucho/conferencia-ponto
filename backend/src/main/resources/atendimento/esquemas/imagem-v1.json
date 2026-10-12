@@ -1,0 +1,47 @@
+{
+  "type": "object",
+  "properties": {
+    "descricao": {"type": "string", "description": "O que a imagem mostra, em 1 a 3 frases."},
+    "tela": {
+      "type": "object",
+      "properties": {
+        "nome": {"type": "string", "description": "Nome ou título da tela, como aparece."},
+        "codigo": {"type": "string", "description": "Código da tela ou da rotina, se aparecer."},
+        "caminhoMenu": {"type": "string", "description": "Caminho de menu visível (ex.: Vendas > Pedidos)."}
+      },
+      "required": ["nome", "codigo", "caminhoMenu"]
+    },
+    "campos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"rotulo": {"type": "string"}, "valor": {"type": "string"}},
+        "required": ["rotulo", "valor"]
+      }
+    },
+    "mensagens": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "texto": {"type": "string", "description": "Texto literal, como está na imagem."},
+          "tipo": {"type": "string", "enum": ["erro", "aviso", "informacao", "confirmacao", "outro"]}
+        },
+        "required": ["texto", "tipo"]
+      }
+    },
+    "textoLegivel": {"type": "boolean"},
+    "regioes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "descricao": {"type": "string"},
+          "caixa": {"type": "array", "items": {"type": "integer"}, "description": "[ymin, xmin, ymax, xmax], de 0 a 1000."}
+        },
+        "required": ["descricao", "caixa"]
+      }
+    }
+  },
+  "required": ["descricao", "tela", "campos", "mensagens", "textoLegivel", "regioes"]
+}

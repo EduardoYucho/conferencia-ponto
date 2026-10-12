@@ -6,8 +6,9 @@ import { FALHAS_DA_CHAVE, SITUACOES, tokens, validadeDosLinks } from '@/modulos/
 import SoltarArquivos from './SoltarArquivos.vue'
 
 /**
- * A situação do processamento do atendimento (o download dos anexos e a análise de cada arquivo pelo Gemini), com a
- * barra ao vivo e as ações: processar, cancelar, retomar e renovar os links com um PDF novo do mesmo chamado.
+ * A situação do processamento do atendimento (o download dos anexos, a análise de cada arquivo pelo Gemini e, no fim,
+ * a redação do resumo), com a barra ao vivo e as ações: processar, cancelar, retomar e renovar os links com um PDF
+ * novo do mesmo chamado.
  */
 const props = defineProps({
   atendimento: { type: Object, required: true },
@@ -16,6 +17,8 @@ const emit = defineEmits(['progresso', 'recarregar'])
 
 const acao = ref('')
 const mensagem = ref(null)
+/** Sem resumo ainda: o "Processar" já pede o resumo no fim (a pessoa pode desmarcar). */
+const gerarResumo = ref(true)
 
 const situacao = computed(() => SITUACOES[props.atendimento.situacao] ?? SITUACOES.novo)
 const arquivosApagados = computed(() => !!props.atendimento.arquivosApagadosEm)
@@ -34,6 +37,8 @@ const rotuloDoBotao = computed(() => {
 })
 const vencidos = computed(() => props.atendimento.anexos.filter((a) => a.vencido || a.situacao === 'vencido'))
 const emAndamento = computed(() => props.atendimento.situacao === 'processando')
+const semResumo = computed(() => !(props.atendimento.saidas ?? []).some((s) => s.tipo === 'resumo'))
+const escrevendo = computed(() => (props.atendimento.saidas ?? []).some((s) => ['pendente', 'redigindo'].includes(s.situacao)))
 const pausado = computed(() => props.atendimento.situacao === 'pausado')
 
 const explicacao = computed(() => {
@@ -41,7 +46,9 @@ const explicacao = computed(() => {
   if (!todos.value.length) return 'A conversa não tem anexos, e nenhum arquivo foi enviado.'
   switch (props.atendimento.situacao) {
     case 'processando':
-      return 'Baixando e analisando os arquivos. A tela pode ser fechada: o processamento continua no servidor.'
+      return props.atendimento.percentual >= 100 && escrevendo.value
+        ? 'Arquivos prontos. Escrevendo o resumo com o Gemini; a tela pode ser fechada.'
+        : `Baixando e analisando os arquivos${escrevendo.value ? '; o resumo é escrito no fim' : ''}. A tela pode ser fechada: o processamento continua no servidor.`
     case 'pausado':
       return props.atendimento.motivoPausa ?? 'O processamento está pausado.'
     case 'pronto':
@@ -71,7 +78,8 @@ async function executar(nome, chamada, sucesso) {
   }
 }
 
-const processar = () => executar('processar', () => atendimentoApi.processar(props.atendimento.id))
+const processar = () => executar('processar', () =>
+  atendimentoApi.processar(props.atendimento.id, semResumo.value && gerarResumo.value ? ['resumo'] : []))
 const cancelar = () => executar('cancelar', () => atendimentoApi.cancelar(props.atendimento.id), 'Processamento cancelado.')
 const retomar = () => executar('retomar', () => atendimentoApi.retomar(props.atendimento.id))
 
@@ -99,16 +107,22 @@ async function renovar([arquivo]) {
         <h2 class="rotulo">Processamento</h2>
         <span class="rounded-[2px] border px-1.5 py-0.5 text-xs font-bold tracking-wide uppercase" :class="situacao.classe">{{ situacao.rotulo }}</span>
       </div>
-      <div v-if="!arquivosApagados" class="flex flex-wrap gap-2">
+      <div v-if="!arquivosApagados" class="flex flex-wrap items-center gap-3">
         <button v-if="emAndamento" type="button" class="botao-secundario" :disabled="!!acao" @click="cancelar">
           {{ acao === 'cancelar' ? 'Cancelando…' : 'Cancelar' }}
         </button>
         <button v-else-if="pausado" type="button" class="botao-primario" :disabled="!!acao" @click="retomar">
           {{ acao === 'retomar' ? 'Retomando…' : 'Retomar' }}
         </button>
-        <button v-else-if="faltando.length || paraAnalisar.length" type="button" class="botao-primario" :disabled="!!acao" @click="processar">
-          {{ acao === 'processar' ? 'Pondo na fila…' : rotuloDoBotao }}
-        </button>
+        <template v-else-if="faltando.length || paraAnalisar.length">
+          <label v-if="semResumo" class="flex items-center gap-2 text-sm">
+            <input v-model="gerarResumo" type="checkbox" class="size-4 accent-tinta" />
+            Gerar o resumo no fim
+          </label>
+          <button type="button" class="botao-primario" :disabled="!!acao" @click="processar">
+            {{ acao === 'processar' ? 'Pondo na fila…' : rotuloDoBotao }}
+          </button>
+        </template>
       </div>
     </div>
 

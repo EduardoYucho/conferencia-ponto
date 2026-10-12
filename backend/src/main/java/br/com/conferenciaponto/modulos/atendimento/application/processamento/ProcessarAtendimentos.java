@@ -4,6 +4,7 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.EtapaDeAnalise;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.EtapaDeRedacao;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoParaBaixar;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
@@ -16,6 +17,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.fila.ResultadoDaTarefa
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefas;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.TipoDeTarefa;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -31,10 +33,11 @@ import java.util.Set;
 import java.util.UUID;
 
 /**
- * O processamento de um atendimento: processar (baixar os anexos e analisar cada arquivo), cancelar, retomar e
- * tentar de novo um arquivo; e, como {@link AcompanhamentoDaFila}, a situação do atendimento e dos arquivos conforme
- * as tarefas terminam (o anexo baixado entra na fila da análise). Cada pessoa só mexe nos próprios atendimentos (o
- * de outra pessoa dá 404).
+ * O processamento de um atendimento: processar (baixar os anexos, analisar cada arquivo e, no fim, montar a linha do
+ * tempo e redigir as saídas pedidas), cancelar, retomar, tentar de novo um arquivo e gerar de novo uma saída; e, como
+ * {@link AcompanhamentoDaFila}, a situação do atendimento e dos arquivos conforme as tarefas terminam (o anexo
+ * baixado entra na fila da análise; a linha do tempo pronta põe a redação na fila). Cada pessoa só mexe nos próprios
+ * atendimentos (o de outra pessoa dá 404).
  */
 @Service
 public class ProcessarAtendimentos implements AcompanhamentoDaFila {
@@ -55,12 +58,13 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     private final Clock clock;
     private final int tentativasDoDownload;
     private final EtapaDeAnalise analise;
+    private final EtapaDeRedacao redacao;
 
     @Autowired
     public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
                                  PublicadorDeProgresso publicador, Clock clock,
                                  @Value("${atendimento.download.tentativas:5}") int tentativasDoDownload,
-                                 EtapaDeAnalise analise) {
+                                 EtapaDeAnalise analise, EtapaDeRedacao redacao) {
         this.atendimentos = atendimentos;
         this.arquivos = arquivos;
         this.tarefas = tarefas;
@@ -68,24 +72,40 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         this.clock = clock;
         this.tentativasDoDownload = tentativasDoDownload;
         this.analise = analise;
+        this.redacao = redacao;
+    }
+
+    /** Downloads e análises, sem redação (os testes da etapa da análise). */
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload,
+                                 EtapaDeAnalise analise) {
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, analise, EtapaDeRedacao.NENHUMA);
     }
 
     /** Só os downloads (os testes da etapa de download). */
     public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
                                  PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload) {
-        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, EtapaDeAnalise.NENHUMA);
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, EtapaDeAnalise.NENHUMA,
+                EtapaDeRedacao.NENHUMA);
+    }
+
+    /** Processa sem pedir saída nova (as já pedidas continuam). */
+    public ProgressoView processar(Usuario usuario, UUID atendimentoId) {
+        return processar(usuario, atendimentoId, Set.of());
     }
 
     /**
-     * Põe na fila o download dos anexos que faltam (os de link vencido viram "vencido" na hora, sem rede) e a análise
-     * dos arquivos prontos que ainda não têm.
+     * Põe na fila o download dos anexos que faltam (os de link vencido viram "vencido" na hora, sem rede), a análise
+     * dos arquivos prontos que ainda não têm e as saídas pedidas que ainda não existem (redigidas quando os
+     * downloads e as análises terminarem).
      */
-    public ProgressoView processar(Usuario usuario, UUID atendimentoId) {
+    public ProgressoView processar(Usuario usuario, UUID atendimentoId, Set<TipoDeSaida> saidas) {
         EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        Instant agora = clock.instant();
+        int pedidas = redacao.pedir(atendimentoId, saidas, agora);
         if (estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
             return retomar(usuario, atendimentoId);
         }
-        Instant agora = clock.instant();
         int vencidos = arquivos.vencerLinks(atendimentoId, agora, LINK_VENCIDO);
         int criadas = 0;
         for (ArquivoParaBaixar anexo : arquivos.aBaixar(atendimentoId)) {
@@ -95,13 +115,14 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
             }
         }
         int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
-        if (tarefas.ativas(atendimentoId) > 0) {
+        if (tarefas.ativas(atendimentoId) > 0 || redacao.esperando(atendimentoId)) {
             atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            atualizarSituacao(atendimentoId); // sem download nem análise na fila, a redação começa já
         } else {
             atendimentos.mudarSituacao(atendimentoId, situacaoFinal(atendimentoId), null, agora);
         }
-        log.info("Atendimento {} processando: {} download(s) e {} análise(s) na fila, {} link(s) vencido(s)", atendimentoId,
-                criadas, analises, vencidos);
+        log.info("Atendimento {} processando: {} download(s), {} análise(s) e {} saída(s) pedidas, {} link(s) vencido(s)",
+                atendimentoId, criadas, analises, pedidas, vencidos);
         publicador.publicar(atendimentoId);
         return progresso(atendimentoId);
     }
@@ -129,6 +150,7 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         int retomadas = tarefas.retomarDoAtendimento(atendimentoId, agora);
         atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
         log.info("Atendimento {} retomado: {} tarefa(s) de volta à fila", atendimentoId, retomadas);
+        atualizarSituacao(atendimentoId); // nada pausado na fila: segue para a redação ou termina
         publicador.publicar(atendimentoId);
         return progresso(atendimentoId);
     }
@@ -173,6 +195,32 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         return progresso(atendimentoId);
     }
 
+    /**
+     * "Gerar de novo": uma versão nova da saída, redigida com as análises guardadas (a linha do tempo é montada de
+     * novo, com o que houver de novo no atendimento).
+     */
+    public ProgressoView gerar(Usuario usuario, UUID atendimentoId, TipoDeSaida tipo) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        if (!tipo.disponivel()) {
+            throw new RegraNegocioException("TIPO_INDISPONIVEL", "Este tipo de texto ainda não existe nesta versão do sistema.");
+        }
+        if (estado.situacao() == SituacaoDoAtendimento.NOVO || estado.situacao() == SituacaoDoAtendimento.CANCELADO) {
+            throw new RegraNegocioException("PROCESSE_PRIMEIRO", "Clique em Processar: os anexos são baixados e analisados "
+                    + "e o texto é gerado no fim.");
+        }
+        Instant agora = clock.instant();
+        if (!redacao.pedirNova(atendimentoId, tipo, agora)) {
+            throw new RegraNegocioException("JA_EM_REDACAO", "Este texto já está sendo gerado. Aguarde terminar.");
+        }
+        if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
+            atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            atualizarSituacao(atendimentoId);
+        }
+        log.info("Atendimento {}: {} pedido de novo", atendimentoId, tipo.codigo());
+        publicador.publicar(atendimentoId);
+        return progresso(atendimentoId);
+    }
+
     public ProgressoView progresso(Usuario usuario, UUID atendimentoId) {
         doDono(usuario, atendimentoId);
         return progresso(atendimentoId);
@@ -209,8 +257,11 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     public void atualizarSituacao(UUID atendimentoId) {
         atendimentos.estado(atendimentoId).ifPresent(estado -> {
             if (estado.situacao() == SituacaoDoAtendimento.PROCESSANDO && tarefas.ativas(atendimentoId) == 0) {
-                atendimentos.mudarSituacaoSe(atendimentoId, Set.of(SituacaoDoAtendimento.PROCESSANDO),
-                        situacaoFinal(atendimentoId), null, clock.instant());
+                // sem download nem análise na fila: as saídas pedidas seguem para a redação; sem nada, termina
+                // (só se continuar sem nada a fazer no momento da gravação)
+                if (!redacao.seguir(atendimentoId, clock.instant())) {
+                    atendimentos.finalizarSeOcioso(atendimentoId, situacaoFinal(atendimentoId), clock.instant());
+                }
             } else if (FINAIS.contains(estado.situacao()) && situacaoFinal(atendimentoId) != estado.situacao()) {
                 atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, situacaoFinal(atendimentoId), null, clock.instant());
             }
@@ -222,7 +273,7 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     @Override
     public void aoComecar(Tarefa tarefa) {
         // o download avisa sozinho quando começa (marca "baixando"); a análise aparece como "analisando"
-        if (tarefa.tipo() == TipoDeTarefa.ANALISAR) {
+        if (TAREFAS_DE_IA.contains(tarefa.tipo())) {
             // um "pronto" que chegou antes da hora (outra tarefa viu a fila vazia) volta a "processando"
             atendimentos.mudarSituacaoSe(tarefa.atendimentoId(), FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, clock.instant());
             publicador.publicar(tarefa.atendimentoId());
@@ -233,6 +284,8 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     public void antesDeConcluir(Tarefa tarefa) {
         if (tarefa.tipo() == TipoDeTarefa.BAIXAR && tarefa.arquivoId() != null) {
             analisarOBaixado(tarefa);
+        } else if (tarefa.tipo() == TipoDeTarefa.LINHA_DO_TEMPO) {
+            redigir(tarefa);
         }
     }
 
@@ -240,6 +293,8 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     public void aoTerminar(Tarefa tarefa, ResultadoDaTarefa resultado) {
         if (tarefa.tipo() == TipoDeTarefa.BAIXAR && tarefa.arquivoId() != null) {
             registrarNoArquivo(tarefa, resultado);
+        } else if (tarefa.tipo() == TipoDeTarefa.LINHA_DO_TEMPO || tarefa.tipo() == TipoDeTarefa.REDIGIR) {
+            redacao.registrar(tarefa, resultado);
         }
         if (resultado instanceof ResultadoDaTarefa.Pausar pausa) {
             Instant agora = clock.instant();
@@ -281,6 +336,23 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         });
     }
 
+    /**
+     * A linha do tempo ficou pronta: a redação das saídas entra na fila (pausada, se o atendimento está pausado;
+     * nada, se ele foi cancelado).
+     */
+    private void redigir(Tarefa tarefa) {
+        atendimentos.estado(tarefa.atendimentoId()).ifPresent(estado -> {
+            if (estado.situacao() == SituacaoDoAtendimento.CANCELADO) {
+                return;
+            }
+            Instant agora = clock.instant();
+            if (redacao.redigirAsEsperando(tarefa.atendimentoId(), agora) > 0
+                    && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+                tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+            }
+        });
+    }
+
     private void registrarNoArquivo(Tarefa tarefa, ResultadoDaTarefa resultado) {
         if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t) {
             arquivos.registrarFalha(tarefa.arquivoId(), SituacaoDoArquivo.AGUARDANDO, t.codigo(),
@@ -299,13 +371,14 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
 
     // --------------------------------------------------------------------------------------------- apoio
 
-    /** Com falhas: um anexo que não foi baixado ou uma análise que falhou de vez. */
+    /** Com falhas: um anexo que não foi baixado, uma análise ou uma saída que falhou de vez. */
     private SituacaoDoAtendimento situacaoFinal(UUID atendimentoId) {
         boolean comFalha = arquivos.doAtendimento(atendimentoId).stream()
                 .filter(ArquivoDoAtendimento::daConversa)
                 .anyMatch(a -> a.situacao().equals(SituacaoDoArquivo.FALHOU.codigo())
                         || a.situacao().equals(SituacaoDoArquivo.VENCIDO.codigo()));
-        return comFalha || analise.panorama(atendimentoId).comFalha() ? SituacaoDoAtendimento.COM_FALHAS
+        return comFalha || analise.panorama(atendimentoId).comFalha() || redacao.comFalha(atendimentoId)
+                ? SituacaoDoAtendimento.COM_FALHAS
                 : SituacaoDoAtendimento.PRONTO;
     }
 

@@ -1,0 +1,387 @@
+package br.com.conferenciaponto.modulos.atendimento.application.processamento;
+
+import br.com.conferenciaponto.domain.exception.RegraNegocioException;
+import br.com.conferenciaponto.domain.model.Perfil;
+import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.modulos.PostgresDeTeste;
+import br.com.conferenciaponto.modulos.atendimento.ModeloDeMentira;
+import br.com.conferenciaponto.modulos.atendimento.PdfDigisacDeTeste;
+import br.com.conferenciaponto.modulos.atendimento.ServidorDeAnexos;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.ConfiguracaoDaAnalise;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.FilaDeAnalises;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.ParaOsTestes;
+import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
+import br.com.conferenciaponto.modulos.atendimento.application.fila.CoordenadorDaFila;
+import br.com.conferenciaponto.modulos.atendimento.application.ia.ChamadasAoGemini;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.ConfiguracaoDaRedacao;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.EstadoDaSaida;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.FilaDaRedacao;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.GerenciarSaidas;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.LinhaDoTempoView;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.MontarLinhaDoTempo;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.RedigirSaida;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.SaidaView;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
+import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChaveGemini;
+import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChavesGemini;
+import br.com.conferenciaponto.modulos.atendimento.domain.chave.SituacaoDaChave;
+import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefas;
+import br.com.conferenciaponto.modulos.atendimento.domain.ia.FalhaDoModelo;
+import br.com.conferenciaponto.modulos.atendimento.domain.ia.PedidoAoModelo;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.armazenamento.PastaEmDisco;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.config.ChaveMestraProperties;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.cripto.CofreAesGcm;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.download.BaixadorHttp;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.download.PoliticaDeRede;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.pdf.ExtratorPdfBox;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence.RepositoriosDeTeste;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.AfterEach;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
+import org.springframework.util.unit.DataSize;
+
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Duration;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.awaitility.Awaitility.await;
+
+/**
+ * Do PDF ao resumo: a redação só começa quando os downloads e as análises terminam, usa a linha do tempo como único
+ * material, passa pela conferência do servidor e o atendimento só fica pronto no fim (banco, pasta e fila de
+ * verdade; Gemini de mentira).
+ */
+class RedacaoDoResumoTest {
+
+    private static final Instant AGORA = Instant.parse("2026-10-09T15:00:00Z");
+    private static final ZoneId FUSO = ZoneId.of("America/Sao_Paulo");
+    private static final String CHAVE = "AQ.Ab8RN6Kc-chave_de-teste.0123456789wxyz";
+    private static final byte[] JPEG = {(byte) 0xFF, (byte) 0xD8, (byte) 0xFF, (byte) 0xE0, 'J', 'F', 'I', 'F', 0, 1, 2, 3};
+    private static final byte[] OGG = "OggS\0\2\0\0\0\0\0\0opus".getBytes(StandardCharsets.ISO_8859_1);
+    private static final byte[] PDF = "%PDF-1.7\nrelatorio".getBytes(StandardCharsets.ISO_8859_1);
+    private static final byte[] MP4 = "\0\0\0\u0018ftypisom\0\0\0\0video".getBytes(StandardCharsets.ISO_8859_1);
+
+    @TempDir
+    Path raiz;
+
+    private final ServidorDeAnexos servidor = new ServidorDeAnexos();
+    private final Atendimentos atendimentos = RepositoriosDeTeste.atendimentos();
+    private final Arquivos arquivos = RepositoriosDeTeste.arquivos();
+    private final Tarefas tarefas = RepositoriosDeTeste.tarefas();
+    private final Analises analises = RepositoriosDeTeste.analises();
+    private final Saidas saidas = RepositoriosDeTeste.saidas();
+    private final ChavesGemini chaves = RepositoriosDeTeste.chaves();
+    private final ModeloDeMentira modelo = new ModeloDeMentira();
+    private final ObjectMapper json = new ObjectMapper();
+    private final ConfiguracaoDaAnalise configuracao = new ConfiguracaoDaAnalise("gemini-3.8-flash", "gemini-3.8-flash", 3,
+            15 * 1024 * 1024, 32768, null, null);
+    private final ConfiguracaoDaRedacao configuracaoDaRedacao = new ConfiguracaoDaRedacao("gemini-3.8-flash", 3, 32768, null,
+            null, Duration.ofHours(1), 10 * 1024 * 1024);
+    private final FilaDeAnalises fila = new FilaDeAnalises(analises, tarefas, configuracao, chaves);
+    private final FilaDaRedacao redacao = new FilaDaRedacao(saidas, tarefas, configuracaoDaRedacao);
+    private final List<ProgressoAtualizado> eventos = new CopyOnWriteArrayList<>();
+    private final PublicadorDeProgresso publicador = new PublicadorDeProgresso(atendimentos, arquivos,
+            evento -> eventos.add((ProgressoAtualizado) evento), fila, redacao);
+    private final List<CoordenadorDaFila> coordenadores = new ArrayList<>();
+    private CofreAesGcm cofre;
+    private Usuario maria;
+
+    @BeforeEach
+    void preparar() {
+        PostgresDeTeste.jdbc().sql("DELETE FROM atendimento.tarefa").update();
+        cofre = new CofreAesGcm(new ChaveMestraProperties(raiz.resolve("chave-mestra")));
+        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER),
+                null, null, false);
+        servidor.arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011620000.jpeg"), JPEG)
+                .arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011680000.oga"), OGG)
+                .arquivo(PdfDigisacDeTeste.CAMINHO_DO_DOCUMENTO, PDF)
+                .arquivo(PdfDigisacDeTeste.caminhoDoVideo("gravacao-tela.mp4"), MP4);
+    }
+
+    @AfterEach
+    void parar() {
+        coordenadores.forEach(CoordenadorDaFila::parar);
+        servidor.close();
+    }
+
+    // --------------------------------------------------------------------------------------------- montagem
+
+    private Clock relogio() {
+        return Clock.fixed(AGORA, FUSO);
+    }
+
+    private ProcessarAtendimentos processamento() {
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila, redacao);
+    }
+
+    private GerenciarSaidas gerenciarSaidas() {
+        return new GerenciarSaidas(atendimentos, saidas, new PastaEmDisco(raiz), configuracaoDaRedacao, json);
+    }
+
+    private void iniciarFila() {
+        BaixarAnexo baixar = new BaixarAnexo(arquivos, new PastaEmDisco(raiz),
+                new BaixadorHttp(new PoliticaDeRede(List.of("127.0.0.1"), false, true, null), Duration.ofSeconds(2),
+                        Duration.ofSeconds(1)),
+                publicador, relogio(), DataSize.ofMegabytes(10), DataSize.ofKilobytes(1), 4);
+        var analisar = ParaOsTestes.analisar(analises, chaves, cofre, modelo, new PastaEmDisco(raiz), configuracao, relogio());
+        var montar = new MontarLinhaDoTempo(atendimentos, analises, json, configuracaoDaRedacao, relogio());
+        var redigir = new RedigirSaida(saidas, atendimentos, new ChamadasAoGemini(chaves, cofre, json, relogio()), modelo,
+                new PastaEmDisco(raiz), configuracaoDaRedacao, json, relogio());
+        CoordenadorDaFila c = new CoordenadorDaFila(tarefas, List.of(baixar, analisar, montar, redigir), processamento(),
+                relogio(), 8, 4, Duration.ofMinutes(15), Duration.ofMillis(100), Duration.ofMillis(1), Duration.ofMillis(5), true);
+        coordenadores.add(c);
+        c.iniciar();
+    }
+
+    private UUID criar() {
+        GerenciarAtendimentos gerenciar = new GerenciarAtendimentos(new ExtratorPdfBox(), atendimentos, arquivos, publicador,
+                new PastaEmDisco(raiz), RepositoriosDeTeste.transacao(), relogio(), DataSize.ofMegabytes(50), 30, 180);
+        byte[] pdf = PdfDigisacDeTeste.exemplo("20261009T120000Z", servidor.base()).bytes();
+        return gerenciar.receberPdf(maria, new ByteArrayInputStream(pdf), pdf.length, "conversa.pdf").atendimento().id();
+    }
+
+    /** Um atendimento só com a conversa, sem anexos. */
+    private UUID criarSemAnexos() {
+        GerenciarAtendimentos gerenciar = new GerenciarAtendimentos(new ExtratorPdfBox(), atendimentos, arquivos, publicador,
+                new PastaEmDisco(raiz), RepositoriosDeTeste.transacao(), relogio(), DataSize.ofMegabytes(50), 30, 180);
+        byte[] pdf = PdfDigisacDeTeste.novo()
+                .cabecalho(PdfDigisacDeTeste.CONTATO, "20261009000002", "09/10/2026 16:05:00", "09/10/2026 16:42:00", "-")
+                .data("09/10/2026")
+                .evento("Início do chamado - Pré-Atendimento (Fila) - 09/10/2026 16:05:53")
+                .cliente(PdfDigisacDeTeste.CONTATO, "16:05", "Quero marcar uma reunião sobre o sistema")
+                .atendente("Atendente", "16:30", "Na terça-feira a equipe conversa com você para marcar")
+                .cliente(PdfDigisacDeTeste.CONTATO, "16:40", "Perfeito, obrigada")
+                .evento("Fim do chamado - Encerrado - 09/10/2026 16:42:02")
+                .bytes();
+        return gerenciar.receberPdf(maria, new ByteArrayInputStream(pdf), pdf.length, "conversa.pdf").atendimento().id();
+    }
+
+    private void cadastrarChave() {
+        chaves.salvar(new ChaveGemini(maria.id(), cofre.cifrar(CHAVE, maria.id()), "wxyz", false, SituacaoDaChave.VALIDA,
+                AGORA, AGORA));
+    }
+
+    private SituacaoDoAtendimento situacao(UUID id) {
+        return atendimentos.estado(id).orElseThrow().situacao();
+    }
+
+    private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
+    }
+
+    private EstadoDaSaida resumo(UUID id) {
+        return redacao.estados(id).stream().filter(s -> s.tipo().equals("resumo")).findFirst().orElseThrow();
+    }
+
+    private List<PedidoAoModelo> redacoes() {
+        return modelo.geracoes().stream().map(ModeloDeMentira.Geracao::pedido)
+                .filter(p -> p.esquemaJson().contains("\"blocos\"")).toList();
+    }
+
+    // --------------------------------------------------------------------------------------------- testes
+
+    @Test
+    void oResumoERedigidoDepoisDasAnalisesConferidoEOAtendimentoSoFicaProntoNoFim() {
+        cadastrarChave();
+        UUID id = criar();
+        iniciarFila();
+
+        ProgressoView inicio = processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        assertThat(inicio.saidas()).singleElement().satisfies(s -> assertThat(s.situacao()).isEqualTo("pendente"));
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        EstadoDaSaida estado = resumo(id);
+        assertThat(estado.situacao()).isEqualTo("pronta");
+        assertThat(estado.versao()).isEqualTo(1);
+        assertThat(modelo.geracoes()).as("3 análises e 1 redação").hasSize(4);
+
+        // o material foi a linha do tempo, sem a chave do bot nem os dados de acesso da conversa
+        PedidoAoModelo pedido = redacoes().get(0);
+        assertThat(pedido.midia()).isNull();
+        assertThat(pedido.instrucaoDoSistema()).contains("Use só o que está no material");
+        assertThat(pedido.instrucao()).contains("[M1]").contains("[A1]").contains("Tela de pedidos com erro")
+                .contains("O sistema travou na emissão da nota").contains("Imagens disponíveis").contains("- A1: tela Pedidos (VEN010)")
+                .doesNotContain("4815162342").doesNotContain("4821").doesNotContain("123 456 789")
+                .doesNotContain("{{");
+        assertThat(modelo.geracoes()).allSatisfy(g -> assertThat(g.chave()).isEqualTo(CHAVE));
+
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, estado.id());
+        assertThat(saida.assunto()).startsWith("Digisac: ").endsWith(" : Erro ao emitir a nota fiscal na tela de vendas")
+                .hasSizeLessThanOrEqualTo(150);
+        assertThat(saida.html()).contains("<strong>Imagem 1</strong>: tela Pedidos com o erro").contains("<ol>")
+                .contains("[omitido]").doesNotContain("123 456 789").doesNotContain("Imagem 2");
+        assertThat(saida.imagens()).singleElement().satisfies(i -> {
+            assertThat(i.numero()).isEqualTo(1);
+            assertThat(i.arquivo()).isEqualTo("Imagem_01.jpeg");
+            assertThat(i.disponivel()).isTrue();
+            assertThat(i.incluida()).isTrue();
+        });
+        assertThat(saida.avisos()).anyMatch(a -> a.contains("fonte citada não existe"))
+                .anyMatch(a -> a.contains("imagem citada não está entre as do atendimento"))
+                .anyMatch(a -> a.contains("[omitido]"));
+        assertThat(saida.base()).containsEntry("codigoTela", "VEN010");
+        assertThat(saida.telaFuncionalidade()).isEqualTo("Pedidos (VEN010)");
+        assertThat(saida.tokensEntrada()).isEqualTo(1000);
+
+        LinhaDoTempoView linha = gerenciarSaidas().linhaDoTempo(maria, id);
+        assertThat(linha.itens()).extracting(LinhaDoTempoView.Item::id).contains("M1", "A1", "A2", "A3", "A4");
+        assertThat(linha.itens()).filteredOn(i -> i.id().equals("A4")).singleElement()
+                .satisfies(i -> assertThat(i.situacao()).isEqualTo("nao_analisavel"));
+
+        ProgressoView fim = processamento().progresso(maria, id);
+        assertThat(fim.tokensEntrada()).as("análises e redação").isEqualTo(4000);
+        assertThat(fim.saidas()).singleElement().satisfies(s -> assertThat(s.situacao()).isEqualTo("pronta"));
+        assertThat(eventos).anySatisfy(e -> assertThat(e.progresso().saidas())
+                .anyMatch(s -> s.situacao().equals("pronta")));
+    }
+
+    @Test
+    void atendimentoNovoSemAnexosGeraOResumoSoComAConversa() {
+        cadastrarChave();
+        UUID id = criarSemAnexos();
+        iniciarFila();
+        assertThat(situacao(id)).isEqualTo(SituacaoDoAtendimento.NOVO);
+
+        ProgressoView inicio = processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        assertThat(inicio.situacao()).isIn("processando", "pronto");
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(resumo(id).situacao()).isEqualTo("pronta");
+        assertThat(modelo.geracoes()).as("só a redação").hasSize(1);
+        PedidoAoModelo pedido = redacoes().get(0);
+        assertThat(pedido.instrucao()).contains("Quero marcar uma reunião").contains("Nenhuma: deixe \"imagens\" vazio");
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.imagens()).as("a imagem citada não existe neste atendimento").isEmpty();
+        assertThat(saida.html()).doesNotContain("data-imagem");
+    }
+
+    @Test
+    void gerarDeNovoCriaAVersaoSeguinteSemAnalisarDeNovo() {
+        cadastrarChave();
+        UUID id = criar();
+        iniciarFila();
+        assertThatThrownBy(() -> processamento().gerar(maria, id, TipoDeSaida.RESUMO)).as("ainda não processado")
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("Processar");
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        await().atMost(10, TimeUnit.SECONDS).until(() -> resumo(id).situacao().equals("pronta"));
+        int antes = modelo.geracoes().size();
+
+        processamento().gerar(maria, id, TipoDeSaida.RESUMO);
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+                .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+
+        assertThat(modelo.geracoes()).as("só a redação").hasSize(antes + 1);
+        assertThat(saidas.tokens(id)).containsExactly(2000L, 400L);
+        assertThatThrownBy(() -> processamento().gerar(maria, id, TipoDeSaida.DEV_ERRO))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("ainda não existe");
+    }
+
+    @Test
+    void semChaveOResumoFalhaComOAvisoEOAtendimentoFicaComFalhas() {
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+
+        esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
+        EstadoDaSaida estado = resumo(id);
+        assertThat(estado.situacao()).isEqualTo("falhou");
+        assertThat(estado.erro()).contains("Cadastre sua chave do Gemini");
+        assertThat(modelo.geracoes()).isEmpty();
+
+        // com a chave cadastrada, "Processar" de novo cria a versão seguinte e termina
+        cadastrarChave();
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+                .until(() -> resumo(id).situacao().equals("pronta"));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(resumo(id).versao()).isEqualTo(2);
+    }
+
+    @Test
+    void respostaForaDoEsquemaDuasVezesFalhaSoOTexto() {
+        cadastrarChave();
+        modelo.padrao(p -> p.esquemaJson().contains("\"blocos\"") ? "isto não é JSON" : ModeloDeMentira.respostaPadrao(p));
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+
+        esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
+        assertThat(resumo(id).situacao()).isEqualTo("falhou");
+        assertThat(resumo(id).erro()).contains("Resposta inválida do Gemini");
+        assertThat(redacoes()).as("uma nova tentativa na hora").hasSize(2);
+        SaidaView falhou = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(falhou.situacao()).isEqualTo("falhou");
+        assertThat(falhou.html()).isNull();
+        assertThat(falhou.imagens()).isEmpty();
+    }
+
+    @Test
+    void cotaDoDiaNaRedacaoPausaERetomarTermina() {
+        cadastrarChave();
+        AtomicInteger vezes = new AtomicInteger();
+        modelo.padrao(p -> {
+            if (p.esquemaJson().contains("\"blocos\"") && vezes.incrementAndGet() == 1) {
+                throw new FalhaDoModelo(FalhaDoModelo.Tipo.COTA_DIARIA, "cota", null, 429);
+            }
+            return ModeloDeMentira.respostaPadrao(p);
+        });
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+
+        esperarAte(id, SituacaoDoAtendimento.PAUSADO);
+        assertThat(resumo(id).situacao()).isEqualTo("pendente");
+        assertThat(resumo(id).erro()).contains("cota diária");
+
+        processamento().retomar(maria, id);
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(resumo(id).situacao()).isEqualTo("pronta");
+    }
+
+    @Test
+    void assuntoLongoPedeUmMaisCurto() {
+        cadastrarChave();
+        String longo = "Erro ao emitir a nota fiscal de saída no pedido de venda com desconto acima do limite permitido para "
+                + "o cliente e a tabela de preços promocional do mês corrente da loja";
+        modelo.padrao(p -> p.esquemaJson().contains("\"blocos\"")
+                ? ModeloDeMentira.RESUMO.replace("Erro ao emitir a nota fiscal na tela de vendas", longo)
+                : ModeloDeMentira.respostaPadrao(p));
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.assunto()).endsWith(" : Erro na nota fiscal");
+        assertThat(modelo.geracoes()).anySatisfy(g -> assertThat(g.pedido().instrucao()).contains("Reescreva-o")
+                .contains(longo).doesNotContain("{{"));
+        assertThat(saida.tokensEntrada()).as("redação e assunto").isEqualTo(2000);
+    }
+}

@@ -126,3 +126,34 @@ export const ORIGENS = {
 /** O que se aceita no envio (as extensões que o Gemini lê). */
 export const ACEITOS_NO_ENVIO =
   '.png,.jpg,.jpeg,.webp,.heic,.heif,.mp3,.m4a,.wav,.ogg,.oga,.opus,.aac,.flac,.mp4,.mov,.webm,.avi,.mkv,.pdf,.txt'
+
+/** Os textos que o gerador escreve (os de desenvolvimento chegam numa etapa seguinte). */
+export const TIPOS_DE_SAIDA = [
+  {
+    codigo: 'resumo',
+    rotulo: 'Resumo do atendimento',
+    descricao: 'Para o registro do chamado: em primeira pessoa, em ordem, com os passos e as imagens.',
+    disponivel: true,
+  },
+  { codigo: 'dev_erro', rotulo: 'Desenvolvimento: erro', descricao: 'Chamado de erro para o desenvolvimento.', disponivel: false },
+  {
+    codigo: 'dev_alteracao',
+    rotulo: 'Desenvolvimento: alteração',
+    descricao: 'Pedido de alteração para o desenvolvimento.',
+    disponivel: false,
+  },
+]
+
+/** A redação de cada texto. */
+export const SITUACOES_DA_SAIDA = {
+  pendente: { rotulo: 'na fila', classe: 'text-tinta-suave' },
+  redigindo: { rotulo: 'escrevendo…', classe: 'text-tinta' },
+  pronta: { rotulo: 'pronto', classe: 'text-credito' },
+  falhou: { rotulo: 'falhou', classe: 'font-semibold text-carimbo' },
+  confirmada: { rotulo: 'enviado para a base', classe: 'text-credito' },
+}
+
+/** Ainda vai ser escrito. */
+export function saidaEmAndamento(saida) {
+  return saida?.situacao === 'pendente' || saida?.situacao === 'redigindo'
+}

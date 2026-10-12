@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "tipoDocumento": {"type": "string"},
+    "descricao": {"type": "string"},
+    "conteudo": {"type": "string"},
+    "dados": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {"rotulo": {"type": "string"}, "valor": {"type": "string"}},
+        "required": ["rotulo", "valor"]
+      }
+    },
+    "mensagens": {"type": "array", "items": {"type": "string"}}
+  },
+  "required": ["tipoDocumento", "descricao", "conteudo", "dados", "mensagens"]
+}

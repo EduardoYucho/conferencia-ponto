@@ -36,9 +36,33 @@ public final class ModeloDeMentira implements ModeloDeIA {
     private volatile List<ArquivoRemoto.Estado> estados = List.of(ArquivoRemoto.Estado.ATIVO);
     private final java.util.Map<String, Deque<ArquivoRemoto.Estado>> situacoes = new java.util.concurrent.ConcurrentHashMap<>();
 
-    /** As respostas válidas de cada esquema (imagem, áudio, documento), com dados de acesso para a máscara tirar. */
+    /**
+     * O resumo padrão: cita o primeiro anexo (A1) com imagem, uma fonte e uma imagem que não existem e um dado de
+     * acesso remoto, para a conferência do servidor tirar.
+     */
+    public static final String RESUMO = """
+            {"assunto":"Erro ao emitir a nota fiscal na tela de vendas",
+             "blocos":[
+               {"tipo":"paragrafo","texto":"A cliente relatou que não conseguia emitir a nota fiscal e enviou o print do erro.",
+                "fontes":["M1","A1"],"imagens":[{"id":"A1","legenda":"tela Pedidos com o erro"}]},
+               {"tipo":"passo","texto":"Acessei o computador pelo AnyDesk 123 456 789.","fontes":["M1"],
+                "imagens":[{"id":"A9","legenda":"tela inventada"}]},
+               {"tipo":"passo","texto":"Emiti a nota de novo.","fontes":["M999"],"imagens":[]},
+               {"tipo":"paragrafo","texto":"A nota foi emitida.","fontes":["M1"],"imagens":[]}],
+             "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
+                     "sintoma":"erro ao emitir a nota","mensagemErro":"Erro ao gravar o pedido","causa":"não identificado",
+                     "resolucao":"nota emitida de novo"},
+             "telaFuncionalidade":"Pedidos (VEN010)"}""";
+
+    /** As respostas válidas de cada esquema (imagem, áudio, documento, resumo, assunto mais curto). */
     public static String respostaPadrao(PedidoAoModelo pedido) {
         String esquema = pedido.esquemaJson();
+        if (esquema.contains("\"blocos\"")) {
+            return RESUMO;
+        }
+        if (esquema.contains("\"assunto\"")) {
+            return "{\"assunto\":\"Erro na nota fiscal\"}";
+        }
         if (esquema.contains("\"trechos\"")) {
             return """
                     {"idioma":"pt-BR","duracao":"00:42","falantes":[{"rotulo":"Falante 1","papel":"cliente"}],

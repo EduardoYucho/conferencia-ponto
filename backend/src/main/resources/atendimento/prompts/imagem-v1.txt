@@ -1,0 +1,7 @@
+Analise esta imagem de um atendimento (print de tela, foto da tela ou documento fotografado).
+- "descricao": o que a imagem mostra, em 1 a 3 frases.
+- "tela": o nome (ou título), o código e o caminho de menu da tela do sistema, se aparecerem.
+- "campos": os campos e valores visíveis que importam para entender o problema (rótulo e valor).
+- "mensagens": as mensagens de erro, aviso, informação ou confirmação, com o texto literal.
+- "textoLegivel": se o texto da imagem dá para ler.
+- "regioes": até 5 áreas de interesse (a mensagem de erro, o campo com problema), cada uma com a caixa [ymin, xmin, ymax, xmax] em coordenadas de 0 a 1000.

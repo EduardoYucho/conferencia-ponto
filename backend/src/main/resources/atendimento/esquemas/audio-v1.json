@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "idioma": {"type": "string"},
+    "duracao": {"type": "string", "description": "MM:SS"},
+    "falantes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "rotulo": {"type": "string", "description": "Como aparece nos trechos (ex.: Falante 1)."},
+          "papel": {"type": "string", "enum": ["cliente", "atendente", "outro", "nao_identificado"]}
+        },
+        "required": ["rotulo", "papel"]
+      }
+    },
+    "trechos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "inicio": {"type": "string", "description": "MM:SS"},
+          "falante": {"type": "string"},
+          "texto": {"type": "string"}
+        },
+        "required": ["inicio", "falante", "texto"]
+      }
+    },
+    "temTrechoInaudivel": {"type": "boolean"}
+  },
+  "required": ["idioma", "duracao", "falantes", "trechos", "temTrechoInaudivel"]
+}

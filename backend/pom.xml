@@ -29,6 +29,7 @@
     <properties>
         <java.version>17</java.version>
         <pdfbox.version>3.0.5</pdfbox.version>
+        <jsoup.version>1.23.2</jsoup.version>
         <archunit.version>1.5.1</archunit.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
         <!-- a mesma versão do PostgreSQL da máquina de produção -->
@@ -86,6 +87,13 @@
                     <artifactId>commons-logging</artifactId>
                 </exclusion>
             </exclusions>
+        </dependency>
+
+        <!-- Limpeza do HTML editado nas saídas do gerador de atendimentos (lista de tags permitidas) -->
+        <dependency>
+            <groupId>org.jsoup</groupId>
+            <artifactId>jsoup</artifactId>
+            <version>${jsoup.version}</version>
         </dependency>
 
         <dependency>

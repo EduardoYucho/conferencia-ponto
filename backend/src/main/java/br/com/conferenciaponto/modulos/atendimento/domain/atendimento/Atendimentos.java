@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.modulos.atendimento.domain.atendimento;
 
+import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -41,6 +43,20 @@ public interface Atendimentos {
      */
     boolean mudarSituacaoSe(UUID id, java.util.Set<SituacaoDoAtendimento> de, SituacaoDoAtendimento nova, String motivo,
                             Instant agora);
+
+    /**
+     * Processando → pronto ou com falhas, só se não sobrou nada a fazer: nenhuma tarefa pendente ou em execução e
+     * nenhuma saída esperando a redação (numa única gravação: uma tarefa criada no mesmo instante impede).
+     *
+     * @return false se ainda havia o que fazer (ou a situação já era outra)
+     */
+    boolean finalizarSeOcioso(UUID id, SituacaoDoAtendimento nova, Instant agora);
+
+    /** A linha do tempo montada para a redação (substitui a anterior). */
+    void salvarLinhaDoTempo(UUID id, LinhaDoTempo linha, Instant agora);
+
+    /** A última linha do tempo montada, se houver. */
+    Optional<LinhaDoTempo> linhaDoTempo(UUID id);
 
     /** Atendimentos cujos arquivos já passaram do prazo e ainda estão em disco. */
     List<UUID> comArquivosVencidos(Instant agora);
