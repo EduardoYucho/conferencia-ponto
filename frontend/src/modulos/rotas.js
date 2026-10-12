@@ -30,6 +30,12 @@ export const rotasDosModulos = [
     component: () => import('./conhecimento/views/BaseConhecimentoView.vue'),
   },
   {
+    path: '/base-conhecimento/:id',
+    name: 'registro-da-base',
+    component: () => import('./conhecimento/views/RegistroView.vue'),
+    props: true,
+  },
+  {
     path: '/acessos',
     name: 'acessos-modulos',
     component: () => import('./AcessosView.vue'),

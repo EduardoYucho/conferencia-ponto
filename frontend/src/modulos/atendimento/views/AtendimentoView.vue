@@ -45,6 +45,12 @@ async function carregar({ silencioso = false } = {}) {
 onMounted(() => carregar())
 watch(() => props.id, () => carregar())
 
+/** O texto foi enviado para a base: a aba passa a mostrar "enviado para a base" sem recarregar. */
+function marcarConfirmada(saida) {
+  const estado = (atendimento.value?.saidas ?? []).find((s) => s.id === saida?.id)
+  if (estado) estado.situacao = saida.situacao
+}
+
 /** Aplica o progresso (da ação ou do SSE) sem recarregar a conversa; um arquivo que a tela não conhece recarrega tudo. */
 let recarga = null
 function aplicarProgresso(progresso) {
@@ -172,7 +178,7 @@ async function apagar() {
 
           <ProcessamentoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @recarregar="carregar({ silencioso: true })" />
 
-          <ResultadoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @campos="atendimento.campos = $event" />
+          <ResultadoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @campos="atendimento.campos = $event" @confirmada="marcarConfirmada" />
 
           <AnexosDaConversa
             v-if="atendimento.anexos.length"

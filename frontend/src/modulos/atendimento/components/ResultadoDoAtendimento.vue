@@ -21,7 +21,7 @@ import SaidaDoAtendimento from './SaidaDoAtendimento.vue'
 const props = defineProps({
   atendimento: { type: Object, required: true },
 })
-const emit = defineEmits(['progresso', 'campos'])
+const emit = defineEmits(['progresso', 'campos', 'confirmada'])
 
 const aba = ref(null)
 const acao = ref('')
@@ -166,6 +166,7 @@ async function gerarDeNovo(tipo) {
         :campos="atendimento.campos"
         @progresso="emit('progresso', $event)"
         @campos="emit('campos', $event)"
+        @confirmada="emit('confirmada', $event)"
       />
 
       <p v-if="faltam.length && !processando && !pedindo" class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-1 border-t border-linha pt-3 text-sm">
