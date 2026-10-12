@@ -21,7 +21,8 @@ const mensagem = ref('')
 const saidas = computed(() => props.atendimento.saidas ?? [])
 const atual = computed(() => saidas.value.find((s) => s.tipo === aba.value) ?? saidas.value[0] ?? null)
 const processando = computed(() => ['processando', 'pausado'].includes(props.atendimento.situacao))
-const naoProcessado = computed(() => ['novo', 'cancelado'].includes(props.atendimento.situacao))
+/** Anexos que ainda não foram baixados: o "Gerar o resumo" baixa e analisa antes. */
+const faltaBaixar = computed(() => (props.atendimento.anexos ?? []).some((a) => a.situacao === 'aguardando' && !a.vencido))
 
 watch(saidas, (lista) => {
   if (!lista.some((s) => s.tipo === aba.value)) aba.value = lista[0]?.tipo ?? null
@@ -85,9 +86,10 @@ async function gerarDeNovo(tipo) {
 
     <div v-if="!saidas.length" class="mt-2 flex flex-wrap items-center justify-between gap-3">
       <p class="text-sm text-tinta-suave">
-        Nenhum texto pedido ainda. O resumo é escrito pelo Gemini a partir da conversa e da análise de cada arquivo.
+        Nenhum texto pedido ainda. O resumo é escrito pelo Gemini a partir da conversa e da análise de cada arquivo<span
+          v-if="faltaBaixar">; os anexos que faltam são baixados e analisados antes</span>.
       </p>
-      <button v-if="!processando && !naoProcessado" type="button" class="botao-primario" :disabled="!!acao" @click="gerarResumo">
+      <button v-if="!processando" type="button" class="botao-primario" :disabled="!!acao" @click="gerarResumo">
         {{ acao ? 'Pedindo…' : 'Gerar o resumo' }}
       </button>
     </div>

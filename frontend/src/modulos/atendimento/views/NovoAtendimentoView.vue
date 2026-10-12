@@ -184,7 +184,7 @@ function recomecar() {
                   <template v-if="resultado.linksRenovados">
                     Os links de {{ resultado.linksRenovados }} anexo(s) que faltavam foram renovados com este PDF.
                   </template>
-                  Abra o existente para continuar.
+                  Abra o existente para continuar (o resumo é gerado por lá).
                 </p>
               </template>
             </div>

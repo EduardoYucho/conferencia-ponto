@@ -160,6 +160,22 @@ class RedacaoDoResumoTest {
         return gerenciar.receberPdf(maria, new ByteArrayInputStream(pdf), pdf.length, "conversa.pdf").atendimento().id();
     }
 
+    /** Um atendimento só com a conversa, sem anexos. */
+    private UUID criarSemAnexos() {
+        GerenciarAtendimentos gerenciar = new GerenciarAtendimentos(new ExtratorPdfBox(), atendimentos, arquivos, publicador,
+                new PastaEmDisco(raiz), RepositoriosDeTeste.transacao(), relogio(), DataSize.ofMegabytes(50), 30, 180);
+        byte[] pdf = PdfDigisacDeTeste.novo()
+                .cabecalho(PdfDigisacDeTeste.CONTATO, "20261009000002", "09/10/2026 16:05:00", "09/10/2026 16:42:00", "-")
+                .data("09/10/2026")
+                .evento("Início do chamado - Pré-Atendimento (Fila) - 09/10/2026 16:05:53")
+                .cliente(PdfDigisacDeTeste.CONTATO, "16:05", "Quero marcar uma reunião sobre o sistema")
+                .atendente("Atendente", "16:30", "Na terça-feira a equipe conversa com você para marcar")
+                .cliente(PdfDigisacDeTeste.CONTATO, "16:40", "Perfeito, obrigada")
+                .evento("Fim do chamado - Encerrado - 09/10/2026 16:42:02")
+                .bytes();
+        return gerenciar.receberPdf(maria, new ByteArrayInputStream(pdf), pdf.length, "conversa.pdf").atendimento().id();
+    }
+
     private void cadastrarChave() {
         chaves.salvar(new ChaveGemini(maria.id(), cofre.cifrar(CHAVE, maria.id()), "wxyz", false, SituacaoDaChave.VALIDA,
                 AGORA, AGORA));
@@ -237,6 +253,26 @@ class RedacaoDoResumoTest {
         assertThat(fim.saidas()).singleElement().satisfies(s -> assertThat(s.situacao()).isEqualTo("pronta"));
         assertThat(eventos).anySatisfy(e -> assertThat(e.progresso().saidas())
                 .anyMatch(s -> s.situacao().equals("pronta")));
+    }
+
+    @Test
+    void atendimentoNovoSemAnexosGeraOResumoSoComAConversa() {
+        cadastrarChave();
+        UUID id = criarSemAnexos();
+        iniciarFila();
+        assertThat(situacao(id)).isEqualTo(SituacaoDoAtendimento.NOVO);
+
+        ProgressoView inicio = processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        assertThat(inicio.situacao()).isIn("processando", "pronto");
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(resumo(id).situacao()).isEqualTo("pronta");
+        assertThat(modelo.geracoes()).as("só a redação").hasSize(1);
+        PedidoAoModelo pedido = redacoes().get(0);
+        assertThat(pedido.instrucao()).contains("Quero marcar uma reunião").contains("Nenhuma: deixe \"imagens\" vazio");
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.imagens()).as("a imagem citada não existe neste atendimento").isEmpty();
+        assertThat(saida.html()).doesNotContain("data-imagem");
     }
 
     @Test
