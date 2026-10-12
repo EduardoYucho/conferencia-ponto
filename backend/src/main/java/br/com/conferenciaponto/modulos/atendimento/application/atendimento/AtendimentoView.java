@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.modulos.atendimento.application.atendimento;
 
 import br.com.conferenciaponto.modulos.atendimento.application.arquivo.ArquivoView;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.EstadoDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.Omitidos;
 
 import java.time.Instant;
@@ -22,7 +23,22 @@ public record AtendimentoView(UUID id, String chamado, String contato, Instant i
                               Instant arquivosApagadosEm, String assunto, String resumo, Instant linksValidosAte,
                               boolean linksVencidos, Omitidos omitidos, int versaoLeitor, List<Item> itens,
                               List<Anexo> anexos, List<ArquivoView> extras, long tokensEntrada, long tokensSaida,
-                              boolean semChaveGemini) {
+                              boolean semChaveGemini, List<EstadoDaSaida> saidas) {
+
+    public AtendimentoView {
+        saidas = saidas == null ? List.of() : List.copyOf(saidas);
+    }
+
+    public AtendimentoView(UUID id, String chamado, String contato, Instant inicio, Instant fim, String situacao,
+                           String motivoPausa, int percentual, Instant criadoEm, Instant apagarArquivosEm,
+                           Instant arquivosApagadosEm, String assunto, String resumo, Instant linksValidosAte,
+                           boolean linksVencidos, Omitidos omitidos, int versaoLeitor, List<Item> itens,
+                           List<Anexo> anexos, List<ArquivoView> extras, long tokensEntrada, long tokensSaida,
+                           boolean semChaveGemini) {
+        this(id, chamado, contato, inicio, fim, situacao, motivoPausa, percentual, criadoEm, apagarArquivosEm,
+                arquivosApagadosEm, assunto, resumo, linksValidosAte, linksVencidos, omitidos, versaoLeitor, itens, anexos,
+                extras, tokensEntrada, tokensSaida, semChaveGemini, List.of());
+    }
 
     public AtendimentoView(UUID id, String chamado, String contato, Instant inicio, Instant fim, String situacao,
                            String motivoPausa, int percentual, Instant criadoEm, Instant apagarArquivosEm,

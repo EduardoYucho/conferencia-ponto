@@ -235,11 +235,13 @@ public class GerenciarAtendimentos {
                 .map(a -> ArquivoView.de(a, analises.de(a.id())))
                 .toList();
         int percentual = ProgressoView.percentual(guardado.arquivos(), analises);
+        long[] tokensDaRedacao = publicador.tokensDaRedacao(id);
         return new AtendimentoView(r.id(), r.chamado(), r.contato(), r.inicio(), r.fim(), r.situacao().codigo(),
                 guardado.motivoPausa(), percentual, r.criadoEm(), guardado.apagarArquivosEm(), guardado.arquivosApagadosEm(),
                 conversa.cabecalho().assunto(), conversa.cabecalho().resumo(), r.linksValidosAte(),
                 ResumoView.vencido(r.linksValidosAte(), agora), conversa.omitidos(), guardado.versaoLeitor(), itens, anexos,
-                extras, analises.tokensEntrada(), analises.tokensSaida(), analises.semChaveGemini());
+                extras, analises.tokensEntrada() + tokensDaRedacao[0], analises.tokensSaida() + tokensDaRedacao[1],
+                analises.semChaveGemini(), publicador.saidas(id));
     }
 
     /** Apaga o atendimento e os arquivos dele (primeiro os arquivos: se um estiver preso, nada é apagado). */

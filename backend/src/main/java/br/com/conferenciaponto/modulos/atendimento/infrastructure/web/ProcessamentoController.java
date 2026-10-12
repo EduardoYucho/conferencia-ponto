@@ -4,21 +4,27 @@ import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * Processamento dos atendimentos da pessoa logada e o acompanhamento ao vivo.
  *
  * <pre>
- * POST /api/v1/atendimentos/{id}/processar                          põe na fila o que falta (downloads e análises)
+ * POST /api/v1/atendimentos/{id}/processar                          põe na fila o que falta (downloads, análises e as
+ *                                                                   saídas pedidas em {saidas: ["resumo"]}, opcional)
  * POST /api/v1/atendimentos/{id}/cancelar                           cancela as tarefas que ainda não começaram
  * POST /api/v1/atendimentos/{id}/retomar                            retoma um atendimento pausado
  * POST /api/v1/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo  repete o download ou a análise que falhou
@@ -40,9 +46,18 @@ public class ProcessamentoController {
         this.acesso = acesso;
     }
 
+    /** As saídas a gerar no fim do processamento (sem nada: só o que falta das já pedidas). */
+    public record PedidoDeProcessamento(List<String> saidas) {
+    }
+
     @PostMapping("/{id}/processar")
-    public ApiResponse<ProgressoView> processar(@PathVariable UUID id) {
-        return ApiResponse.ok(processamento.processar(acesso.logado(), id));
+    public ApiResponse<ProgressoView> processar(@PathVariable UUID id,
+                                                @RequestBody(required = false) PedidoDeProcessamento pedido) {
+        Set<TipoDeSaida> saidas = EnumSet.noneOf(TipoDeSaida.class);
+        if (pedido != null && pedido.saidas() != null) {
+            pedido.saidas().forEach(codigo -> saidas.add(SaidasController.tipo(codigo)));
+        }
+        return ApiResponse.ok(processamento.processar(acesso.logado(), id, saidas));
     }
 
     @PostMapping("/{id}/cancelar")

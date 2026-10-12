@@ -1,0 +1,6 @@
+Leia este documento de um atendimento.
+- "tipoDocumento": o tipo (ex.: nota fiscal, relatório, log, planilha exportada, contrato, outro).
+- "descricao": o que é o documento, em 1 a 3 frases.
+- "conteudo": o texto principal, transcrito; em documentos longos, as partes que importam para o suporte (números, datas, valores, mensagens).
+- "dados": os dados relevantes (rótulo e valor).
+- "mensagens": as mensagens de erro ou aviso que aparecem, com o texto literal.

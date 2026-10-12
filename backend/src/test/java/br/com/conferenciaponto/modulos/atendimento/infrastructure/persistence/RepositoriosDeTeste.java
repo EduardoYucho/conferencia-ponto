@@ -31,6 +31,10 @@ public final class RepositoriosDeTeste {
         return new AnalisesJdbc(PostgresDeTeste.jdbc());
     }
 
+    public static br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas saidas() {
+        return new SaidasJdbc(PostgresDeTeste.jdbc(), transacao());
+    }
+
     public static br.com.conferenciaponto.modulos.atendimento.domain.chave.ChavesGemini chaves() {
         return new ChavesGeminiJdbc(PostgresDeTeste.jdbc());
     }

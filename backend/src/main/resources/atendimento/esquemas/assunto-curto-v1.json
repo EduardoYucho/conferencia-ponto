@@ -1,0 +1,7 @@
+{
+  "type": "object",
+  "properties": {
+    "assunto": {"type": "string"}
+  },
+  "required": ["assunto"]
+}

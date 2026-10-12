@@ -14,6 +14,7 @@ import br.com.conferenciaponto.modulos.atendimento.application.arquivo.Gerenciar
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -95,14 +96,15 @@ class ProcessamentoEArquivosWebTest {
                 .andExpect(jsonPath("$.erros[0].codigo").value("MODULO_NAO_LIBERADO"));
         mvc.perform(put("/api/v1/atendimentos/" + ID + "/arquivos").with(como(maria)).content(PNG))
                 .andExpect(status().isForbidden());
-        verify(processamento, never()).processar(any(), any());
+        verify(processamento, never()).processar(any(), any(), any());
         verify(arquivos, never()).enviarExtra(any(), any(), any(), any(), any(), any(), anyLong());
     }
 
     @Test
     void processarCancelarRetomarETentarDeNovo() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
-        when(processamento.processar(maria, ID)).thenReturn(PROGRESSO);
+        when(processamento.processar(maria, ID, Set.of())).thenReturn(PROGRESSO);
+        when(processamento.processar(maria, ID, Set.of(TipoDeSaida.RESUMO))).thenReturn(PROGRESSO);
         when(processamento.cancelar(maria, ID)).thenReturn(PROGRESSO);
         when(processamento.retomar(maria, ID)).thenReturn(PROGRESSO);
         when(processamento.progresso(maria, ID)).thenReturn(PROGRESSO);
@@ -112,6 +114,14 @@ class ProcessamentoEArquivosWebTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.percentual").value(25))
                 .andExpect(jsonPath("$.dados.arquivos[0].situacao").value("baixando"));
+        mvc.perform(post("/api/v1/atendimentos/" + ID + "/processar").with(como(maria))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"saidas\":[\"resumo\"]}"))
+                .andExpect(status().isOk());
+        verify(processamento).processar(maria, ID, Set.of(TipoDeSaida.RESUMO));
+        mvc.perform(post("/api/v1/atendimentos/" + ID + "/processar").with(como(maria))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"saidas\":[\"poema\"]}"))
+                .andExpect(status().isUnprocessableEntity())
+                .andExpect(jsonPath("$.erros[0].codigo").value("SAIDA_DESCONHECIDA"));
         mvc.perform(post("/api/v1/atendimentos/" + ID + "/cancelar").with(como(maria))).andExpect(status().isOk());
         mvc.perform(post("/api/v1/atendimentos/" + ID + "/retomar").with(como(maria))).andExpect(status().isOk());
         mvc.perform(get("/api/v1/atendimentos/" + ID + "/progresso").with(como(maria))).andExpect(status().isOk());
@@ -123,7 +133,7 @@ class ProcessamentoEArquivosWebTest {
     @Test
     void atendimentoDeOutraPessoaVem404() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
-        when(processamento.processar(maria, ID)).thenThrow(new RecursoNaoEncontradoException("ATENDIMENTO_NAO_ENCONTRADO", "x"));
+        when(processamento.processar(maria, ID, Set.of())).thenThrow(new RecursoNaoEncontradoException("ATENDIMENTO_NAO_ENCONTRADO", "x"));
 
         mvc.perform(post("/api/v1/atendimentos/" + ID + "/processar").with(como(maria)))
                 .andExpect(status().isNotFound())

@@ -1,0 +1,5 @@
+Transcreva este áudio de um atendimento (gravação de ligação ou mensagem de voz) completo, sem resumir, na ordem em que foi falado.
+- "trechos": cada fala, com o instante de início (MM:SS), quem fala e o texto. Não corrija o que foi dito.
+- "falantes": cada pessoa que fala, com o papel (cliente ou atendente) quando der para saber pelo contexto; senão, "nao_identificado".
+- Trecho que não dá para entender: escreva [inaudível] no lugar das palavras e marque "temTrechoInaudivel".
+- "duracao": a duração do áudio (MM:SS).

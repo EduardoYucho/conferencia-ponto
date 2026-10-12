@@ -1,0 +1,3 @@
+O assunto abaixo, de um chamado de suporte técnico, tem {{TAMANHO}} caracteres, e o limite é {{LIMITE}}. Reescreva-o com no máximo {{LIMITE}} caracteres, mantendo o sentido e os termos principais (telas, códigos, erros), sem o nome do contato e sem "Digisac". Responda só com o JSON.
+
+Assunto: {{ASSUNTO}}

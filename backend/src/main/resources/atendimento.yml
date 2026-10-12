@@ -48,7 +48,7 @@ atendimento:
     modelos:                                 # nomes na configuração: troca sem mexer no código (E6)
       analise: gemini-3.8-flash              # imagem e documento
       audio: gemini-3.8-flash                # transcrição (a comparar com gemini-3.5-transcribe na validação)
-      redacao: gemini-3.8-flash
+      redacao: gemini-3.8-flash              # resumo e chamados (E7)
     tentativas: 5                            # por arquivo, contando a primeira (o 429 por minuto espera o tempo pedido)
     tempo-limite: 10m                        # resposta de uma análise (áudio longo demora)
     tempo-envio: 2m                          # cada pedaço de 8 MB do envio de um arquivo
@@ -60,6 +60,10 @@ atendimento:
     raciocinio:                              # nível de raciocínio (ex.: low); vazio = o padrão do modelo
     video:
       quadros-por-segundo: 1                 # (E9)
+  linha-do-tempo:                            # (E7)
+    margem: 1h                               # arquivo da pessoa com data fora do atendimento (mais esta margem) fica "sem horário"
+  copia:
+    imagem-maxima: 10MB                      # na cópia "com imagens", maior que isto vai só a legenda (anexe o arquivo)
   ffmpeg:
     caminho:                                 # vazio = procurar no PATH (E9)
   imagens:

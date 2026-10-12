@@ -1,14 +1,12 @@
 package br.com.conferenciaponto.modulos.atendimento.application.analise;
 
+import br.com.conferenciaponto.modulos.atendimento.application.ia.ChamadasAoGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.AnaliseGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.ArquivoParaAnalisar;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
-import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChaveGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChavesGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.chave.Cofre;
-import br.com.conferenciaponto.modulos.atendimento.domain.chave.CofreException;
-import br.com.conferenciaponto.modulos.atendimento.domain.chave.SituacaoDaChave;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.CategoriaDoArquivo;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.ExecutorDeTarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.ResultadoDaTarefa;
@@ -48,10 +46,8 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
 
     private static final Logger log = LoggerFactory.getLogger(AnalisarArquivo.class);
 
-    static final String SEM_CHAVE = "Cadastre sua chave do Gemini em Atendimentos → Minha chave do Gemini e clique em "
-            + "Processar de novo.";
-    static final String COTA_DIARIA = "A cota diária da sua chave do Gemini acabou. Ela renova por volta das 4h–5h "
-            + "(meia-noite no horário do Pacífico); depois disso, clique em Retomar e o processamento continua de onde parou.";
+    static final String SEM_CHAVE = ChamadasAoGemini.SEM_CHAVE;
+    static final String COTA_DIARIA = ChamadasAoGemini.COTA_DIARIA;
 
     /** Para os testes não esperarem de verdade. */
     interface Espera {
@@ -59,8 +55,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
     }
 
     private final Analises analises;
-    private final ChavesGemini chaves;
-    private final Cofre cofre;
+    private final ChamadasAoGemini gemini;
     private final ModeloDeIA modelo;
     private final PastaDosAtendimentos pasta;
     private final ConfiguracaoDaAnalise configuracao;
@@ -84,8 +79,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
                     ConfiguracaoDaAnalise configuracao, ObjectMapper json, Clock clock, Duration esperaArquivo,
                     Duration intervaloConsulta, Espera espera) {
         this.analises = analises;
-        this.chaves = chaves;
-        this.cofre = cofre;
+        this.gemini = new ChamadasAoGemini(chaves, cofre, json, clock);
         this.modelo = modelo;
         this.pasta = pasta;
         this.configuracao = configuracao;
@@ -122,17 +116,11 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
             return ResultadoDaTarefa.concluida();
         }
 
-        Optional<ChaveGemini> guardada = chaves.buscar(arquivo.usuarioId());
-        if (guardada.isEmpty()) {
-            return ResultadoDaTarefa.definitiva("SEM_CHAVE_GEMINI", SEM_CHAVE);
+        ChamadasAoGemini.ChaveDoDono dono = gemini.chaveDo(arquivo.usuarioId());
+        if (!dono.aberta()) {
+            return dono.falha();
         }
-        String chave;
-        try {
-            chave = cofre.decifrar(guardada.get().cifrada(), arquivo.usuarioId());
-        } catch (CofreException e) {
-            return ResultadoDaTarefa.definitiva("CHAVE_GEMINI_ILEGIVEL", "Não foi possível abrir a sua chave do Gemini "
-                    + "guardada (a chave mestra do servidor mudou). Cadastre a chave de novo e clique em Processar.");
-        }
+        String chave = dono.chave();
 
         Path local = pasta.localDoArquivo(arquivo.caminho());
         ArquivoRemoto remoto = null;
@@ -154,9 +142,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
             int duracao = (int) Math.min(Integer.MAX_VALUE, (System.nanoTime() - inicio) / 1_000_000);
             analises.salvar(arquivo.id(), prompt.versao(), nomeDoModelo, resultado, lida.tokensEntrada(), lida.tokensSaida(),
                     duracao, clock.instant());
-            if (guardada.get().situacao() != SituacaoDaChave.VALIDA) {
-                chaves.atualizarSituacao(arquivo.usuarioId(), SituacaoDaChave.VALIDA, clock.instant());
-            }
+            gemini.usoDeuCerto(arquivo.usuarioId(), dono);
             log.info("Arquivo {} ({}) analisado com {}: {} + {} tokens, {} ms", arquivo.id(), arquivo.categoria().codigo(),
                     nomeDoModelo, lida.tokensEntrada(), lida.tokensSaida(), duracao);
             return ResultadoDaTarefa.concluida();
@@ -255,65 +241,15 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
 
     /** O JSON é um objeto com os campos do esquema (as listas como listas). */
     JsonNode conferir(String texto, PromptsDeAnalise.Prompt prompt) {
-        String limpo = texto.strip();
-        if (limpo.startsWith("```")) {
-            limpo = limpo.replaceFirst("^```(?:json)?\\s*", "").replaceFirst("\\s*```$", "");
-        }
-        JsonNode lido;
-        try {
-            lido = json.readTree(limpo);
-        } catch (IOException e) {
-            throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "não é JSON");
-        }
-        if (lido == null || !lido.isObject()) {
-            throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "não é um objeto JSON");
-        }
-        for (String campo : prompt.obrigatorios()) {
-            if (!lido.has(campo) || lido.get(campo).isNull()) {
-                throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "faltou o campo " + campo);
-            }
-        }
-        for (String lista : prompt.listas()) {
-            if (!lido.get(lista).isArray()) {
-                throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "o campo " + lista + " não é uma lista");
-            }
-        }
-        return lido;
+        return gemini.lerObjeto(texto, prompt.obrigatorios(), prompt.listas());
     }
 
-    /** O que fazer com cada falha (tabela 6.4 da arquitetura). */
+    /** O que fazer com cada falha (tabela 6.4 da arquitetura); o arquivo que o Google não processou sai de lá. */
     private ResultadoDaTarefa traduzir(FalhaDoModelo falha, ArquivoParaAnalisar arquivo, String nomeDoModelo) {
-        UUID usuario = arquivo.usuarioId();
-        Instant agora = clock.instant();
-        return switch (falha.tipo()) {
-            case CHAVE_RECUSADA -> {
-                chaves.atualizarSituacao(usuario, SituacaoDaChave.RECUSADA, agora);
-                yield ResultadoDaTarefa.pausar("CHAVE_GEMINI_RECUSADA", falha.getMessage() + " Confira ou cadastre de novo "
-                        + "em Atendimentos → Minha chave do Gemini e clique em Retomar.");
-            }
-            case LIMITE -> ResultadoDaTarefa.temporaria("GEMINI_LIMITE", "Aguardando o limite do Gemini.", falha.esperar());
-            case COTA_DIARIA -> {
-                chaves.atualizarSituacao(usuario, SituacaoDaChave.SEM_COTA, agora);
-                yield ResultadoDaTarefa.pausar("GEMINI_COTA_DIARIA", COTA_DIARIA);
-            }
-            case SEM_CREDITO -> ResultadoDaTarefa.pausar("GEMINI_SEM_CREDITO", "Os créditos da sua chave do Gemini acabaram. "
-                    + "Compre mais créditos no Google AI Studio e clique em Retomar.");
-            case INDISPONIVEL -> ResultadoDaTarefa.temporaria("GEMINI_INDISPONIVEL", "Gemini indisponível; tentando de novo.");
-            case SEM_INTERNET -> ResultadoDaTarefa.temporaria("GEMINI_INDISPONIVEL", "Sem conexão com o Google; tentando de novo.");
-            case BLOQUEOU -> ResultadoDaTarefa.definitiva("GEMINI_BLOQUEOU", "O Gemini recusou analisar este arquivo (motivo: "
-                    + falha.getMessage() + ").");
-            case RESPOSTA_INVALIDA -> ResultadoDaTarefa.definitiva("GEMINI_RESPOSTA_INVALIDA", "Resposta inválida do Gemini "
-                    + "(duas vezes seguidas). Clique em Tentar de novo mais tarde.");
-            case MODELO_INEXISTENTE -> ResultadoDaTarefa.definitiva("GEMINI_MODELO", "O modelo " + nomeDoModelo + " não "
-                    + "existe ou não está liberado para a sua chave. Avise o administrador (configuração "
-                    + "atendimento.gemini.modelos).");
-            case PEDIDO_RECUSADO -> ResultadoDaTarefa.definitiva("GEMINI_PEDIDO_RECUSADO", falha.getMessage());
-            case ARQUIVO_FALHOU -> {
-                analises.esquecerArquivoRemoto(arquivo.id());
-                yield ResultadoDaTarefa.definitiva("GEMINI_ARQUIVO_FALHOU", "O Gemini não conseguiu processar este arquivo. "
-                        + "Confira se ele abre no computador; se abrir, tente de novo ou envie em outro formato.");
-            }
-        };
+        if (falha.tipo() == FalhaDoModelo.Tipo.ARQUIVO_FALHOU) {
+            analises.esquecerArquivoRemoto(arquivo.id());
+        }
+        return gemini.traduzir(falha, arquivo.usuarioId(), nomeDoModelo, "analisar este arquivo");
     }
 
     // ---------------------------------------------------------------------------------------------- apoio

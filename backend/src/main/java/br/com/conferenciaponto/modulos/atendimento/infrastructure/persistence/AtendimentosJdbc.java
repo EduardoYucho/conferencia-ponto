@@ -9,6 +9,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ResumoDoAt
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.AnexoLido;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.Cabecalho;
+import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.jdbc.core.simple.JdbcClient;
 import org.springframework.stereotype.Repository;
@@ -40,6 +41,7 @@ class AtendimentosJdbc implements Atendimentos {
 
     private final JdbcClient jdbc;
     private final ConversaJson conversas;
+    private final LinhaDoTempoJson linhas;
 
     /** A parte do atendimento que só o detalhe usa. */
     private record Guardado(String conversa, int versaoLeitor, Instant apagarArquivosEm, Instant arquivosApagadosEm,
@@ -49,6 +51,7 @@ class AtendimentosJdbc implements Atendimentos {
     AtendimentosJdbc(JdbcClient jdbc, ObjectMapper json) {
         this.jdbc = jdbc;
         this.conversas = new ConversaJson(json);
+        this.linhas = new LinhaDoTempoJson(json);
     }
 
     @Override
@@ -195,6 +198,45 @@ class AtendimentosJdbc implements Atendimentos {
                 .param("motivo", motivo == null || motivo.length() <= 200 ? motivo : motivo.substring(0, 200))
                 .param("agora", utc(agora))
                 .update() > 0;
+    }
+
+    @Override
+    public boolean finalizarSeOcioso(UUID id, SituacaoDoAtendimento nova, Instant agora) {
+        return jdbc.sql("""
+                        UPDATE atendimento.atendimento a
+                           SET situacao = :situacao, motivo_pausa = NULL, atualizado_em = :agora, versao = versao + 1
+                         WHERE a.id = :id AND a.situacao = 'processando'
+                           AND NOT EXISTS (SELECT 1 FROM atendimento.tarefa t
+                                            WHERE t.atendimento_id = a.id AND t.situacao IN ('pendente', 'executando'))
+                           AND NOT EXISTS (SELECT 1 FROM atendimento.saida s
+                                            WHERE s.atendimento_id = a.id AND s.situacao IN ('pendente', 'redigindo'))
+                        """)
+                .param("id", id)
+                .param("situacao", nova.codigo())
+                .param("agora", utc(agora))
+                .update() > 0;
+    }
+
+    @Override
+    public void salvarLinhaDoTempo(UUID id, LinhaDoTempo linha, Instant agora) {
+        jdbc.sql("""
+                        UPDATE atendimento.atendimento
+                           SET linha_do_tempo = CAST(:linha AS jsonb), atualizado_em = :agora
+                         WHERE id = :id
+                        """)
+                .param("id", id)
+                .param("linha", linhas.escrever(linha))
+                .param("agora", utc(agora))
+                .update();
+    }
+
+    @Override
+    public Optional<LinhaDoTempo> linhaDoTempo(UUID id) {
+        return jdbc.sql("SELECT linha_do_tempo::text FROM atendimento.atendimento WHERE id = :id AND linha_do_tempo IS NOT NULL")
+                .param("id", id)
+                .query(String.class)
+                .optional()
+                .map(linhas::ler);
     }
 
     @Override
