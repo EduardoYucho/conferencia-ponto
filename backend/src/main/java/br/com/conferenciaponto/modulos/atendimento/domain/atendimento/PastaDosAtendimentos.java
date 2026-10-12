@@ -46,6 +46,15 @@ public interface PastaDosAtendimentos {
     /** Apaga um arquivo pelo caminho relativo guardado no banco (não falha se ele já não existe). */
     void apagarArquivo(String caminhoRelativo);
 
+    /**
+     * Onde fica o quadro de um vídeo num instante: {@code <id>/arquivos/quadros/<arquivo>/<instante>.png} (o caminho
+     * relativo, como os outros que vão para o banco). O arquivo existe só depois que o quadro foi tirado.
+     */
+    String caminhoDoQuadro(UUID atendimentoId, UUID arquivoId, long instanteMs);
+
+    /** Apaga os quadros tirados de um vídeo (o vídeo saiu do atendimento). */
+    void apagarQuadros(UUID atendimentoId, UUID arquivoId);
+
     /** Apaga o PDF e os arquivos do atendimento, mantendo a pasta (retenção). */
     void apagarArquivosDoAtendimento(UUID atendimentoId);
 

@@ -10,8 +10,8 @@ import java.util.Map;
 
 /**
  * A análise de um arquivo (o JSON do esquema de cada tipo) em texto, para a linha do tempo: é assim que o redator lê
- * o que estava no print, no áudio ou no documento. Os campos "não identificado" ficam de fora (exceto a transcrição,
- * que vai inteira).
+ * o que estava no print, no áudio, no documento ou no vídeo. Os campos "não identificado" ficam de fora (exceto a
+ * transcrição e a narração, que vão inteiras).
  */
 final class TextoDaAnalise {
 
@@ -27,6 +27,7 @@ final class TextoDaAnalise {
             case "imagem" -> imagem(analise);
             case "audio" -> audio(analise);
             case "documento" -> documento(analise);
+            case "video" -> video(analise);
             default -> "";
         };
     }
@@ -51,6 +52,12 @@ final class TextoDaAnalise {
             case "audio" -> {
                 String duracao = valor(analise.path("duracao"));
                 yield duracao != null ? "transcrição de " + duracao : "transcrição";
+            }
+            case "video" -> {
+                String duracao = valor(analise.path("duracao"));
+                int passos = analise.path("passos").size();
+                yield "vídeo" + (duracao != null ? " de " + duracao : "") + (passos > 0 ? ", " + passos
+                        + (passos == 1 ? " passo" : " passos") : "");
             }
             default -> null;
         };
@@ -120,6 +127,84 @@ final class TextoDaAnalise {
         }
         if (falas == 0) {
             linhas.add("(nenhuma fala identificada no áudio)");
+        }
+        return String.join("\n", linhas);
+    }
+
+    /**
+     * Os passos com o instante, a tela, as ações e as mensagens, e a narração inteira. O quadro de cada passo é uma
+     * imagem da lista (V1@02:15): o instante dele vai ao lado do passo.
+     */
+    private static String video(JsonNode a) {
+        List<String> linhas = new ArrayList<>();
+        String duracao = valor(a.path("duracao"));
+        String descricao = valor(a.path("descricao"));
+        linhas.add("Vídeo" + (duracao != null ? " (duração " + duracao + ")" : "") + (descricao != null ? ": " + descricao : ":"));
+        int numero = 0;
+        List<String> passos = new ArrayList<>();
+        for (JsonNode p : a.path("passos")) {
+            numero++;
+            String instante = valor(p.path("instante"));
+            List<String> partes = new ArrayList<>();
+            JsonNode tela = p.path("tela");
+            String nome = valor(tela.path("nome"));
+            String codigo = valor(tela.path("codigo"));
+            String menu = valor(tela.path("caminhoMenu"));
+            if (nome != null || codigo != null) {
+                partes.add("tela " + (nome != null ? nome : "") + (codigo != null && (nome == null || !nome.contains(codigo))
+                        ? (nome != null ? " (" + codigo + ")" : codigo) : "") + (menu != null ? ", menu " + menu : ""));
+            }
+            String oQue = valor(p.path("descricao"));
+            StringBuilder linha = new StringBuilder("Passo ").append(numero)
+                    .append(instante != null ? " [" + instante + "]" : "").append(": ")
+                    .append(oQue != null ? oQue : "(sem descrição)");
+            if (!partes.isEmpty()) {
+                linha.append(" (").append(String.join("; ", partes)).append(')');
+            }
+            List<String> acoes = new ArrayList<>();
+            for (JsonNode acao : p.path("acoes")) {
+                String t = valor(acao);
+                if (t != null) {
+                    acoes.add(t);
+                }
+            }
+            if (!acoes.isEmpty()) {
+                linha.append("\n  Ações: ").append(String.join("; ", acoes));
+            }
+            for (JsonNode m : p.path("mensagens")) {
+                String t = valor(m.path("texto"));
+                if (t != null) {
+                    String tipo = valor(m.path("tipo"));
+                    linha.append("\n  Mensagem na tela").append(tipo == null || tipo.equals("outro") ? "" : " (" + tipoDeMensagem(tipo) + ")")
+                            .append(": \"").append(t).append('"');
+                }
+            }
+            String quadro = valor(p.path("instanteDoQuadro"));
+            if (quadro != null) {
+                linha.append("\n  Quadro do passo em ").append(quadro);
+            }
+            passos.add(linha.toString());
+        }
+        if (passos.isEmpty()) {
+            linhas.add("(nenhum passo identificado no vídeo)");
+        } else {
+            linhas.add("Passos:");
+            linhas.addAll(passos);
+        }
+        List<String> falas = new ArrayList<>();
+        for (JsonNode t : a.path("narracao")) {
+            String texto = t.path("texto").asText("").strip();
+            if (!texto.isEmpty()) {
+                String falante = t.path("falante").asText("").strip();
+                falas.add("[" + t.path("inicio").asText("").strip() + "] " + (falante.isEmpty() ? "Falante" : falante) + ": " + texto);
+            }
+        }
+        if (!falas.isEmpty()) {
+            linhas.add("Narração:");
+            linhas.addAll(falas);
+        }
+        if (a.path("textoLegivel").isBoolean() && !a.path("textoLegivel").asBoolean()) {
+            linhas.add("O texto da tela do vídeo não estava legível.");
         }
         return String.join("\n", linhas);
     }

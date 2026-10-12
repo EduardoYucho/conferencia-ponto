@@ -835,9 +835,57 @@ function Cmd-Instalar([switch] $Atualizacao) {
     Info "Configuração:   $(Join-Path $PastaConfig 'application.yml')"
     Info "Logs:           $ArquivoLog"
     Info "Logs por pessoa: $PastaLogsUsuarios  (um arquivo por usuário e por hora)"
+    Mostrar-Ffmpeg
     if (-not $Atualizacao) {
         Write-Host ''
         Info 'Abra um terminal NOVO e use:  ponto  |  ponto abrir  |  ponto logs  |  ponto parar  |  ponto atualizar'
+    }
+}
+
+# O ffmpeg tira o quadro de cada passo dos vídeos dos atendimentos. É opcional: sem ele, os vídeos são analisados
+# e os passos ficam sem imagem. Procura como a aplicação: atendimento.ffmpeg.caminho, o PATH e os lugares do winget.
+function Resolver-Ffmpeg {
+    $configurado = Configuracao-Servico 'atendimento.ffmpeg.caminho' ''
+    $candidatos = @()
+    if ($configurado) {
+        $configurado = $configurado.Trim('"')
+        if (Test-Path -LiteralPath $configurado -PathType Container) {
+            $candidatos += (Join-Path $configurado 'ffmpeg.exe'), (Join-Path $configurado 'bin\ffmpeg.exe')
+        } else { $candidatos += $configurado }
+    } else {
+        $comando = Get-Command ffmpeg.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($comando) { $candidatos += $comando.Source }
+        if ($env:LOCALAPPDATA) {
+            $winget = Join-Path $env:LOCALAPPDATA 'Microsoft\WinGet'
+            $candidatos += (Join-Path $winget 'Links\ffmpeg.exe')
+            $pacotes = Join-Path $winget 'Packages'
+            if (Test-Path -LiteralPath $pacotes) {
+                $candidatos += @(Get-ChildItem -LiteralPath $pacotes -Filter 'ffmpeg.exe' -Recurse -Depth 4 -File -ErrorAction SilentlyContinue |
+                    Where-Object { $_.FullName -match 'ffmpeg' } | Sort-Object FullName | ForEach-Object { $_.FullName })
+            }
+        }
+        if ($env:ProgramFiles) { $candidatos += (Join-Path $env:ProgramFiles 'ffmpeg\bin\ffmpeg.exe') }
+        $candidatos += 'C:\ffmpeg\bin\ffmpeg.exe'
+    }
+    foreach ($candidato in $candidatos) {
+        if (-not $candidato -or -not (Test-Path -LiteralPath $candidato -PathType Leaf)) { continue }
+        $versao = $null
+        try {
+            $linha = & $candidato -hide_banner -version 2>$null | Select-Object -First 1
+            if ($linha -match '(?i)^ffmpeg version (\S+)') { $versao = $Matches[1] }
+        } catch { }
+        if ($versao) { return [pscustomobject]@{ Caminho = $candidato; Versao = $versao } }
+    }
+    return $null
+}
+
+function Mostrar-Ffmpeg {
+    $ffmpeg = Resolver-Ffmpeg
+    if ($ffmpeg) {
+        Info "Vídeos:         ffmpeg $($ffmpeg.Versao) ($($ffmpeg.Caminho)): os passos ganham quadros"
+    } else {
+        Aviso 'Vídeos:         ffmpeg não encontrado: os vídeos são analisados, mas os passos ficam sem quadros.'
+        Aviso '                Para instalar:  winget install Gyan.FFmpeg   (o sistema encontra sozinho em até 1 minuto)'
     }
 }
 
@@ -871,6 +919,7 @@ function Cmd-Status {
     Info "Logs:           $ArquivoLog"
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
+    Mostrar-Ffmpeg
     Write-Host ''
     Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | backup [lista] | console | desinstalar'
 }

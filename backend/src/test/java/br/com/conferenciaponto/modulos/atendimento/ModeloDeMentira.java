@@ -93,9 +93,30 @@ public final class ModeloDeMentira implements ModeloDeIA {
                      "resolucao":"enviado ao desenvolvimento"},
              "telaFuncionalidade":"Pedidos de Venda (VEN010)"}""";
 
-    /** As respostas válidas de cada esquema (imagem, áudio, documento, resumo, chamados, assunto mais curto). */
+    /**
+     * O vídeo padrão: três passos (o segundo com a mensagem de erro e o quadro num instante próprio; o terceiro sem
+     * instante de quadro, que fica no começo do passo), a narração com um dado de acesso remoto para a máscara tirar.
+     */
+    public static final String VIDEO = """
+            {"descricao":"Gravação da tela emitindo a nota fiscal com desconto","duracao":"00:40",
+             "passos":[
+               {"instante":"00:02","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":"Vendas > Pedidos"},
+                "acoes":["clique em Novo"],"mensagens":[],"descricao":"Abre um pedido novo.","instanteDoQuadro":"00:03"},
+               {"instante":"00:10","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":"Vendas > Pedidos"},
+                "acoes":["digitação de 10 no campo Desconto","clique no botão Gravar"],
+                "mensagens":[{"texto":"Erro ao gravar o pedido","tipo":"erro"}],"descricao":"Grava e aparece o erro.",
+                "instanteDoQuadro":"00:12"},
+               {"instante":"00:30","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":""},
+                "acoes":["clique em OK"],"mensagens":[],"descricao":"Fecha a mensagem.","instanteDoQuadro":"não identificado"}],
+             "narracao":[{"inicio":"00:01","falante":"Falante 1","texto":"vou mostrar o erro, o anydesk é 123 456 789"}],
+             "textoLegivel":true}""";
+
+    /** As respostas válidas de cada esquema (imagem, áudio, documento, vídeo, resumo, chamados, assunto mais curto). */
     public static String respostaPadrao(PedidoAoModelo pedido) {
         String esquema = pedido.esquemaJson();
+        if (esquema.contains("\"instanteDoQuadro\"")) {
+            return VIDEO;
+        }
         if (esquema.contains("\"secoes\"")) {
             return esquema.contains("\"resultadoObtido\"") ? DEV_ERRO : DEV_ALTERACAO;
         }

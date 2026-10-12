@@ -97,9 +97,6 @@ public class MontarLinhaDoTempo implements ExecutorDeTarefa {
                 conteudo = TextoDaAnalise.texto(categoria, analise.get());
                 resumo = TextoDaAnalise.resumo(categoria, analise.get());
                 estado = "analisado";
-            } else if (arquivo.categoria() == CategoriaDoArquivo.VIDEO) {
-                conteudo = "(vídeo ainda não analisado: a análise de vídeos chega numa etapa seguinte do sistema)";
-                estado = "nao_analisavel";
             } else if (arquivo.categoria() == null || arquivo.categoria() == CategoriaDoArquivo.OUTRO) {
                 conteudo = "(tipo de arquivo que não é analisado)";
                 estado = "nao_analisavel";

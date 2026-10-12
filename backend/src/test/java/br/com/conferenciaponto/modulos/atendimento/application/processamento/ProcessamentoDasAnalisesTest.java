@@ -181,22 +181,24 @@ class ProcessamentoDasAnalisesTest {
         assertThat(analise(id, "1760011620000.jpeg")).isEqualTo(SituacaoDaAnalise.PRONTA);
         assertThat(analise(id, "1760011680000.oga")).isEqualTo(SituacaoDaAnalise.PRONTA);
         assertThat(analise(id, "Relatório de vendas.pdf")).isEqualTo(SituacaoDaAnalise.PRONTA);
-        assertThat(analise(id, "gravacao-tela.mp4")).as("vídeo fica para a etapa do vídeo").isNull();
-        assertThat(modelo.geracoes()).hasSize(3);
-        assertThat(modelo.enviados()).as("áudio e documento pela Files API").hasSize(2);
-        assertThat(modelo.apagados()).hasSize(2);
+        assertThat(analise(id, "gravacao-tela.mp4")).isEqualTo(SituacaoDaAnalise.PRONTA);
+        assertThat(modelo.geracoes()).hasSize(4);
+        assertThat(modelo.enviados()).as("áudio, documento e vídeo pela Files API").hasSize(3);
+        assertThat(modelo.apagados()).hasSize(3);
+        assertThat(modelo.geracoes()).filteredOn(g -> g.pedido().esquemaJson().contains("instanteDoQuadro")).singleElement()
+                .satisfies(g -> assertThat(g.pedido().midia().quadrosPorSegundo()).isEqualTo(1.0));
         PanoramaDasAnalises panorama = fila.panorama(id);
-        assertThat(panorama.tokensEntrada()).isEqualTo(3000);
-        assertThat(panorama.tokensSaida()).isEqualTo(600);
+        assertThat(panorama.tokensEntrada()).isEqualTo(4000);
+        assertThat(panorama.tokensSaida()).isEqualTo(800);
         assertThat(panorama.semChaveGemini()).isFalse();
         ProgressoView fim = processamento().progresso(maria, id);
         assertThat(fim.percentual()).isEqualTo(100);
-        assertThat(fim.arquivos()).filteredOn(a -> "pronta".equals(a.analise())).hasSize(3);
+        assertThat(fim.arquivos()).filteredOn(a -> "pronta".equals(a.analise())).hasSize(4);
         assertThat(eventos).anySatisfy(e -> assertThat(e.progresso().arquivos()).anyMatch(a -> "analisando".equals(a.analise())));
 
         AtendimentoView detalhe = gerenciar().detalhe(maria, id);
-        assertThat(detalhe.tokensEntrada()).isEqualTo(3000);
-        assertThat(detalhe.anexos()).filteredOn(a -> "pronta".equals(a.analise())).hasSize(3);
+        assertThat(detalhe.tokensEntrada()).isEqualTo(4000);
+        assertThat(detalhe.anexos()).filteredOn(a -> "pronta".equals(a.analise())).hasSize(4);
         assertThat(detalhe.percentual()).isEqualTo(100);
     }
 
@@ -211,7 +213,7 @@ class ProcessamentoDasAnalisesTest {
         processamento().processar(maria, id);
 
         await().during(Duration.ofMillis(400)).atMost(2, TimeUnit.SECONDS).until(() -> situacao(id) == SituacaoDoAtendimento.PRONTO);
-        assertThat(modelo.geracoes()).hasSize(3);
+        assertThat(modelo.geracoes()).hasSize(4);
     }
 
     @Test
@@ -232,8 +234,8 @@ class ProcessamentoDasAnalisesTest {
         processamento().retomar(maria, id);
 
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
-        assertThat(fila.panorama(id).resolvidas()).isEqualTo(3);
-        assertThat(modelo.geracoes()).as("a que pausou e as três").hasSize(4);
+        assertThat(fila.panorama(id).resolvidas()).isEqualTo(4);
+        assertThat(modelo.geracoes()).as("a que pausou e as quatro").hasSize(5);
         assertThat(chaves.buscar(maria.id()).orElseThrow().situacao()).isEqualTo(SituacaoDaChave.VALIDA);
     }
 
@@ -247,7 +249,7 @@ class ProcessamentoDasAnalisesTest {
         esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
         PanoramaDasAnalises panorama = fila.panorama(id);
         assertThat(panorama.semChaveGemini()).isTrue();
-        assertThat(panorama.estados().values()).hasSize(3)
+        assertThat(panorama.estados().values()).hasSize(4)
                 .allSatisfy(e -> assertThat(e.codigo()).isEqualTo("SEM_CHAVE_GEMINI"));
         assertThat(processamento().progresso(maria, id).semChaveGemini()).isTrue();
         assertThat(modelo.geracoes()).isEmpty();
@@ -257,7 +259,7 @@ class ProcessamentoDasAnalisesTest {
 
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         assertThat(fila.panorama(id).semChaveGemini()).isFalse();
-        assertThat(modelo.geracoes()).hasSize(3);
+        assertThat(modelo.geracoes()).hasSize(4);
     }
 
     @Test
@@ -314,7 +316,8 @@ class ProcessamentoDasAnalisesTest {
         processamento().processar(maria, id);
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         UUID jpeg = anexo(id, "1760011620000.jpeg").id();
-        ConsultarAnalise consultar = new ConsultarAnalise(analises, configuracao, new ObjectMapper());
+        ConsultarAnalise consultar = new ConsultarAnalise(analises, configuracao, new ObjectMapper(),
+                ParaOsTestes.semFfmpeg(new PastaEmDisco(raiz)), new PastaEmDisco(raiz));
 
         AnaliseView view = consultar.doArquivo(maria, id, jpeg);
 
@@ -325,8 +328,18 @@ class ProcessamentoDasAnalisesTest {
         Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "hash", true, Set.of(Perfil.ROLE_USER),
                 null, null, false);
         assertThatThrownBy(() -> consultar.doArquivo(joao, id, jpeg)).isInstanceOf(RecursoNaoEncontradoException.class);
+        assertThat(view.quadros()).isEmpty();
+
+        // o vídeo, num servidor sem o ffmpeg: os passos com o instante do quadro, sem a imagem e com o aviso
         UUID video = anexo(id, "gravacao-tela.mp4").id();
-        assertThatThrownBy(() -> consultar.doArquivo(maria, id, video))
-                .hasFieldOrPropertyWithValue("codigo", "ANALISE_NAO_ENCONTRADA");
+        AnaliseView doVideo = consultar.doArquivo(maria, id, video);
+        assertThat(doVideo.categoria()).isEqualTo("video");
+        assertThat(doVideo.resultado().path("passos")).hasSize(3);
+        assertThat(doVideo.quadros()).extracting(AnaliseView.Quadro::instante).containsExactly("00:03", "00:12", "00:30");
+        assertThat(doVideo.quadros()).noneMatch(AnaliseView.Quadro::disponivel);
+        assertThat(doVideo.avisoDosQuadros()).contains("winget install Gyan.FFmpeg");
+        assertThatThrownBy(() -> consultar.quadro(maria, id, video, 3_000))
+                .hasFieldOrPropertyWithValue("codigo", "QUADRO_NAO_ENCONTRADO");
+        assertThatThrownBy(() -> consultar.quadro(joao, id, video, 3_000)).isInstanceOf(RecursoNaoEncontradoException.class);
     }
 }

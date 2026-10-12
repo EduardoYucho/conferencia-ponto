@@ -176,6 +176,11 @@ public class GerenciarArquivos {
                         + "em outro programa). Feche-o e tente de novo.");
             }
         }
+        try {
+            pasta.apagarQuadros(atendimentoId, arquivoId); // os quadros tirados do vídeo, se era um
+        } catch (UncheckedIOException e) {
+            log.warn("Quadros do arquivo {} do atendimento {} não apagados: {}", arquivo.ordem(), atendimentoId, e.getCause());
+        }
         if (arquivo.daConversa()) {
             arquivos.marcarRemovido(arquivoId);
             pasta.descartar(pasta.parcialDoAnexo(atendimentoId, arquivoId));

@@ -13,7 +13,8 @@ import java.util.Optional;
  * análise: mudar o texto de um prompt exige um arquivo da versão seguinte (as análises antigas continuam valendo
  * para o que já foi redigido, e os arquivos são analisados de novo só quando a pessoa processar outra vez).
  *
- * <p>Vídeo fica para a etapa do vídeo (quadros e passos); "outro" não é analisado.
+ * <p>O vídeo devolve os passos com o instante, a tela, as ações, as mensagens e o instante do quadro de cada passo;
+ * "outro" não é analisado.
  */
 public final class PromptsDeAnalise {
 
@@ -33,6 +34,7 @@ public final class PromptsDeAnalise {
     private static final Prompt IMAGEM = carregar("imagem", 1, true);
     private static final Prompt AUDIO = carregar("audio", 1, false);
     private static final Prompt DOCUMENTO = carregar("documento", 1, false);
+    private static final Prompt VIDEO = carregar("video", 1, false);
 
     /** O prompt e o esquema dos arquivos; os obrigatórios e as listas vêm do esquema. */
     private static Prompt carregar(String tipo, int versao, boolean altaResolucao) {
@@ -44,12 +46,13 @@ public final class PromptsDeAnalise {
     private static final Map<CategoriaDoArquivo, Prompt> POR_CATEGORIA = Map.of(
             CategoriaDoArquivo.IMAGEM, IMAGEM,
             CategoriaDoArquivo.AUDIO, AUDIO,
-            CategoriaDoArquivo.DOCUMENTO, DOCUMENTO);
+            CategoriaDoArquivo.DOCUMENTO, DOCUMENTO,
+            CategoriaDoArquivo.VIDEO, VIDEO);
 
     private PromptsDeAnalise() {
     }
 
-    /** O prompt da categoria, ou vazio quando o tipo não é analisado (vídeo nesta versão, "outro"). */
+    /** O prompt da categoria, ou vazio quando o tipo não é analisado ("outro"). */
     public static Optional<Prompt> para(CategoriaDoArquivo categoria) {
         return Optional.ofNullable(categoria == null ? null : POR_CATEGORIA.get(categoria));
     }

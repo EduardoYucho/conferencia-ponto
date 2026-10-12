@@ -1,6 +1,9 @@
 package br.com.conferenciaponto.modulos.atendimento.application.redacao;
 
 import br.com.conferenciaponto.modulos.atendimento.application.ia.ChamadasAoGemini;
+import br.com.conferenciaponto.modulos.atendimento.application.video.QuadrosDoVideo;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.AnaliseGuardada;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoGuardado;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
@@ -29,8 +32,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -45,7 +50,9 @@ import java.util.stream.Collectors;
 
 /**
  * A tarefa "redigir": uma chamada ao Gemini por saída, com a linha do tempo como único material. A resposta (JSON)
- * passa pela conferência do servidor (fontes, imagens, assunto, dados de acesso) e vira HTML montado aqui.
+ * passa pela conferência do servidor (fontes, imagens, assunto, dados de acesso) e vira HTML montado aqui. As imagens
+ * que o texto pode usar são os anexos e prints analisados e os quadros dos passos dos vídeos (os que faltarem são
+ * tirados antes, se o ffmpeg estiver instalado).
  */
 @Component
 public class RedigirSaida implements ExecutorDeTarefa {
@@ -60,10 +67,22 @@ public class RedigirSaida implements ExecutorDeTarefa {
     private final ConfiguracaoDaRedacao configuracao;
     private final ObjectMapper json;
     private final Clock clock;
+    private final Analises analises;
+    private final QuadrosDoVideo quadros;
     private final Mascaramento mascaramento = new Mascaramento();
 
+    /** Sem os quadros dos vídeos (só anexos e prints no catálogo de imagens). */
     public RedigirSaida(Saidas saidas, Atendimentos atendimentos, ChamadasAoGemini gemini, ModeloDeIA modelo,
                         PastaDosAtendimentos pasta, ConfiguracaoDaRedacao configuracao, ObjectMapper json, Clock clock) {
+        this(saidas, atendimentos, gemini, modelo, pasta, configuracao, json, clock, null, null);
+    }
+
+    @Autowired
+    public RedigirSaida(Saidas saidas, Atendimentos atendimentos, ChamadasAoGemini gemini, ModeloDeIA modelo,
+                        PastaDosAtendimentos pasta, ConfiguracaoDaRedacao configuracao, ObjectMapper json, Clock clock,
+                        Analises analises, QuadrosDoVideo quadros) {
+        this.analises = analises;
+        this.quadros = quadros;
         this.saidas = saidas;
         this.atendimentos = atendimentos;
         this.gemini = gemini;
@@ -103,7 +122,8 @@ public class RedigirSaida implements ExecutorDeTarefa {
             return dono.falha();
         }
         String contato = atendimento.get().resumo().contato();
-        List<ConferenciaDoTexto.ImagemDisponivel> imagens = imagensDisponiveis(atendimento.get(), linha.get());
+        Catalogo catalogo = catalogo(atendimento.get(), linha.get());
+        List<ConferenciaDoTexto.ImagemDisponivel> imagens = catalogo.imagens();
         String material = MaterialDaRedacao.texto(atendimento.get().resumo().chamado(), contato,
                 atendimento.get().resumo().inicio(), atendimento.get().resumo().fim(), linha.get(), imagens, clock.getZone());
         String instrucao = prompt.get().instrucao(Map.of(
@@ -121,6 +141,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
             ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(saida.tipo());
             ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(lida.resultado(), modeloDoTexto), contato);
             TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
+            texto = texto.comMaisAvisos(catalogo.avisos());
             if (semValor(texto.telaFuncionalidade())) {
                 // a sugestão pelos códigos lidos nas imagens
                 texto = texto.comTela(SugestaoDaTela.de(linha.get()).orElse(texto.telaFuncionalidade()));
@@ -149,27 +170,80 @@ public class RedigirSaida implements ExecutorDeTarefa {
         }
     }
 
+    /** As imagens que o texto pode usar e o que avisar sobre elas (os passos de vídeo que ficaram sem quadro). */
+    record Catalogo(List<ConferenciaDoTexto.ImagemDisponivel> imagens, List<String> avisos) {
+    }
+
     /**
      * As imagens que o texto pode usar: os anexos e prints de imagem que foram analisados (o modelo sabe o que
-     * mostram) e cujo arquivo ainda está no servidor.
+     * mostram) e cujo arquivo ainda está no servidor, e os quadros dos passos dos vídeos analisados.
      */
-    List<ConferenciaDoTexto.ImagemDisponivel> imagensDisponiveis(AtendimentoGuardado atendimento, LinhaDoTempo linha) {
+    Catalogo catalogo(AtendimentoGuardado atendimento, LinhaDoTempo linha) {
         Map<UUID, ArquivoDoAtendimento> arquivos = atendimento.arquivos().stream()
                 .collect(Collectors.toMap(ArquivoDoAtendimento::id, Function.identity(), (a, b) -> a, LinkedHashMap::new));
         List<ConferenciaDoTexto.ImagemDisponivel> imagens = new ArrayList<>();
+        List<String> avisos = new ArrayList<>();
         linha.todos()
                 .filter(ItemDaLinha::arquivo)
-                .filter(i -> "imagem".equals(i.categoria()) && "analisado".equals(i.situacao()) && i.arquivoId() != null)
+                .filter(i -> "analisado".equals(i.situacao()) && i.arquivoId() != null)
                 .forEach(i -> {
                     ArquivoDoAtendimento arquivo = arquivos.get(i.arquivoId());
-                    if (arquivo != null && arquivo.caminho() != null
-                            && SituacaoDoArquivo.PRONTO.codigo().equals(arquivo.situacao())
-                            && Files.isRegularFile(pasta.localDoArquivo(arquivo.caminho()))) {
-                        imagens.add(new ConferenciaDoTexto.ImagemDisponivel(i.id(), arquivo.id(), arquivo.caminho(),
-                                i.resumo() != null ? i.resumo() : arquivo.nome()));
+                    if (arquivo == null) {
+                        return;
+                    }
+                    if ("imagem".equals(i.categoria())) {
+                        if (noServidor(arquivo)) {
+                            imagens.add(new ConferenciaDoTexto.ImagemDisponivel(i.id(), arquivo.id(), arquivo.caminho(),
+                                    i.resumo() != null ? i.resumo() : arquivo.nome()));
+                        }
+                    } else if ("video".equals(i.categoria())) {
+                        quadrosDoVideo(atendimento.resumo().id(), i, arquivo, imagens, avisos);
                     }
                 });
-        return imagens;
+        return new Catalogo(imagens, avisos);
+    }
+
+    /** Os quadros do vídeo no catálogo (V1@02:15), tirando antes os que faltam. */
+    private void quadrosDoVideo(UUID atendimentoId, ItemDaLinha item, ArquivoDoAtendimento arquivo,
+                                List<ConferenciaDoTexto.ImagemDisponivel> imagens, List<String> avisos) {
+        if (quadros == null || analises == null) {
+            return;
+        }
+        Optional<JsonNode> analise = analises.maisRecente(arquivo.id()).flatMap(this::ler);
+        if (analise.isEmpty()) {
+            return;
+        }
+        QuadrosDoVideo.Preparo preparo = quadros.preparar(atendimentoId, arquivo.id(),
+                noServidor(arquivo) ? arquivo.caminho() : null, analise.get());
+        if (preparo.aviso() != null) {
+            String aviso = preparo.semFfmpeg() ? QuadrosDoVideo.AVISO_SEM_FFMPEG.replace("do vídeo", "do vídeo " + item.id())
+                    : item.id() + ": " + preparo.aviso();
+            if (!avisos.contains(aviso)) {
+                avisos.add(aviso);
+            }
+        }
+        for (QuadrosDoVideo.Quadro quadro : quadros.quadros(atendimentoId, arquivo.id(), analise.get())) {
+            if (quadro.disponivel()) {
+                String legenda = "quadro do vídeo em " + quadro.instante()
+                        + (quadro.passo().legenda() != null ? ": " + quadro.passo().legenda() : "");
+                imagens.add(new ConferenciaDoTexto.ImagemDisponivel(item.id() + "@" + quadro.instante(), arquivo.id(),
+                        quadro.caminho(), legenda, quadro.instanteMs()));
+            }
+        }
+    }
+
+    private boolean noServidor(ArquivoDoAtendimento arquivo) {
+        return arquivo.caminho() != null && SituacaoDoArquivo.PRONTO.codigo().equals(arquivo.situacao())
+                && Files.isRegularFile(pasta.localDoArquivo(arquivo.caminho()));
+    }
+
+    private Optional<JsonNode> ler(AnaliseGuardada analise) {
+        try {
+            return Optional.of(json.readTree(analise.resultado()));
+        } catch (IOException e) {
+            log.warn("A análise guardada do arquivo {} está ilegível", analise.arquivoId());
+            return Optional.empty();
+        }
     }
 
     private record Lida(JsonNode resultado, int tokensEntrada, int tokensSaida) {
