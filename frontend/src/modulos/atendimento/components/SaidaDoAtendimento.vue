@@ -6,6 +6,7 @@ import { conhecimentoApi } from '@/modulos/conhecimento/api'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { dataHora as dataHoraDaBase, formularioDoRegistro, problemasDoRegistro } from '@/modulos/conhecimento/formato'
 import FormularioDoRegistro from '@/modulos/conhecimento/components/FormularioDoRegistro.vue'
+import CasosParecidos from '@/modulos/conhecimento/components/CasosParecidos.vue'
 import { mensagemDe } from '@/utils/erros'
 import { salvarResposta } from '@/utils/download'
 import {
@@ -92,6 +93,16 @@ const camposComProblema = computed(() => problemasDosCampos(camposEditados.value
 /** Confirmado e enviado para a base: o texto não muda mais aqui. */
 const travado = computed(() => saida.value?.situacao === 'confirmada')
 const registroComProblema = computed(() => problemasDoRegistro(registro.value).length > 0)
+/** O caso para o aviso de caso parecido: o registro que o servidor preparou (só antes de confirmar). */
+const casoParaComparar = computed(() => {
+  const r = saida.value?.registro
+  if (!r) return null
+  return {
+    titulo: r.titulo ?? '',
+    texto: [r.sintoma, r.mensagemErro, r.causa].filter(Boolean).join('\n'),
+    telaCodigo: r.telaCodigo ?? '',
+  }
+})
 
 async function carregar() {
   carregando.value = true
@@ -416,6 +427,15 @@ function copiarAgora() {
           </div>
         </div>
       </div>
+
+      <!-- casos parecidos na base (nos chamados, antes de copiar ou confirmar) -->
+      <CasosParecidos
+        v-if="chamado && modulos.pesquisar && casoParaComparar"
+        :titulo="casoParaComparar.titulo"
+        :texto="casoParaComparar.texto"
+        :tela-codigo="casoParaComparar.telaCodigo"
+        :atendimento-id="atendimentoId"
+      />
 
       <!-- avisos da conferência -->
       <div v-if="saida.avisos.length" role="note" class="rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm">

@@ -23,6 +23,12 @@ export const conhecimentoApi = {
   /** O registro com as imagens, o histórico da situação e se a pessoa pode mudar. */
   registro: (id) => http.get(`/conhecimento/registros/${id}`),
 
+  /**
+   * Os casos parecidos com o que está sendo escrito (aviso nos chamados): { registros[{ id, titulo, situacaoRotulo,
+   * chamadoDev, versaoCorrecao, telaCodigo, similaridade, mesmaTela }], porSignificado, aviso }.
+   */
+  parecidos: (pedido) => http.post('/conhecimento/registros/parecidos', pedido),
+
   /** O registro criado quando um texto do gerador foi confirmado: { id }. */
   daSaida: (saidaId) => http.get(`/conhecimento/registros/da-saida/${saidaId}`),
 
