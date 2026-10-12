@@ -172,13 +172,16 @@ class SaidasJdbc implements Saidas {
             jdbc.sql("DELETE FROM atendimento.imagem WHERE saida_id = :saida").param("saida", saidaId).update();
             for (NovaImagem imagem : imagens) {
                 jdbc.sql("""
-                                INSERT INTO atendimento.imagem (id, saida_id, numero, arquivo_id, caminho, legenda, incluida)
-                                VALUES (:id, :saida, :numero, :arquivo, :caminho, :legenda, TRUE)
+                                INSERT INTO atendimento.imagem (id, saida_id, numero, arquivo_id, instante_video_ms, caminho,
+                                                                legenda, incluida)
+                                VALUES (:id, :saida, :numero, :arquivo, :instante, :caminho, :legenda, TRUE)
                                 """)
                         .param("id", imagem.id())
                         .param("saida", saidaId)
                         .param("numero", (short) imagem.numero())
                         .param("arquivo", imagem.arquivoId())
+                        .param("instante", imagem.instanteVideoMs() == null ? null
+                                : (int) Math.min(Integer.MAX_VALUE, imagem.instanteVideoMs()), java.sql.Types.INTEGER)
                         .param("caminho", imagem.caminho())
                         .param("legenda", limitar(imagem.legenda(), 300))
                         .update();

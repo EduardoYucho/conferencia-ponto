@@ -48,7 +48,11 @@ final class MaterialDaRedacao {
                 t.append('\n').append(item(item, fuso)).append('\n');
             }
         }
-        t.append("\nImagens disponíveis para o texto (em \"imagens\", use só estes identificadores):\n");
+        t.append("\nImagens disponíveis para o texto (em \"imagens\", use só estes identificadores");
+        if (imagens.stream().anyMatch(i -> i.instanteMs() != null)) {
+            t.append("; os quadros dos vídeos, como V1@02:15, mostram a tela no instante do passo e ilustram esse passo");
+        }
+        t.append("):\n");
         if (imagens.isEmpty()) {
             t.append("Nenhuma: deixe \"imagens\" vazio em todos os trechos.\n");
         }

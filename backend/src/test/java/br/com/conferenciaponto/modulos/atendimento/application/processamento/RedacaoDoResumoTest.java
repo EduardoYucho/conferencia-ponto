@@ -23,6 +23,7 @@ import br.com.conferenciaponto.modulos.atendimento.application.redacao.ModoDeCop
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.MontarLinhaDoTempo;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.RedigirSaida;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.SaidaView;
+import br.com.conferenciaponto.modulos.atendimento.application.video.QuadrosDoVideo;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
@@ -43,6 +44,8 @@ import br.com.conferenciaponto.modulos.atendimento.infrastructure.download.Baixa
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.download.PoliticaDeRede;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.pdf.ExtratorPdfBox;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence.RepositoriosDeTeste;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.video.ExtratorQuadrosFfmpeg;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.video.FfmpegDeMentira;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -142,14 +145,21 @@ class RedacaoDoResumoTest {
     }
 
     private void iniciarFila() {
+        iniciarFila(List.of());
+    }
+
+    /** Com o "ffmpeg" pedido (vazio: um servidor sem o ffmpeg). */
+    private void iniciarFila(List<String> ffmpeg) {
+        QuadrosDoVideo quadros = new QuadrosDoVideo(new PastaEmDisco(raiz), new ExtratorQuadrosFfmpeg(ffmpeg, Duration.ofSeconds(30)));
         BaixarAnexo baixar = new BaixarAnexo(arquivos, new PastaEmDisco(raiz),
                 new BaixadorHttp(new PoliticaDeRede(List.of("127.0.0.1"), false, true, null), Duration.ofSeconds(2),
                         Duration.ofSeconds(1)),
                 publicador, relogio(), DataSize.ofMegabytes(10), DataSize.ofKilobytes(1), 4);
-        var analisar = ParaOsTestes.analisar(analises, chaves, cofre, modelo, new PastaEmDisco(raiz), configuracao, relogio());
+        var analisar = ParaOsTestes.analisar(analises, chaves, cofre, modelo, new PastaEmDisco(raiz), configuracao, relogio(),
+                quadros);
         var montar = new MontarLinhaDoTempo(atendimentos, analises, json, configuracaoDaRedacao, relogio());
         var redigir = new RedigirSaida(saidas, atendimentos, new ChamadasAoGemini(chaves, cofre, json, relogio()), modelo,
-                new PastaEmDisco(raiz), configuracaoDaRedacao, json, relogio());
+                new PastaEmDisco(raiz), configuracaoDaRedacao, json, relogio(), analises, quadros);
         CoordenadorDaFila c = new CoordenadorDaFila(tarefas, List.of(baixar, analisar, montar, redigir), processamento(),
                 relogio(), 8, 4, Duration.ofMinutes(15), Duration.ofMillis(100), Duration.ofMillis(1), Duration.ofMillis(5), true);
         coordenadores.add(c);
@@ -221,7 +231,7 @@ class RedacaoDoResumoTest {
         EstadoDaSaida estado = resumo(id);
         assertThat(estado.situacao()).isEqualTo("pronta");
         assertThat(estado.versao()).isEqualTo(1);
-        assertThat(modelo.geracoes()).as("3 análises e 1 redação").hasSize(4);
+        assertThat(modelo.geracoes()).as("4 análises e 1 redação").hasSize(5);
 
         // o material foi a linha do tempo, sem a chave do bot nem os dados de acesso da conversa
         PedidoAoModelo pedido = redacoes().get(0);
@@ -254,10 +264,12 @@ class RedacaoDoResumoTest {
         LinhaDoTempoView linha = gerenciarSaidas().linhaDoTempo(maria, id);
         assertThat(linha.itens()).extracting(LinhaDoTempoView.Item::id).contains("M1", "A1", "A2", "A3", "A4");
         assertThat(linha.itens()).filteredOn(i -> i.id().equals("A4")).singleElement()
-                .satisfies(i -> assertThat(i.situacao()).isEqualTo("nao_analisavel"));
+                .satisfies(i -> assertThat(i.situacao()).isEqualTo("analisado"));
+        assertThat(saida.avisos()).as("o vídeo, num servidor sem o ffmpeg")
+                .anyMatch(a -> a.contains("Os passos do vídeo A4 ficaram sem quadros") && a.contains("winget install Gyan.FFmpeg"));
 
         ProgressoView fim = processamento().progresso(maria, id);
-        assertThat(fim.tokensEntrada()).as("análises e redação").isEqualTo(4000);
+        assertThat(fim.tokensEntrada()).as("análises e redação").isEqualTo(5000);
         assertThat(fim.saidas()).singleElement().satisfies(s -> assertThat(s.situacao()).isEqualTo("pronta"));
         assertThat(eventos).anySatisfy(e -> assertThat(e.progresso().saidas())
                 .anyMatch(s -> s.situacao().equals("pronta")));
@@ -372,6 +384,46 @@ class RedacaoDoResumoTest {
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("41 caracteres");
         assertThatThrownBy(() -> gerenciarSaidas().salvarTela(maria, id, redacao.estados(id).get(0).id(), "x"))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("só existe nos chamados");
+    }
+
+    @Test
+    void oVideoDaConversaViraPassosNaLinhaDoTempoEOsQuadrosEntramNoResumo() {
+        cadastrarChave();
+        modelo.padrao(p -> p.esquemaJson().contains("\"blocos\"") ? """
+                {"assunto":"Erro ao gravar o pedido com desconto",
+                 "blocos":[
+                   {"tipo":"paragrafo","texto":"A cliente gravou a tela mostrando o erro.","fontes":["M1","A4@00:10"],"imagens":[]},
+                   {"tipo":"passo","texto":"Ao gravar o pedido com desconto, apareceu o erro.","fontes":["A4"],
+                    "imagens":[{"id":"A4@00:12","legenda":""}]},
+                   {"tipo":"passo","texto":"Fechou a mensagem.","fontes":["A4"],"imagens":[{"id":"A4@00:13","legenda":"inventado"}]}],
+                 "base":{"cliente":"Loja Exemplo"},"telaFuncionalidade":"Pedidos (VEN010)"}""" : ModeloDeMentira.respostaPadrao(p));
+        UUID id = criar();
+        iniciarFila(FfmpegDeMentira.comando());
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        LinhaDoTempoView linha = gerenciarSaidas().linhaDoTempo(maria, id);
+        assertThat(linha.itens()).filteredOn(i -> i.id().equals("A4")).singleElement().satisfies(i -> {
+            assertThat(i.situacao()).isEqualTo("analisado");
+            assertThat(i.texto()).contains("Passo 2 [00:10]: Grava e aparece o erro.")
+                    .contains("Mensagem na tela (erro): \"Erro ao gravar o pedido\"").contains("Quadro do passo em 00:12")
+                    .contains("Narração:").contains("[omitido]").doesNotContain("123 456 789");
+        });
+        PedidoAoModelo pedido = redacoes().get(0);
+        assertThat(pedido.instrucao()).contains("os quadros dos vídeos")
+                .contains("- A4@00:03: quadro do vídeo em 00:03: tela Pedidos (VEN010): abre um pedido novo")
+                .contains("- A4@00:12: quadro do vídeo em 00:12").contains("- A4@00:30: quadro do vídeo em 00:30");
+
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.html()).contains("data-fontes=\"M1 A4\"").contains("<strong>Imagem 1</strong>: quadro do vídeo em 00:12");
+        assertThat(saida.imagens()).singleElement().satisfies(i -> {
+            assertThat(i.arquivo()).isEqualTo("Imagem_01.png");
+            assertThat(i.disponivel()).isTrue();
+        });
+        assertThat(saida.avisos()).anyMatch(a -> a.contains("1 imagem citada não está")).noneMatch(a -> a.contains("ffmpeg"));
+        assertThat(PostgresDeTeste.jdbc().sql("SELECT instante_video_ms FROM atendimento.imagem WHERE saida_id = ?")
+                .param(resumo(id).id()).query(Integer.class).list()).containsExactly(12_000);
     }
 
     @Test

@@ -31,7 +31,8 @@ import java.util.stream.Stream;
  * ├── .recebendo/           envios em andamento (arquivos temporários)
  * └── &lt;id do atendimento&gt;/
  *     ├── conversa.pdf
- *     └── arquivos/         001_&lt;nome saneado&gt;.jpeg ... (a partir da próxima etapa)
+ *     └── arquivos/         anexo_001_&lt;nome saneado&gt;.jpeg, video_001_... (os arquivos do atendimento)
+ *         └── quadros/&lt;id do vídeo&gt;/000135000.png   quadros tirados dos vídeos (o nome é o instante, em ms)
  * </pre>
  *
  * Os arquivos são gravados num temporário da própria pasta e movidos no fim (nunca fica um arquivo pela metade com o
@@ -44,6 +45,7 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     private static final String RECEBENDO = ".recebendo";
     private static final String PDF_DA_CONVERSA = "conversa.pdf";
     private static final String ARQUIVOS = "arquivos";
+    private static final String QUADROS = "quadros";
     private static final String BASE = "base";
     private static final String CHAVE_MESTRA = "chave-mestra";
     private static final int TAMANHO_DO_NOME = 80;
@@ -188,6 +190,18 @@ public class PastaEmDisco implements PastaDosAtendimentos {
         } catch (IOException e) {
             throw new UncheckedIOException("Não foi possível apagar o arquivo " + arquivo.getFileName(), e);
         }
+    }
+
+    @Override
+    public String caminhoDoQuadro(UUID atendimentoId, UUID arquivoId, long instanteMs) {
+        Path quadro = dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(QUADROS).resolve(arquivoId.toString())
+                .resolve("%09d.png".formatted(Math.max(0, instanteMs))));
+        return raiz.relativize(quadro).toString().replace('\\', '/');
+    }
+
+    @Override
+    public void apagarQuadros(UUID atendimentoId, UUID arquivoId) {
+        apagarArvore(dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(QUADROS).resolve(arquivoId.toString())));
     }
 
     @Override

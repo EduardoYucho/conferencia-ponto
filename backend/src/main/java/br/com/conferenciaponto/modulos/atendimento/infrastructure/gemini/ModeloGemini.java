@@ -300,7 +300,11 @@ public class ModeloGemini implements ModeloDeIA {
                 partes.addObject().putObject("inlineData").put("mimeType", midia.tipoDeMidia())
                         .put("data", Base64.getEncoder().encodeToString(midia.dados()));
             } else {
-                partes.addObject().putObject("fileData").put("mimeType", midia.tipoDeMidia()).put("fileUri", midia.uri());
+                ObjectNode parte = partes.addObject();
+                parte.putObject("fileData").put("mimeType", midia.tipoDeMidia()).put("fileUri", midia.uri());
+                if (midia.quadrosPorSegundo() != null) {
+                    parte.putObject("videoMetadata").put("fps", midia.quadrosPorSegundo());
+                }
             }
         }
         partes.addObject().put("text", pedido.instrucao());

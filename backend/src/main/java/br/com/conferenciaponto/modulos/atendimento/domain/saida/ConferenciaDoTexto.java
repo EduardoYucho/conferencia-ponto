@@ -32,9 +32,19 @@ public final class ConferenciaDoTexto {
     private static final int LIMITE_DA_LEGENDA = 200;
     private static final String OMITIDO = "[omitido]";
     private static final Pattern IDENTIFICADOR = Pattern.compile("^([MALPV])0*(\\d{1,5})$");
+    private static final Pattern QUADRO = Pattern.compile("^([ALPV])0*(\\d{1,5})\\s*@\\s*(?:(\\d{1,2}):)?(\\d{1,3}):(\\d{2})");
 
-    /** Uma imagem que o texto pode usar (anexos e prints de imagem com arquivo no servidor). */
-    public record ImagemDisponivel(String id, UUID arquivoId, String caminho, String legendaPadrao) {
+    /**
+     * Uma imagem que o texto pode usar: os anexos e prints de imagem com arquivo no servidor ({@code A1}, {@code P2})
+     * e os quadros dos vídeos ({@code V1@02:15}).
+     *
+     * @param instanteMs no quadro de vídeo, o instante (null nas outras imagens)
+     */
+    public record ImagemDisponivel(String id, UUID arquivoId, String caminho, String legendaPadrao, Long instanteMs) {
+
+        public ImagemDisponivel(String id, UUID arquivoId, String caminho, String legendaPadrao) {
+            this(id, arquivoId, caminho, legendaPadrao, null);
+        }
     }
 
     /**
@@ -163,7 +173,7 @@ public final class ConferenciaDoTexto {
                 if (imagem == null) {
                     continue;
                 }
-                String id = normalizar(imagem.id());
+                String id = idDaImagem(imagem.id());
                 ImagemDisponivel disponivel = id == null ? null : catalogo.get(id);
                 if (disponivel == null) {
                     imagensDeFora++;
@@ -175,10 +185,11 @@ public final class ConferenciaDoTexto {
                 }
                 String legenda = legenda(imagem.legenda(), disponivel.legendaPadrao(), mascarados);
                 NovaImagem nova = new NovaImagem(novoId.get(), imagens.size() + 1, disponivel.arquivoId(),
-                        disponivel.caminho(), legenda);
+                        disponivel.caminho(), legenda, disponivel.instanteMs());
                 imagens.add(nova);
                 citadas.add(new BlocoDoTexto.ImagemCitada(id, nova.id(), nova.numero(), legenda));
-                fontes.add(id); // a imagem também é fonte do trecho que ela ilustra
+                String daLinha = normalizar(id);
+                fontes.add(daLinha != null ? daLinha : id); // a imagem também é fonte do trecho (o quadro, pelo vídeo)
             }
             String texto = mascarado(bloco.texto() == null ? "" : bloco.texto().strip(), mascarados);
             if (texto.isEmpty() && citadas.isEmpty()) {
@@ -243,6 +254,28 @@ public final class ConferenciaDoTexto {
     }
 
     /** M12, A3...; aceita "m12", "A03", "[A3]" e "A3 (print.png)" (o Gemini às vezes enfeita). */
+    /**
+     * O identificador de uma imagem: o de um anexo ou print (A1, P2) ou o de um quadro de vídeo, sempre como
+     * {@code V1@MM:SS} (ou A4@MM:SS, quando o vídeo veio na conversa; a hora vira minutos: V1@1:02:15 é V1@62:15).
+     */
+    static String idDaImagem(String imagem) {
+        if (imagem == null) {
+            return null;
+        }
+        String limpo = imagem.strip().toUpperCase(Locale.ROOT).replaceAll("^[\\[(]+", "");
+        Matcher q = QUADRO.matcher(limpo);
+        if (q.find()) {
+            long horas = q.group(3) == null ? 0 : Long.parseLong(q.group(3));
+            long minutos = Long.parseLong(q.group(4)) + horas * 60;
+            long segundos = Long.parseLong(q.group(5));
+            if (segundos > 59) {
+                return null;
+            }
+            return q.group(1) + Integer.parseInt(q.group(2)) + "@" + "%02d:%02d".formatted(minutos, segundos);
+        }
+        return normalizar(imagem);
+    }
+
     static String normalizar(String fonte) {
         if (fonte == null) {
             return null;

@@ -22,14 +22,22 @@ public record PedidoAoModelo(String modelo, String instrucaoDoSistema, String in
         Objects.requireNonNull(esquemaJson, "esquemaJson");
     }
 
-    /** O arquivo que vai com o pedido: os bytes (imagem pequena) ou o endereço de um arquivo já enviado. */
-    public record Midia(String tipoDeMidia, byte[] dados, String uri) {
+    /**
+     * O arquivo que vai com o pedido: os bytes (imagem pequena) ou o endereço de um arquivo já enviado.
+     *
+     * @param quadrosPorSegundo no vídeo, quantos quadros por segundo o modelo olha (null = o padrão do modelo)
+     */
+    public record Midia(String tipoDeMidia, byte[] dados, String uri, Double quadrosPorSegundo) {
 
         public Midia {
             Objects.requireNonNull(tipoDeMidia, "tipoDeMidia");
             if ((dados == null) == (uri == null)) {
                 throw new IllegalArgumentException("Informe os bytes ou o endereço do arquivo, um dos dois");
             }
+        }
+
+        public Midia(String tipoDeMidia, byte[] dados, String uri) {
+            this(tipoDeMidia, dados, uri, null);
         }
 
         public static Midia noPedido(String tipoDeMidia, byte[] dados) {
@@ -40,9 +48,15 @@ public record PedidoAoModelo(String modelo, String instrucaoDoSistema, String in
             return new Midia(arquivo.tipoDeMidia(), null, arquivo.uri());
         }
 
+        /** Um vídeo já enviado, com a taxa de quadros que o modelo deve olhar. */
+        public static Midia video(ArquivoRemoto arquivo, double quadrosPorSegundo) {
+            return new Midia(arquivo.tipoDeMidia(), null, arquivo.uri(), quadrosPorSegundo);
+        }
+
         @Override
         public String toString() {
-            return dados != null ? "Midia[" + tipoDeMidia + ", " + dados.length + " bytes]" : "Midia[" + tipoDeMidia + ", enviada]";
+            return dados != null ? "Midia[" + tipoDeMidia + ", " + dados.length + " bytes]"
+                    : "Midia[" + tipoDeMidia + ", enviada" + (quadrosPorSegundo != null ? ", " + quadrosPorSegundo + " quadros/s" : "") + "]";
         }
     }
 }

@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.atendimento.application.analise;
 
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.ModeloDeMentira;
+import br.com.conferenciaponto.modulos.atendimento.application.video.QuadrosDoVideo;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.AnaliseGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.arquivo.Sha256;
@@ -17,6 +18,8 @@ import br.com.conferenciaponto.modulos.atendimento.infrastructure.armazenamento.
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.config.ChaveMestraProperties;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.cripto.CofreAesGcm;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence.RepositoriosDeTeste;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.video.ExtratorQuadrosFfmpeg;
+import br.com.conferenciaponto.modulos.atendimento.infrastructure.video.FfmpegDeMentira;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
@@ -32,6 +35,7 @@ import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
+import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,8 +71,24 @@ class AnalisarArquivoTest {
     }
 
     private AnalisarArquivo analisar() {
-        return new AnalisarArquivo(analises, chaves, cofre, modelo, new PastaEmDisco(raiz), configuracao, JSON,
-                Clock.fixed(AGORA, ZoneId.of("America/Sao_Paulo")), Duration.ofSeconds(5), Duration.ofMillis(1), tempo -> { });
+        return analisar(configuracao, List.of());
+    }
+
+    /** Com a configuração e o "ffmpeg" pedidos (lista vazia: sem ffmpeg). */
+    private AnalisarArquivo analisar(ConfiguracaoDaAnalise config, List<String> ffmpeg) {
+        return new AnalisarArquivo(analises, chaves, cofre, modelo, new PastaEmDisco(raiz), config, JSON,
+                Clock.fixed(AGORA, ZoneId.of("America/Sao_Paulo")), Duration.ofSeconds(5), Duration.ofMillis(1), tempo -> { },
+                quadros(ffmpeg));
+    }
+
+    private QuadrosDoVideo quadros(List<String> ffmpeg) {
+        return new QuadrosDoVideo(new PastaEmDisco(raiz), new ExtratorQuadrosFfmpeg(ffmpeg, Duration.ofSeconds(30)));
+    }
+
+    private static final byte[] MP4 = "\0\0\0\u0018ftypisom\0\0\0\0video".getBytes(StandardCharsets.ISO_8859_1);
+
+    private UUID video(String nome) throws IOException {
+        return arquivo(atendimento, "video", ordem++, "video", "video/mp4", nome, MP4);
     }
 
     private UUID novoAtendimento(UUID dono) {
@@ -326,10 +346,80 @@ class AnalisarArquivoTest {
     @Test
     void arquivoQueNaoEAnalisadoOuQueSaiuSoConclui() throws IOException {
         cadastrarChave(usuario);
-        UUID video = arquivo(atendimento, "video", 1, "video", "video/mp4", "v.mp4", new byte[]{1});
+        UUID compactado = arquivo(atendimento, "print_extra", 1, "outro", "application/zip", "a.zip", new byte[]{'P', 'K'});
 
-        assertThat(executar(video)).isInstanceOf(ResultadoDaTarefa.Concluida.class);
+        assertThat(executar(compactado)).isInstanceOf(ResultadoDaTarefa.Concluida.class);
         assertThat(analisar().executar(tarefa(atendimento, usuario, UUID.randomUUID()))).isInstanceOf(ResultadoDaTarefa.Concluida.class);
         assertThat(modelo.geracoes()).isEmpty();
+    }
+
+    // --------------------------------------------------------------------------------------------- vídeo
+
+    @Test
+    void videoVaiPelaFilesApiComATaxaDeQuadrosEOQuadroDeCadaPassoSai() throws IOException {
+        cadastrarChave(usuario);
+        ConfiguracaoDaAnalise duasPorSegundo = new ConfiguracaoDaAnalise("gemini-3.8-flash", "gemini-3.8-flash", 5, 1024,
+                32768, null, null, 2, 10 * 1024 * 1024, Duration.ofMinutes(15));
+        UUID video = video("tela.mp4");
+
+        ResultadoDaTarefa resultado = analisar(duasPorSegundo, FfmpegDeMentira.comando()).executar(tarefa(atendimento, usuario, video));
+
+        assertThat(resultado).isInstanceOf(ResultadoDaTarefa.Concluida.class);
+        assertThat(modelo.enviados()).hasSize(1);
+        assertThat(modelo.apagados()).as("sai do Google ao fim").containsExactlyElementsOf(modelo.enviados());
+        ModeloDeMentira.Geracao geracao = modelo.geracoes().get(0);
+        assertThat(geracao.pedido().midia().quadrosPorSegundo()).isEqualTo(2.0);
+        assertThat(geracao.pedido().midia().uri()).startsWith("https://gemini/files/");
+        assertThat(geracao.pedido().esquemaJson()).contains("instanteDoQuadro");
+        assertThat(analises.buscar(video, 1, "gemini-3.8-flash")).as("a taxa entra na identificação").isEmpty();
+        AnaliseGuardada guardada = analises.buscar(video, 1, "gemini-3.8-flash (2 quadros/s)").orElseThrow();
+        assertThat(guardada.resultado()).contains("[omitido]").doesNotContain("123 456 789");
+        for (long ms : new long[]{3_000, 12_000, 30_000}) {
+            assertThat(raiz.resolve(new PastaEmDisco(raiz).caminhoDoQuadro(atendimento, video, ms))).as("quadro de %d ms", ms)
+                    .isRegularFile();
+        }
+    }
+
+    @Test
+    void videoSemFfmpegFicaAnalisadoESemQuadros() throws IOException {
+        cadastrarChave(usuario);
+        UUID video = video("sem-ffmpeg.mp4");
+
+        assertThat(executar(video)).isInstanceOf(ResultadoDaTarefa.Concluida.class);
+
+        assertThat(resultado(video).path("passos")).hasSize(3);
+        assertThat(quadros(List.of()).quadros(atendimento, video, resultado(video)))
+                .hasSize(3).noneMatch(QuadrosDoVideo.Quadro::disponivel);
+    }
+
+    @Test
+    void videoGrandeDemaisNemVaiAoGemini() throws IOException {
+        cadastrarChave(usuario);
+        ConfiguracaoDaAnalise pequeno = new ConfiguracaoDaAnalise("gemini-3.8-flash", "gemini-3.8-flash", 5, 1024, 32768,
+                null, null, 1, 10, Duration.ofMinutes(15));
+        UUID video = video("grande.mp4");
+
+        ResultadoDaTarefa resultado = analisar(pequeno, List.of()).executar(tarefa(atendimento, usuario, video));
+
+        assertThat(resultado).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaDefinitiva.class, f -> {
+            assertThat(f.codigo()).isEqualTo("VIDEO_GRANDE_DEMAIS");
+            assertThat(f.mensagem()).contains("Corte o vídeo");
+        });
+        assertThat(modelo.enviados()).isEmpty();
+        assertThat(modelo.geracoes()).isEmpty();
+    }
+
+    @Test
+    void analiseJaFeitaTiraOsQuadrosQueFaltamSemChamarOGemini() throws IOException {
+        cadastrarChave(usuario);
+        UUID video = video("depois.mp4");
+        executar(video); // sem ffmpeg: sem quadros
+        int chamadas = modelo.geracoes().size();
+
+        ResultadoDaTarefa resultado = analisar(configuracao, FfmpegDeMentira.comando()).executar(tarefa(atendimento, usuario, video));
+
+        assertThat(resultado).isInstanceOf(ResultadoDaTarefa.Concluida.class);
+        assertThat(modelo.geracoes()).hasSize(chamadas);
+        assertThat(quadros(List.of()).quadros(atendimento, video, resultado(video))).allMatch(QuadrosDoVideo.Quadro::disponivel);
     }
 }

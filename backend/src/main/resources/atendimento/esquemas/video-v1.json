@@ -1,0 +1,128 @@
+{
+  "type": "object",
+  "properties": {
+    "descricao": {
+      "type": "string",
+      "description": "O que o vídeo mostra, em 1 a 3 frases."
+    },
+    "duracao": {
+      "type": "string",
+      "description": "MM:SS"
+    },
+    "passos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "instante": {
+            "type": "string",
+            "description": "MM:SS em que o passo começa."
+          },
+          "tela": {
+            "type": "object",
+            "properties": {
+              "nome": {
+                "type": "string",
+                "description": "Nome ou título da tela, como aparece."
+              },
+              "codigo": {
+                "type": "string",
+                "description": "Código da tela ou da rotina, se aparecer."
+              },
+              "caminhoMenu": {
+                "type": "string",
+                "description": "Caminho de menu visível (ex.: Vendas > Pedidos)."
+              }
+            },
+            "required": [
+              "nome",
+              "codigo",
+              "caminhoMenu"
+            ]
+          },
+          "acoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mensagens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "texto": {
+                  "type": "string",
+                  "description": "Texto literal, como está na tela."
+                },
+                "tipo": {
+                  "type": "string",
+                  "enum": [
+                    "erro",
+                    "aviso",
+                    "informacao",
+                    "confirmacao",
+                    "outro"
+                  ]
+                }
+              },
+              "required": [
+                "texto",
+                "tipo"
+              ]
+            }
+          },
+          "descricao": {
+            "type": "string",
+            "description": "O que acontece no passo, em uma frase."
+          },
+          "instanteDoQuadro": {
+            "type": "string",
+            "description": "MM:SS da melhor imagem do passo."
+          }
+        },
+        "required": [
+          "instante",
+          "tela",
+          "acoes",
+          "mensagens",
+          "descricao",
+          "instanteDoQuadro"
+        ]
+      }
+    },
+    "narracao": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "inicio": {
+            "type": "string",
+            "description": "MM:SS"
+          },
+          "falante": {
+            "type": "string"
+          },
+          "texto": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inicio",
+          "falante",
+          "texto"
+        ]
+      }
+    },
+    "textoLegivel": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "descricao",
+    "duracao",
+    "passos",
+    "narracao",
+    "textoLegivel"
+  ]
+}

@@ -119,4 +119,36 @@ class ConferenciaDoTextoTest {
         assertThat(ConferenciaDoTexto.normalizar("Imagem 1")).isNull();
         assertThat(ConferenciaDoTexto.normalizar(null)).isNull();
     }
+
+    @Test
+    void quadrosDoVideoPeloInstanteComOVideoComoFonte() {
+        UUID video = UUID.fromString("00000000-0000-0000-0000-0000000000c1");
+        ConferenciaDoTexto comVideo = new ConferenciaDoTexto(Set.of("M1", "V1"),
+                List.of(new ConferenciaDoTexto.ImagemDisponivel("V1@00:03", video, "a/arquivos/quadros/v/000003000.png",
+                                "quadro do vídeo em 00:03: tela Pedidos", 3_000L),
+                        new ConferenciaDoTexto.ImagemDisponivel("V1@62:15", video, "a/arquivos/quadros/v/003735000.png",
+                                "quadro do vídeo em 62:15", 3_735_000L)),
+                new Mascaramento()::mascararTrechos, UUID::randomUUID);
+        var bruto = new ConferenciaDoTexto.Bruto("Erro", List.of(
+                bloco("passo", "Abri a tela de pedidos.", List.of("V1@00:03"), imagem("v1@0:03", "")),
+                bloco("passo", "Gravei.", List.of("V1"), imagem("[V1@1:02:15]", "o erro")),
+                bloco("passo", "Fechei.", List.of("M1"), imagem("V1@00:04", "instante que não está na lista"))),
+                Map.of(), "");
+
+        ConferenciaDoTexto.Conferido conferido = comVideo.conferir(bruto, "Maria");
+
+        assertThat(conferido.texto().blocos().get(0).fontes()).containsExactly("V1");
+        assertThat(conferido.texto().blocos().get(0).imagens()).singleElement().satisfies(i -> {
+            assertThat(i.id()).isEqualTo("V1@00:03");
+            assertThat(i.legenda()).isEqualTo("quadro do vídeo em 00:03: tela Pedidos");
+        });
+        assertThat(conferido.texto().blocos().get(1).imagens()).singleElement()
+                .satisfies(i -> assertThat(i.id()).as("a hora vira minutos").isEqualTo("V1@62:15"));
+        assertThat(conferido.texto().blocos().get(2).imagens()).isEmpty();
+        assertThat(conferido.imagens()).extracting(NovaImagem::instanteVideoMs).containsExactly(3_000L, 3_735_000L);
+        assertThat(conferido.imagens()).extracting(NovaImagem::arquivoId).containsOnly(video);
+        assertThat(conferido.texto().avisos()).anyMatch(a -> a.contains("1 imagem citada não está"));
+        assertThat(ConferenciaDoTexto.idDaImagem("v01 @ 2:05")).isEqualTo("V1@02:05");
+        assertThat(ConferenciaDoTexto.idDaImagem("V1@02:75")).isNull();
+    }
 }

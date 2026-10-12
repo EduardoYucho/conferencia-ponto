@@ -1,12 +1,14 @@
 <script setup>
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { mensagemDe } from '@/utils/erros'
 import { dataHora, tokens } from '@/modulos/atendimento/formato'
 
 /**
  * A análise de um arquivo pelo Gemini, aberta na tela: a tela, os campos e as mensagens de um print; a transcrição
- * de um áudio (com quem fala e o instante); o conteúdo e os dados de um documento. Já vem mascarada do servidor.
+ * de um áudio (com quem fala e o instante); o conteúdo e os dados de um documento; os passos de um vídeo, com o
+ * instante, a tela, as ações, as mensagens e o quadro de cada um (tirado pelo ffmpeg do servidor). Já vem mascarada
+ * do servidor.
  */
 const props = defineProps({
   atendimentoId: { type: String, required: true },
@@ -25,12 +27,32 @@ const PAPEIS = { cliente: 'cliente', atendente: 'atendente', outro: 'outra pesso
 
 const papelDe = computed(() => Object.fromEntries((r.value.falantes ?? []).map((f) => [f.rotulo, PAPEIS[f.papel] ?? ''])))
 const transcricao = computed(() =>
-  (r.value.trechos ?? []).map((t) => `[${t.inicio}] ${t.falante}: ${t.texto}`).join('\n'),
+  (r.value.trechos ?? r.value.narracao ?? []).map((t) => `[${t.inicio}] ${t.falante}: ${t.texto}`).join('\n'),
 )
+
+/** O quadro de cada passo do vídeo (pelo número do passo) e as miniaturas já baixadas (por instante). */
+const quadroDoPasso = computed(() => Object.fromEntries((analise.value?.quadros ?? []).map((q) => [q.passo, q])))
+const miniaturas = ref({})
+const semMiniatura = ref({})
+
+async function carregarQuadros() {
+  const instantes = [...new Set((analise.value?.quadros ?? []).filter((q) => q.disponivel).map((q) => q.instanteMs))]
+  for (const ms of instantes) {
+    try {
+      const resposta = await atendimentoApi.quadro(props.atendimentoId, props.arquivoId, ms)
+      miniaturas.value = { ...miniaturas.value, [ms]: URL.createObjectURL(resposta.data) }
+    } catch {
+      semMiniatura.value = { ...semMiniatura.value, [ms]: true }
+    }
+  }
+}
+
+onUnmounted(() => Object.values(miniaturas.value).forEach((url) => URL.revokeObjectURL(url)))
 
 onMounted(async () => {
   try {
     analise.value = await atendimentoApi.analise(props.atendimentoId, props.arquivoId)
+    if (analise.value?.categoria === 'video') carregarQuadros()
   } catch (e) {
     erro.value = mensagemDe(e)
   } finally {
@@ -102,6 +124,74 @@ async function copiarTranscricao() {
           </li>
         </ol>
         <p v-if="!r.trechos?.length" class="text-tinta-suave">Nenhuma fala foi identificada no áudio.</p>
+      </template>
+
+      <!-- vídeo -->
+      <template v-else-if="analise.categoria === 'video'">
+        <p>{{ r.descricao }}</p>
+        <p class="mt-1 text-xs text-tinta-suave">
+          Vídeo<span v-if="!naoIdentificado(r.duracao)"> · {{ r.duracao }}</span>
+          · {{ (r.passos ?? []).length }} {{ (r.passos ?? []).length === 1 ? 'passo' : 'passos' }}
+          <span v-if="r.textoLegivel === false" class="text-carimbo"> · o texto da tela não estava legível</span>
+        </p>
+        <p v-if="analise.avisoDosQuadros" role="note" class="mt-2 rounded-[2px] border border-carimbo/40 bg-carimbo/5 px-2 py-1.5 text-xs text-carimbo">
+          {{ analise.avisoDosQuadros }}
+        </p>
+        <ol class="mt-3 grid gap-3" aria-label="Passos do vídeo">
+          <li v-for="(p, i) in r.passos ?? []" :key="i" class="grid gap-3 rounded-[3px] border border-linha bg-cartao p-2 sm:grid-cols-[9rem_minmax(0,1fr)]">
+            <div>
+              <template v-if="quadroDoPasso[i + 1]">
+                <a v-if="miniaturas[quadroDoPasso[i + 1].instanteMs]" :href="miniaturas[quadroDoPasso[i + 1].instanteMs]" target="_blank" rel="noopener"
+                   :title="`Abrir o quadro de ${quadroDoPasso[i + 1].instante}`">
+                  <img :src="miniaturas[quadroDoPasso[i + 1].instanteMs]" :alt="`Quadro do passo ${i + 1} (${quadroDoPasso[i + 1].instante})`"
+                       class="aspect-video w-full rounded-[2px] border border-linha bg-white object-contain" />
+                </a>
+                <div v-else class="grid aspect-video w-full place-items-center rounded-[2px] border border-dashed border-linha px-1 text-center text-[0.7rem] text-tinta-apagada">
+                  {{ quadroDoPasso[i + 1].disponivel && !semMiniatura[quadroDoPasso[i + 1].instanteMs] ? 'abrindo…' : 'sem quadro' }}
+                </div>
+                <p class="carimbo mt-1 text-center text-[0.7rem] text-tinta-suave">quadro {{ quadroDoPasso[i + 1].instante }}</p>
+              </template>
+              <div v-else class="grid aspect-video w-full place-items-center rounded-[2px] border border-dashed border-linha text-[0.7rem] text-tinta-apagada">sem instante</div>
+            </div>
+            <div class="min-w-0">
+              <p class="flex flex-wrap items-baseline gap-x-2">
+                <span class="rotulo">Passo {{ i + 1 }}</span>
+                <span v-if="!naoIdentificado(p.instante)" class="carimbo text-xs">{{ p.instante }}</span>
+              </p>
+              <p class="mt-0.5 break-words">{{ naoIdentificado(p.descricao) ? 'Sem descrição' : p.descricao }}</p>
+              <p v-if="p.tela && (!naoIdentificado(p.tela.nome) || !naoIdentificado(p.tela.codigo))" class="mt-1 text-xs text-tinta-suave">
+                Tela <span v-if="!naoIdentificado(p.tela.nome)" class="font-semibold text-tinta">{{ p.tela.nome }}</span>
+                <span v-if="!naoIdentificado(p.tela.codigo)" class="carimbo"> ({{ p.tela.codigo }})</span>
+                <span v-if="!naoIdentificado(p.tela.caminhoMenu)"> · {{ p.tela.caminhoMenu }}</span>
+              </p>
+              <ul v-if="p.acoes?.length" class="mt-1 list-disc pl-5 text-xs">
+                <li v-for="(a, k) in p.acoes" :key="k" class="break-words">{{ a }}</li>
+              </ul>
+              <ul v-if="p.mensagens?.length" class="mt-1 grid gap-1">
+                <li v-for="(m, k) in p.mensagens" :key="k" class="rounded-[2px] border-l-2 px-2 py-1 text-xs"
+                    :class="m.tipo === 'erro' ? 'border-carimbo bg-carimbo/5' : 'border-tinta/30 bg-papel-escuro/30'">
+                  <span class="rotulo mr-2">{{ TIPOS_DE_MENSAGEM[m.tipo] ?? 'Mensagem' }}</span>
+                  <span class="break-words whitespace-pre-wrap">{{ m.texto }}</span>
+                </li>
+              </ul>
+            </div>
+          </li>
+        </ol>
+        <p v-if="!r.passos?.length" class="mt-2 text-tinta-suave">Nenhum passo foi identificado no vídeo.</p>
+        <details v-if="r.narracao?.length" class="mt-3">
+          <summary class="cursor-pointer text-xs font-semibold">Narração ({{ r.narracao.length }} {{ r.narracao.length === 1 ? 'fala' : 'falas' }})</summary>
+          <div class="mt-1 flex justify-end">
+            <button type="button" class="text-xs font-semibold underline underline-offset-4" @click="copiarTranscricao">
+              {{ copiado ? 'Copiada' : 'Copiar a narração' }}
+            </button>
+          </div>
+          <ol class="mt-1 grid gap-1.5">
+            <li v-for="(t, k) in r.narracao" :key="k" class="grid grid-cols-[3.2rem_minmax(0,1fr)] gap-2">
+              <span class="carimbo text-xs text-tinta-suave">{{ t.inicio }}</span>
+              <p class="break-words"><span class="font-semibold">{{ t.falante }}</span>: {{ t.texto }}</p>
+            </li>
+          </ol>
+        </details>
       </template>
 
       <!-- documento -->

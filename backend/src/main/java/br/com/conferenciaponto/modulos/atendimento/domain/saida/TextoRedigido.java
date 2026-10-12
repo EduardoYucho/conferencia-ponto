@@ -37,6 +37,13 @@ public record TextoRedigido(int versao, String assunto, List<BlocoDoTexto> bloco
         return new TextoRedigido(versao, novo, blocos, base, telaFuncionalidade, novosAvisos, variantes);
     }
 
+    /** Os avisos de agora mais estes (no fim, sem repetir). */
+    public TextoRedigido comMaisAvisos(List<String> mais) {
+        List<String> todos = new java.util.ArrayList<>(avisos);
+        mais.stream().filter(a -> !todos.contains(a)).forEach(todos::add);
+        return new TextoRedigido(versao, assunto, blocos, base, telaFuncionalidade, todos, variantes);
+    }
+
     public TextoRedigido comBlocos(List<BlocoDoTexto> novos) {
         return new TextoRedigido(versao, assunto, novos, base, telaFuncionalidade, avisos, variantes);
     }

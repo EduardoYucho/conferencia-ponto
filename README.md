@@ -261,8 +261,8 @@ PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou 
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
 deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
-download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini e a redação
-do resumo e dos chamados para o desenvolvimento:
+download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini (inclusive os
+passos e os quadros dos vídeos) e a redação do resumo e dos chamados para o desenvolvimento:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
@@ -308,7 +308,7 @@ do resumo e dos chamados para o desenvolvimento:
   (imagem e documento 50 MB, áudio 500 MB, vídeo 2 GB). Ficam em `atendimentos\<id>\arquivos\` com nomes como
   `ligacao_001_<nome>`.
 - **Análise de cada arquivo** (Gemini, com a chave da própria pessoa): depois de baixado ou enviado, cada imagem,
-  áudio e documento vira uma tarefa "analisar" na mesma fila — o vídeo fica para a etapa do vídeo. É uma chamada
+  áudio, documento e vídeo vira uma tarefa "analisar" na mesma fila (o vídeo, abaixo). É uma chamada
   por arquivo, com a resposta em JSON num esquema por tipo: do print, a tela (nome, código, menu), os campos, as
   mensagens literais e se o texto está legível; do áudio, a transcrição completa com quem fala e o instante (MM:SS),
   sem resumir; do documento, o tipo, o conteúdo e os dados. A instrução comum manda descrever só o que está visível
@@ -324,6 +324,19 @@ do resumo e dos chamados para o desenvolvimento:
   cota do dia (`GEMINI_COTA_DIARIA`, pausa as análises — os downloads seguem — até a pessoa clicar em Retomar),
   `GEMINI_INDISPONIVEL` (novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os outros seguem),
   `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
+- **Vídeo** (o vídeo de reprodução enviado pela pessoa ou um vídeo da conversa): vai pela Files API (até
+  `atendimento.gemini.video.tamanho-maximo`, 2 GB; maior: `VIDEO_GRANDE_DEMAIS`), e o Gemini olha
+  `atendimento.gemini.video.quadros-por-segundo` quadros por segundo (1, o padrão; 2 ou 3 não perdem ações rápidas,
+  mas custam mais; mudar a taxa faz o vídeo ser analisado de novo no próximo "Processar"). A resposta traz os
+  **passos** com o instante (MM:SS), a tela, as ações (cliques, atalhos, o que foi digitado), as mensagens literais, o
+  que acontece e o melhor instante para a imagem do passo, e a narração transcrita. Logo depois, o **ffmpeg** tira o
+  quadro de cada passo naquele instante (PNG na resolução original, em `atendimentos\<id>\arquivos\quadros\`); os
+  que faltarem são tirados de novo antes de cada redação. Os quadros entram nas imagens que o texto pode usar
+  (`V1@02:15`, ou `A4@02:15` no vídeo da conversa) e, citados, viram "Imagem N" como os prints. O ffmpeg é opcional
+  (`atendimento.ffmpeg.caminho`; vazio = procurar no PATH e onde o `winget install Gyan.FFmpeg` o coloca, sem
+  precisar reiniciar o sistema): sem ele (`FFMPEG_AUSENTE`), o vídeo é analisado do mesmo jeito, os passos ficam sem
+  quadro e a tela e o texto avisam; um quadro que o ffmpeg não tira (`FFMPEG_FALHOU`) só fica de fora. A versão
+  encontrada aparece no log da subida e no `ponto`.
 - **Resumo do atendimento** (Gemini, `atendimento.gemini.modelos.redacao`): os textos são escolhidos no Novo
   atendimento (o resumo e os chamados de erro e de alteração, abaixo) ou pedidos depois, na tela do atendimento. Quando não sobra download nem análise na fila, o servidor monta a **linha do
   tempo** (sem IA): as mensagens na ordem do PDF, a análise de cada anexo logo depois da mensagem em que ele foi
@@ -383,7 +396,8 @@ do resumo e dos chamados para o desenvolvimento:
 | POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads, as análises e as saídas pedidas que faltam (corpo opcional `{saidas: ["resumo", "dev_erro", "dev_alteracao"]}`, `SAIDA_DESCONHECIDA`) · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini, saidas[{id, tipo, versao, situacao, erro, assunto}]}` |
 | GET | `/atendimentos/{id}/progresso` · `/atendimentos/eventos` | O progresso agora · SSE do módulo (`atendimento-progresso`, só os meus atendimentos) |
 | POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | O download ou a análise que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
-| GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}` (`ANALISE_NAO_ENCONTRADA`) |
+| GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}`; no vídeo, também `quadros[{passo, instanteMs, instante, disponivel}]` e `avisoDosQuadros` (`ANALISE_NAO_ENCONTRADA`) |
+| GET | `/atendimentos/{id}/arquivos/{arquivoId}/quadros/{instanteMs}` | O quadro de um passo do vídeo, em PNG (`QUADRO_NAO_ENCONTRADO`) |
 | GET · POST | `/atendimentos/{id}/saidas` · `/atendimentos/{id}/saidas/{tipo}/gerar` | A versão mais recente de cada texto · gerar de novo (`JA_EM_REDACAO`, `PROCESSE_PRIMEIRO`) |
 | GET | `/atendimentos/{id}/linha-do-tempo` | O material da redação (as fontes de cada trecho) |
 | GET | `/atendimentos/{id}/saidas/{saidaId}` | O texto: assunto, HTML (`data-fontes`, `data-imagem`), imagens, avisos e campos da base; nos chamados, `telaFuncionalidade`, `cabecalho`, `rodape` e `variantes` |

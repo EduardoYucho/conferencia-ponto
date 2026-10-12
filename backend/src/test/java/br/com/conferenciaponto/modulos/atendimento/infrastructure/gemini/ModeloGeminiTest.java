@@ -275,6 +275,26 @@ class ModeloGeminiTest {
     }
 
     @Test
+    void videoEnviadoEmPartesComQuedaVaiAoModeloComATaxaDeQuadros() throws IOException {
+        Path video = arquivo(3500);
+        gemini.cairNoPedaco(3);
+
+        ArquivoRemoto remoto = modelo().enviar(CHAVE, video, "video/mp4", 3500, "atendimento-arquivo-2");
+        assertThat(gemini.arquivoRecebido(remoto.nome())).isEqualTo(Files.readAllBytes(video));
+        assertThat(gemini.pedidos().get(0).cabecalhos()).containsEntry("x-goog-upload-header-content-type", "video/mp4");
+
+        gemini.responder(200, ServidorDoGemini.sucesso("{\"descricao\":\"Gravação da tela\"}", 9000, 300));
+        modelo().gerar(CHAVE, new PedidoAoModelo("gemini-3.8-flash", "regras", "analise o vídeo", ESQUEMA,
+                PedidoAoModelo.Midia.video(new ArquivoRemoto(remoto.nome(), "https://g/v1beta/" + remoto.nome(), "video/mp4",
+                        ArquivoRemoto.Estado.ATIVO, null), 2), false, null, null, 0));
+
+        JsonNode corpo = JSON.readTree(gemini.geracoes().get(0).corpo());
+        assertThat(corpo.at("/contents/0/parts/0/fileData/mimeType").asText()).isEqualTo("video/mp4");
+        assertThat(corpo.at("/contents/0/parts/0/videoMetadata/fps").asDouble()).isEqualTo(2.0);
+        assertThat(corpo.at("/generationConfig").has("mediaResolution")).isFalse();
+    }
+
+    @Test
     void enderecoDeEnvioEmOutroHostNaoRecebeAChave() throws IOException {
         gemini.uploadEmOutroHost();
 

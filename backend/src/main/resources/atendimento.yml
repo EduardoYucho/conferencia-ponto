@@ -52,20 +52,23 @@ atendimento:
     tentativas: 5                            # por arquivo, contando a primeira (o 429 por minuto espera o tempo pedido)
     tempo-limite: 10m                        # resposta de uma análise (áudio longo demora)
     tempo-envio: 2m                          # cada pedaço de 8 MB do envio de um arquivo
-    espera-arquivo: 5m                       # o Google preparar o áudio ou o documento enviado
+    espera-arquivo: 5m                       # o Google preparar o áudio ou o documento enviado (o vídeo: video.espera)
     intervalo-consulta: 2s
     inline-maximo: 15MB                      # imagem até este tamanho vai no próprio pedido; acima, pela Files API
     max-tokens-saida: 32768
     temperatura:                             # vazio = a do modelo (nos Gemini 3 o Google recomenda não baixar)
     raciocinio:                              # nível de raciocínio (ex.: low); vazio = o padrão do modelo
-    video:
-      quadros-por-segundo: 1                 # (E9)
+    video:                                   # (E9)
+      quadros-por-segundo: 1                 # quadros que o Gemini olha por segundo (2 ou 3 não perdem ações rápidas; custa mais)
+      tamanho-maximo: 2GB                    # o limite da Files API; maior: VIDEO_GRANDE_DEMAIS
+      espera: 15m                            # o Google preparar o vídeo enviado
   linha-do-tempo:                            # (E7)
     margem: 1h                               # arquivo da pessoa com data fora do atendimento (mais esta margem) fica "sem horário"
   copia:
     imagem-maxima: 10MB                      # na cópia "com imagens", maior que isto vai só a legenda (anexe o arquivo)
-  ffmpeg:
-    caminho:                                 # vazio = procurar no PATH (E9)
+  ffmpeg:                                    # quadros dos passos dos vídeos (E9); opcional: winget install Gyan.FFmpeg
+    caminho:                                 # o ffmpeg.exe (ou a pasta dele); vazio = procurar no PATH e no winget
+    tempo-limite: 60s                        # para cada quadro
   imagens:
     marcacoes: false                         # marcações em vermelho, experimental (E12)
 

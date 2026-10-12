@@ -69,7 +69,7 @@ public class FilaDeAnalises implements EtapaDeAnalise {
         return analises.arquivo(arquivoId)
                 .filter(a -> a.atendimentoId().equals(atendimentoId))
                 .filter(FilaDeAnalises::analisavel)
-                .filter(a -> analises.buscar(a.id(), versao(a), configuracao.modelo(a.categoria())).isEmpty())
+                .filter(a -> analises.buscar(a.id(), versao(a), configuracao.identificacao(a.categoria())).isEmpty())
                 .map(a -> tarefas.criar(TipoDeTarefa.ANALISAR, atendimentoId, a.id(), null, configuracao.tentativas(), agora))
                 .orElse(false);
     }
@@ -131,7 +131,7 @@ public class FilaDeAnalises implements EtapaDeAnalise {
         return new PanoramaDasAnalises(estados, esperadas, resolvidas, comFalha, entrada, saida, semChave);
     }
 
-    /** O arquivo tem conteúdo e um prompt para o tipo dele (imagem, áudio ou documento). */
+    /** O arquivo tem conteúdo e um prompt para o tipo dele (imagem, áudio, documento ou vídeo). */
     static boolean analisavel(ArquivoParaAnalisar arquivo) {
         return arquivo.pronto() && PromptsDeAnalise.para(arquivo.categoria()).isPresent();
     }
@@ -162,7 +162,7 @@ public class FilaDeAnalises implements EtapaDeAnalise {
 
     private boolean temAtual(ArquivoParaAnalisar arquivo, Map<UUID, List<ResumoDaAnalise>> feitas) {
         int versao = versao(arquivo);
-        String modelo = configuracao.modelo(arquivo.categoria());
+        String modelo = configuracao.identificacao(arquivo.categoria());
         return feitas.getOrDefault(arquivo.id(), List.of()).stream()
                 .anyMatch(r -> r.versaoPrompt() == versao && r.modelo().equals(modelo));
     }

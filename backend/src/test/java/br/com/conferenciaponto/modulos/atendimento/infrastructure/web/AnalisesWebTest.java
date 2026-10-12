@@ -100,4 +100,25 @@ class AnalisesWebTest {
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.erros[0].codigo").value("ANALISE_NAO_ENCONTRADA"));
     }
+
+    @Test
+    void quadroDoVideoVemComoPngEOQueNaoExisteVem404(@org.junit.jupiter.api.io.TempDir java.nio.file.Path pasta) throws Exception {
+        when(acessos.liberado(maria)).thenReturn(true);
+        java.nio.file.Path png = java.nio.file.Files.write(pasta.resolve("000012000.png"),
+                new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
+        when(analises.quadro(maria, ID, ARQUIVO, 12_000)).thenReturn(png);
+        when(analises.quadro(maria, ID, ARQUIVO, 13_000)).thenThrow(new RecursoNaoEncontradoException("QUADRO_NAO_ENCONTRADO",
+                "Este quadro do vídeo não existe."));
+        String base = "/api/v1/atendimentos/" + ID + "/arquivos/" + ARQUIVO + "/quadros/";
+
+        mvc.perform(get(base + "12000").with(como(maria)))
+                .andExpect(status().isOk())
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content().contentType("image/png"))
+                .andExpect(org.springframework.test.web.servlet.result.MockMvcResultMatchers.content()
+                        .bytes(java.nio.file.Files.readAllBytes(png)));
+        mvc.perform(get(base + "13000").with(como(maria)))
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.erros[0].codigo").value("QUADRO_NAO_ENCONTRADO"));
+        mvc.perform(get(base + "12000")).andExpect(status().isUnauthorized());
+    }
 }
