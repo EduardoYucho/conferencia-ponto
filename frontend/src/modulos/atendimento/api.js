@@ -125,6 +125,12 @@ export const atendimentoApi = {
   /** A imagem (Blob na resposta inteira), para a miniatura. */
   imagem: (id, saidaId, imagemId) =>
     http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens/${imagemId}`, { responseType: 'blob', timeout: 60000 }),
+  /**
+   * Liga ou desliga as marcações em vermelho de uma imagem (experimental): as áreas que a análise apontou ganham uma
+   * borda vermelha numa cópia, e a cópia passa a valer na cópia para o chamado, no .zip e na base. Devolve a saída.
+   */
+  marcarImagem: (id, saidaId, imagemId, ligada) =>
+    http.put(`/atendimentos/${id}/saidas/${saidaId}/imagens/${imagemId}/marcacao`, { ligada }, { timeout: 60000 }),
   /** O .zip com Imagem_01, Imagem_02... na ordem do texto (resposta inteira, para salvar). */
   imagensZip: (id, saidaId) =>
     http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens.zip`, { responseType: 'blob', timeout: 120000 }),
