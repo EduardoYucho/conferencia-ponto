@@ -14,11 +14,16 @@ import java.util.UUID;
  * @param avisos          o que a conferência do servidor mudou ou quer que a pessoa confira
  * @param base            os campos para a base de conhecimento (na etapa da base, viram o formulário de confirmação)
  * @param imagensApagadas os arquivos do atendimento já foram apagados (prazo de retenção): as imagens não abrem mais
+ * @param cabecalho       nos chamados para o desenvolvimento: Tela/Funcionalidade, Versão do cliente e Testado na
+ *                        última versão, montados na hora com os campos informados (vazio no resumo)
+ * @param rodape          nos chamados: a data de atualização (no de erro) e o caminho do backup (vazio no resumo)
+ * @param variantes       nos chamados de erro: comparacao, sem_causa_identificada, apos_atualizacao
  */
 public record SaidaView(UUID id, String tipo, String rotulo, int versao, String situacao, String erro, String assunto,
                         int limiteDoAssunto, String html, boolean editado, List<String> avisos, Map<String, String> base,
                         String telaFuncionalidade, List<Imagem> imagens, String modelo, Integer versaoPrompt,
-                        Integer tokensEntrada, Integer tokensSaida, Instant criadaEm, boolean imagensApagadas) {
+                        Integer tokensEntrada, Integer tokensSaida, Instant criadaEm, boolean imagensApagadas,
+                        String cabecalho, String rodape, List<String> variantes) {
 
     /**
      * Uma imagem da saída.

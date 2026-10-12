@@ -13,7 +13,7 @@ import { CATEGORIAS, contagem, dataHora, hora, periodo, SITUACOES, textoDosOmiti
 
 /**
  * Um atendimento: o processamento ao vivo (o download dos anexos, a análise de cada arquivo pelo Gemini e a redação
- * do resumo), os textos gerados, os anexos da conversa, as ligações, o vídeo e os prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem
+ * dos textos), os textos gerados (o resumo e os chamados para o desenvolvimento, com os dados que a pessoa informa), os anexos da conversa, as ligações, o vídeo e os prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem
  * a chave do bot e sem dados de acesso remoto, que aparecem como [omitido]). O link de download nunca chega à tela.
  */
 const props = defineProps({
@@ -172,7 +172,7 @@ async function apagar() {
 
           <ProcessamentoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @recarregar="carregar({ silencioso: true })" />
 
-          <ResultadoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" />
+          <ResultadoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @campos="atendimento.campos = $event" />
 
           <AnexosDaConversa
             v-if="atendimento.anexos.length"

@@ -3,24 +3,39 @@ import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { mensagemDe } from '@/utils/erros'
 import { salvarResposta } from '@/utils/download'
-import { dataHora, hora, tokens } from '@/modulos/atendimento/formato'
+import {
+  camposDaTela,
+  dataHora,
+  hora,
+  LIMITE_DA_TELA,
+  mesmosCampos,
+  paraODesenvolvimento,
+  problemasDosCampos,
+  tokens,
+  VARIANTES,
+} from '@/modulos/atendimento/formato'
 import {
   copiaDiretaDisponivel,
   copiarHtmlDireto,
   copiarPelaSelecao,
   copiarTextoDireto,
 } from '@/modulos/atendimento/areaDeTransferencia'
+import CamposDoChamado from './CamposDoChamado.vue'
 
 /**
- * Um texto gerado (o resumo): o assunto com o contador, a prévia com a fonte de cada trecho, a edição do texto, as
- * imagens numeradas (tirar, reordenar, baixar) e as três formas de copiar para o sistema de chamados. O HTML da
- * prévia vem sempre gerado ou limpo pelo servidor.
+ * Um texto gerado (o resumo ou um chamado para o desenvolvimento): o assunto com o contador, a prévia com a fonte de
+ * cada trecho, a edição do texto, as imagens numeradas (tirar, reordenar, baixar) e as três formas de copiar para o
+ * sistema de chamados. Nos chamados, também a Tela/Funcionalidade, o que o Gemini identificou no erro e os dados que
+ * a pessoa informa, que o servidor monta no cabeçalho e no rodapé (fora da edição; mudar não exige gerar de novo).
+ * O HTML da prévia vem sempre gerado ou limpo pelo servidor.
  */
 const props = defineProps({
   atendimentoId: { type: String, required: true },
   saidaId: { type: String, required: true },
+  /** Os dados dos chamados do atendimento (para o formulário). */
+  campos: { type: Object, default: null },
 })
-const emit = defineEmits(['progresso'])
+const emit = defineEmits(['progresso', 'campos'])
 
 const saida = ref(null)
 const carregando = ref(true)
@@ -41,6 +56,10 @@ const miniaturas = ref({})
 /** Modo alternativo: o conteúdo já veio do servidor e espera o clique em "Copiar agora". */
 const paraCopiar = ref(null) // { modo, rotulo, conteudo, como }
 
+const tela = ref('')
+const alterandoCampos = ref(false)
+const camposEditados = ref(camposDaTela(null))
+
 const MODOS = {
   com_imagens: 'com imagens',
   so_texto: 'só o texto',
@@ -54,6 +73,11 @@ const incluidas = computed(() => (saida.value?.imagens ?? []).filter((i) => i.in
 const tiradas = computed(() => (saida.value?.imagens ?? []).filter((i) => !i.incluida))
 const itensDaLinha = computed(() => Object.fromEntries((linha.value?.itens ?? []).map((i) => [i.id, i])))
 const direta = copiaDiretaDisponivel()
+const chamado = computed(() => paraODesenvolvimento(saida.value?.tipo))
+const telaMudou = computed(() => saida.value && tela.value.trim().replace(/\s+/g, ' ') !== (saida.value.telaFuncionalidade ?? ''))
+const telaLonga = computed(() => tela.value.trim().length > LIMITE_DA_TELA)
+const variantes = computed(() => (saida.value?.variantes ?? []).map((v) => VARIANTES[v] ?? v))
+const camposComProblema = computed(() => problemasDosCampos(camposEditados.value).length > 0)
 
 async function carregar() {
   carregando.value = true
@@ -70,6 +94,7 @@ async function carregar() {
 function aplicar(view) {
   saida.value = view
   assunto.value = view.assunto ?? ''
+  tela.value = view.telaFuncionalidade ?? ''
   carregarMiniaturas()
 }
 
@@ -113,6 +138,36 @@ async function salvarAssunto() {
 
 async function copiarAssunto() {
   await copiar('assunto')
+}
+
+// ------------------------------------------------------------------------------------------- dados do chamado
+
+async function salvarTela() {
+  const view = await executar('tela', () => atendimentoApi.salvarTela(props.atendimentoId, props.saidaId, tela.value),
+    'Tela/Funcionalidade salva.')
+  if (view) aplicar(view)
+}
+
+function alterarCampos() {
+  camposEditados.value = camposDaTela(props.campos)
+  alterandoCampos.value = true
+}
+
+/** Os dados valem para os dois chamados; o cabeçalho e o rodapé voltam montados de novo pelo servidor. */
+async function salvarCampos() {
+  if (mesmosCampos(camposEditados.value, props.campos)) {
+    alterandoCampos.value = false
+    return
+  }
+  const salvos = await executar('campos', async () => {
+    const c = await atendimentoApi.salvarCampos(props.atendimentoId, camposEditados.value)
+    aplicar(await atendimentoApi.saida(props.atendimentoId, props.saidaId))
+    return c
+  }, 'Dados do chamado salvos.')
+  if (salvos) {
+    alterandoCampos.value = false
+    emit('campos', salvos)
+  }
 }
 
 async function editar() {
@@ -274,6 +329,55 @@ function copiarAgora() {
         </p>
       </div>
 
+      <!-- dados do chamado -->
+      <div v-if="chamado" class="grid gap-3 rounded-[3px] border border-linha px-3 py-3" aria-label="Dados do chamado" role="group">
+        <div>
+          <label :for="`tela-${saida.id}`" class="rotulo">Tela/Funcionalidade</label>
+          <div class="mt-1 flex flex-wrap items-start gap-2">
+            <input
+              :id="`tela-${saida.id}`"
+              v-model="tela"
+              type="text"
+              class="campo min-w-0 flex-1 font-sans! text-sm!"
+              :class="telaLonga ? 'border-carimbo!' : ''"
+              placeholder="não informado"
+              @keydown.enter.prevent="telaMudou && !telaLonga && salvarTela()"
+            />
+            <button v-if="telaMudou" type="button" class="botao-primario" :disabled="!!acao || telaLonga" @click="salvarTela">
+              {{ acao === 'tela' ? 'Salvando…' : 'Salvar a tela' }}
+            </button>
+          </div>
+          <p class="mt-1 text-xs" :class="telaLonga ? 'font-semibold text-carimbo' : 'text-tinta-suave'">
+            <template v-if="telaLonga">{{ tela.trim().length }}/{{ LIMITE_DA_TELA }} caracteres: encurte para salvar.</template>
+            <template v-else>Escrita pelo Gemini ou sugerida pelo código de tela lido nas imagens: confira. Vazia, sai "não informado".</template>
+          </p>
+        </div>
+        <div v-if="variantes.length" class="flex flex-wrap items-center gap-2 text-xs">
+          <span class="rotulo">O Gemini identificou</span>
+          <span v-for="v in variantes" :key="v" class="rounded-[2px] border border-tinta/40 px-2 py-0.5 font-semibold">{{ v }}</span>
+        </div>
+        <div>
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <p class="rotulo">Versão, teste, backup e chamado relacionado</p>
+            <button v-if="!alterandoCampos" type="button" class="botao-secundario" :disabled="!!acao || editando" @click="alterarCampos">
+              Alterar os dados
+            </button>
+          </div>
+          <p v-if="!alterandoCampos" class="mt-1 text-xs text-tinta-suave">
+            Valem para os dois chamados e saem no cabeçalho e no rodapé da prévia abaixo.
+          </p>
+          <div v-else class="mt-2">
+            <CamposDoChamado v-model="camposEditados" :prefixo="`campos-${saida.id}`" :desligado="!!acao" />
+            <div class="mt-3 flex flex-wrap gap-2">
+              <button type="button" class="botao-primario" :disabled="!!acao || camposComProblema" @click="salvarCampos">
+                {{ acao === 'campos' ? 'Salvando…' : 'Salvar os dados' }}
+              </button>
+              <button type="button" class="botao-secundario" :disabled="!!acao" @click="alterandoCampos = false">Cancelar</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
       <!-- avisos da conferência -->
       <div v-if="saida.avisos.length" role="note" class="rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm">
         <p class="font-semibold text-carimbo">Confira antes de usar</p>
@@ -339,25 +443,39 @@ function copiarAgora() {
           </div>
         </div>
         <p class="mt-1 text-xs text-tinta-suave">
-          <template v-if="editando">Mexa só no texto: o parágrafo de cada imagem ("Imagem N: legenda") pode ser movido ou apagado, e o servidor renumera ao salvar.</template>
+          <template v-if="editando">Mexa só no texto: o parágrafo de cada imagem ("Imagem N: legenda") pode ser movido ou apagado, e o servidor renumera ao salvar.<template v-if="chamado"> O cabeçalho e o rodapé saem dos dados do chamado.</template></template>
           <template v-else>Clique num trecho para ver de onde ele veio. Trechos destacados vieram sem fonte: confira.</template>
         </p>
+        <div
+          v-if="chamado && saida.cabecalho"
+          class="previa fixo mt-2 rounded-t-[3px] border border-b-0 border-dashed border-linha px-4 py-2 text-sm"
+          aria-label="Cabeçalho do chamado"
+          v-html="saida.cabecalho"
+        />
         <div
           v-if="editando"
           ref="editor"
           contenteditable="true"
           role="textbox"
           aria-multiline="true"
-          aria-label="Texto do resumo"
-          class="previa editando mt-2 rounded-[3px] border-2 border-tinta bg-white px-4 py-3 text-sm"
+          :aria-label="chamado ? 'Texto do chamado' : 'Texto do resumo'"
+          class="previa editando rounded-[3px] border-2 border-tinta bg-white px-4 py-3 text-sm"
+          :class="chamado && saida.cabecalho ? '' : 'mt-2'"
         />
         <div
           v-else
           ref="previa"
-          class="previa mt-2 rounded-[3px] border border-linha bg-white/80 px-4 py-3 text-sm"
+          class="previa rounded-[3px] border border-linha bg-white/80 px-4 py-3 text-sm"
+          :class="chamado && saida.cabecalho ? 'rounded-none' : 'mt-2'"
           aria-label="Prévia do texto"
           @click="aoClicarNaPrevia"
           v-html="saida.html"
+        />
+        <div
+          v-if="chamado && saida.rodape"
+          class="previa fixo rounded-b-[3px] border border-t-0 border-dashed border-linha px-4 py-2 text-sm"
+          aria-label="Rodapé do chamado"
+          v-html="saida.rodape"
         />
       </div>
 
@@ -416,7 +534,7 @@ function copiarAgora() {
       <details class="text-sm">
         <summary class="cursor-pointer text-xs font-semibold">Campos para a base de conhecimento</summary>
         <dl class="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-          <div v-if="saida.telaFuncionalidade" class="sm:col-span-2"><dt class="rotulo">Tela/Funcionalidade</dt><dd>{{ saida.telaFuncionalidade }}</dd></div>
+          <div v-if="saida.telaFuncionalidade && !chamado" class="sm:col-span-2"><dt class="rotulo">Tela/Funcionalidade</dt><dd>{{ saida.telaFuncionalidade }}</dd></div>
           <div v-for="(valor, campo) in saida.base" :key="campo"><dt class="rotulo">{{ campo }}</dt><dd class="break-words">{{ valor }}</dd></div>
         </dl>
       </details>
@@ -444,6 +562,13 @@ function copiarAgora() {
 <style scoped>
 .previa :deep(p) {
   margin: 0.5rem 0;
+}
+.previa.fixo {
+  color: var(--color-tinta-suave);
+  background: color-mix(in srgb, var(--color-papel-escuro) 35%, transparent);
+}
+.previa.fixo :deep(p) {
+  margin: 0.15rem 0;
 }
 .previa :deep(ol) {
   list-style: decimal;

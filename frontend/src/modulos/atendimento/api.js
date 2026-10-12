@@ -84,6 +84,12 @@ export const atendimentoApi = {
   /** A análise de um arquivo: { categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado }. */
   analise: (id, arquivoId) => http.get(`/atendimentos/${id}/arquivos/${arquivoId}/analise`),
 
+  /**
+   * O que a pessoa informa para os chamados do desenvolvimento:
+   * { versaoCliente, testadoUltimaVersao (true, false ou null), caminhoBackup, chamadoRelacionado }.
+   */
+  salvarCampos: (id, campos) => http.put(`/atendimentos/${id}/campos`, campos),
+
   /** A versão mais recente de cada texto gerado: [{ id, tipo, rotulo, versao, situacao, erro, assunto }]. */
   saidas: (id) => http.get(`/atendimentos/${id}/saidas`),
 
@@ -96,6 +102,8 @@ export const atendimentoApi = {
   /** Um texto gerado: assunto, HTML (com data-fontes e data-imagem), imagens, avisos e campos da base. */
   saida: (id, saidaId) => http.get(`/atendimentos/${id}/saidas/${saidaId}`),
   salvarAssunto: (id, saidaId, assunto) => http.put(`/atendimentos/${id}/saidas/${saidaId}/assunto`, { assunto }),
+  /** A Tela/Funcionalidade do cabeçalho de um chamado. */
+  salvarTela: (id, saidaId, telaFuncionalidade) => http.put(`/atendimentos/${id}/saidas/${saidaId}/tela`, { telaFuncionalidade }),
   /** O texto editado (o servidor limpa e renumera as imagens). */
   salvarTexto: (id, saidaId, html) => http.put(`/atendimentos/${id}/saidas/${saidaId}/texto`, { html }),
   /** As imagens que ficam no texto, na ordem (o servidor renumera). */

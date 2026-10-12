@@ -37,18 +37,33 @@ public final class ConferenciaDoTexto {
     public record ImagemDisponivel(String id, UUID arquivoId, String caminho, String legendaPadrao) {
     }
 
-    /** O que veio do Gemini, já lido do JSON. */
-    public record Bruto(String assunto, List<BlocoBruto> blocos, Map<String, String> base, String telaFuncionalidade) {
+    /**
+     * O que veio do Gemini, já lido do JSON.
+     *
+     * @param variantes nos chamados de erro: comparacao, sem_causa_identificada, apos_atualizacao
+     */
+    public record Bruto(String assunto, List<BlocoBruto> blocos, Map<String, String> base, String telaFuncionalidade,
+                        List<String> variantes) {
         public Bruto {
             blocos = blocos == null ? List.of() : blocos;
             base = base == null ? Map.of() : base;
+            variantes = variantes == null ? List.of() : variantes;
+        }
+
+        public Bruto(String assunto, List<BlocoBruto> blocos, Map<String, String> base, String telaFuncionalidade) {
+            this(assunto, blocos, base, telaFuncionalidade, List.of());
         }
     }
 
-    public record BlocoBruto(String tipo, String texto, List<String> fontes, List<ImagemBruta> imagens) {
+    /** @param secao a parte do chamado (textos para o desenvolvimento), ou null */
+    public record BlocoBruto(String tipo, String texto, List<String> fontes, List<ImagemBruta> imagens, String secao) {
         public BlocoBruto {
             fontes = fontes == null ? List.of() : fontes;
             imagens = imagens == null ? List.of() : imagens;
+        }
+
+        public BlocoBruto(String tipo, String texto, List<String> fontes, List<ImagemBruta> imagens) {
+            this(tipo, texto, fontes, imagens, null);
         }
     }
 
@@ -172,7 +187,8 @@ public final class ConferenciaDoTexto {
             if (fontes.isEmpty() && !texto.isEmpty()) {
                 semFonte++;
             }
-            blocos.add(new BlocoDoTexto(BlocoDoTexto.Tipo.doCodigo(bloco.tipo()), texto, List.copyOf(fontes), citadas));
+            blocos.add(new BlocoDoTexto(BlocoDoTexto.Tipo.doCodigo(bloco.tipo()), texto, List.copyOf(fontes), citadas,
+                    bloco.secao(), false));
         }
 
         Map<String, String> base = new LinkedHashMap<>();
@@ -204,7 +220,7 @@ public final class ConferenciaDoTexto {
             avisos.add(mascarados[0] + (mascarados[0] == 1 ? " trecho com dado de acesso remoto foi trocado"
                     : " trechos com dados de acesso remoto foram trocados") + " por [omitido].");
         }
-        TextoRedigido texto = new TextoRedigido(TextoRedigido.VERSAO, assunto, blocos, base, tela, avisos);
+        TextoRedigido texto = new TextoRedigido(TextoRedigido.VERSAO, assunto, blocos, base, tela, avisos, bruto.variantes());
         return new Conferido(texto, imagens, assuntoDoModelo, assunto.length() > LIMITE_DO_ASSUNTO);
     }
 

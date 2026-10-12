@@ -14,16 +14,19 @@ import br.com.conferenciaponto.modulos.atendimento.application.atendimento.Geren
 import br.com.conferenciaponto.modulos.atendimento.application.fila.CoordenadorDaFila;
 import br.com.conferenciaponto.modulos.atendimento.application.ia.ChamadasAoGemini;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.ConfiguracaoDaRedacao;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.CopiaView;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.EstadoDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.FilaDaRedacao;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.GerenciarSaidas;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.LinhaDoTempoView;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.ModoDeCopia;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.MontarLinhaDoTempo;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.RedigirSaida;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.SaidaView;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChaveGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.chave.ChavesGemini;
@@ -160,6 +163,11 @@ class RedacaoDoResumoTest {
         return gerenciar.receberPdf(maria, new ByteArrayInputStream(pdf), pdf.length, "conversa.pdf").atendimento().id();
     }
 
+    private GerenciarAtendimentos gerenciar() {
+        return new GerenciarAtendimentos(new ExtratorPdfBox(), atendimentos, arquivos, publicador, new PastaEmDisco(raiz),
+                RepositoriosDeTeste.transacao(), relogio(), DataSize.ofMegabytes(50), 30, 180);
+    }
+
     /** Um atendimento só com a conversa, sem anexos. */
     private UUID criarSemAnexos() {
         GerenciarAtendimentos gerenciar = new GerenciarAtendimentos(new ExtratorPdfBox(), atendimentos, arquivos, publicador,
@@ -294,8 +302,76 @@ class RedacaoDoResumoTest {
 
         assertThat(modelo.geracoes()).as("só a redação").hasSize(antes + 1);
         assertThat(saidas.tokens(id)).containsExactly(2000L, 400L);
+    }
+
+    @Test
+    void gerarDeNovoEnquantoAVersaoAindaEstaNaFilaAvisa() {
+        UUID id = criarSemAnexos();
+        atendimentos.mudarSituacao(id, SituacaoDoAtendimento.PRONTO, null, AGORA); // sem a fila rodando
+
+        processamento().gerar(maria, id, TipoDeSaida.DEV_ERRO);
+
         assertThatThrownBy(() -> processamento().gerar(maria, id, TipoDeSaida.DEV_ERRO))
-                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("ainda não existe");
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("já está sendo gerado");
+        assertThat(redacao.estados(id)).singleElement().satisfies(s -> {
+            assertThat(s.tipo()).isEqualTo("dev_erro");
+            assertThat(s.situacao()).isEqualTo("pendente");
+        });
+    }
+
+    @Test
+    void chamadosDeErroEDeAlteracaoComAsPartesOCabecalhoEORodape() {
+        cadastrarChave();
+        UUID id = criar();
+        iniciarFila();
+        gerenciar().salvarCampos(maria, id, new CamposInformados("01/10/2026", null, "Z:\\Bases Clientes\\Loja", null));
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO, TipoDeSaida.DEV_ERRO, TipoDeSaida.DEV_ALTERACAO));
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(redacao.estados(id)).extracting(EstadoDaSaida::tipo).containsExactly("resumo", "dev_erro", "dev_alteracao");
+        assertThat(redacao.estados(id)).allSatisfy(s -> assertThat(s.situacao()).isEqualTo("pronta"));
+        EstadoDaSaida erro = redacao.estados(id).get(1);
+        SaidaView chamado = gerenciarSaidas().detalhe(maria, id, erro.id());
+        assertThat(chamado.html()).startsWith("<p><strong>Caminho da tela</strong></p>")
+                .contains("<p><strong>Passos para reproduzir</strong></p>\n<ol>\n<li data-fontes=\"A1\">Abrir a tela Pedidos.</li>")
+                .contains("<p><strong>Causa</strong></p>\n<p>Causa não identificada.</p>")
+                .contains("Imagem 1").doesNotContain("parte que não existe");
+        assertThat(chamado.html().indexOf("Relato do problema")).isLessThan(chamado.html().indexOf("Pedido ao desenvolvimento"));
+        assertThat(chamado.telaFuncionalidade()).as("sugerida pela tela lida no print").isEqualTo("Pedidos (VEN010)");
+        assertThat(chamado.variantes()).containsExactly("sem_causa_identificada");
+        assertThat(chamado.cabecalho()).contains("<strong>Tela/Funcionalidade:</strong> Pedidos (VEN010)")
+                .contains("<strong>Versão do cliente:</strong> 01/10/2026")
+                .contains("<strong>Testado na última versão disponível:</strong> não informado");
+        assertThat(chamado.rodape()).contains("Data de atualização do sistema:</strong> 01/10/2026")
+                .contains("Caminho do backup:</strong> Z:\\Bases Clientes\\Loja");
+        assertThat(chamado.avisos()).noneMatch(a -> a.contains("sem fonte")).as("a causa do sistema não é trecho sem fonte");
+
+        // os campos mudam e o cabeçalho acompanha, sem gerar de novo
+        int geracoes = modelo.geracoes().size();
+        gerenciar().salvarCampos(maria, id, new CamposInformados("05/10/2026", true, null, "OTRS 99"));
+        SaidaView depois = gerenciarSaidas().salvarTela(maria, id, erro.id(), "Pedidos de Venda (VEN010)");
+        assertThat(depois.cabecalho()).contains("05/10/2026").contains("Sim").contains("OTRS 99").contains("Pedidos de Venda (VEN010)");
+        assertThat(depois.rodape()).contains("Caminho do backup:</strong> não informado");
+        assertThat(modelo.geracoes()).hasSize(geracoes);
+        CopiaView copia = gerenciarSaidas().copia(maria, id, erro.id(), ModoDeCopia.SO_TEXTO);
+        assertThat(copia.html()).startsWith("<p><strong>Tela/Funcionalidade:</strong> Pedidos de Venda (VEN010)</p>")
+                .endsWith("<p><strong>Caminho do backup:</strong> não informado</p>\n").doesNotContain("data-fontes");
+        assertThat(copia.texto()).startsWith("Tela/Funcionalidade: Pedidos de Venda (VEN010)").contains("1. Abrir a tela Pedidos.");
+
+        SaidaView alteracao = gerenciarSaidas().detalhe(maria, id, redacao.estados(id).get(2).id());
+        assertThat(alteracao.html()).startsWith("<p><strong>Solicitação de Melhoria</strong></p>\n<p><strong>Módulo e telas envolvidas</strong></p>")
+                .doesNotContain("Contexto e objetivo").doesNotContain("Causa");
+        assertThat(alteracao.telaFuncionalidade()).isEqualTo("Pedidos de Venda (VEN010)");
+        assertThat(alteracao.rodape()).doesNotContain("Data de atualização");
+        PedidoAoModelo pedidoDoErro = modelo.geracoes().stream().map(ModeloDeMentira.Geracao::pedido)
+                .filter(p -> p.esquemaJson().contains("\"resultadoObtido\"")).findFirst().orElseThrow();
+        assertThat(pedidoDoErro.instrucao()).contains("chamado de erro").contains("[M1]").doesNotContain("{{");
+
+        assertThatThrownBy(() -> gerenciar().salvarCampos(maria, id, new CamposInformados("x".repeat(41), null, null, null)))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("41 caracteres");
+        assertThatThrownBy(() -> gerenciarSaidas().salvarTela(maria, id, redacao.estados(id).get(0).id(), "x"))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("só existe nos chamados");
     }
 
     @Test

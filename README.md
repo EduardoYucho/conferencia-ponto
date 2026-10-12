@@ -261,7 +261,8 @@ PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou 
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
 deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
-download dos anexos, o envio das ligações, do vídeo e dos prints, e a análise de cada arquivo pelo Gemini:
+download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini e a redação
+do resumo e dos chamados para o desenvolvimento:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
@@ -324,8 +325,7 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, e a anális
   `GEMINI_INDISPONIVEL` (novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os outros seguem),
   `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
 - **Resumo do atendimento** (Gemini, `atendimento.gemini.modelos.redacao`): os textos são escolhidos no Novo
-  atendimento (nesta versão, o resumo; os chamados para o desenvolvimento chegam numa etapa seguinte) ou pedidos
-  depois, na tela do atendimento. Quando não sobra download nem análise na fila, o servidor monta a **linha do
+  atendimento (o resumo e os chamados de erro e de alteração, abaixo) ou pedidos depois, na tela do atendimento. Quando não sobra download nem análise na fila, o servidor monta a **linha do
   tempo** (sem IA): as mensagens na ordem do PDF, a análise de cada anexo logo depois da mensagem em que ele foi
   enviado e as ligações, o vídeo e os prints pela data do arquivo; o arquivo sem data, ou com data fora do
   atendimento (mais `atendimento.linha-do-tempo.margem`, 1 h), vai para "material sem horário". Cada item ganha um
@@ -345,6 +345,23 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, e a anális
   (`http://<ip>:8080`) a cópia usa o modo alternativo do navegador (dois cliques). Os prompts e os esquemas ficam em
   `backend/src/main/resources/atendimento/prompts` e `esquemas` (`<nome>-v<N>`; mudar um prompt é criar a versão
   seguinte). Erros: os mesmos da análise, mais `SEM_LINHA_DO_TEMPO`, `JA_EM_REDACAO` e `PROCESSE_PRIMEIRO`.
+- **Chamados para o desenvolvimento** (erro e alteração): o mesmo caminho do resumo (linha do tempo, conferência,
+  edição, imagens e cópia), escritos em terceira pessoa e em partes fixas, na ordem do modelo do chamado. O de
+  **erro**: caminho da tela, relato, comparação, passos para reproduzir (numerados), resultado esperado e obtido,
+  dados do registro afetado, desde quando ocorre, o que já foi tentado, causa e pedido ao desenvolvimento; a causa
+  sem fonte sai como "Causa não identificada." e o Gemini marca as variantes que reconheceu (erro por comparação,
+  sem causa identificada, após atualização), mostradas na tela. O de **alteração** abre com "Solicitação de
+  Melhoria": módulo e telas, tipo de solicitação, descrição, contexto e objetivo, comportamento atual e esperado,
+  regras de negócio sugeridas e observação comercial. Parte sem nada nas fontes fica de fora (o servidor descarta
+  parte que não é do modelo). O **cabeçalho** (Tela/Funcionalidade, Versão do cliente, Testado na última versão
+  disponível e, se houver, Chamado relacionado) e o **rodapé** (no de erro, a data de atualização do sistema; nos
+  dois, o caminho do backup) são montados pelo servidor na hora de mostrar e de copiar, com os **dados que a pessoa
+  informa** (no Novo atendimento, ao marcar um chamado, ou depois, na tela do resultado; valem para os dois
+  chamados): mudar um dado não exige gerar o texto de novo, e campo vazio sai como "não informado". A versão do
+  cliente é a data da última atualização do sistema no cliente (um dado só, que sai no cabeçalho e no rodapé). A
+  Tela/Funcionalidade vem do Gemini ou, se ele não informar, é sugerida pelo código de tela lido nas imagens
+  (`tela Nome (COD)` na linha do tempo); dá para corrigir na tela. Limites: versão 40, backup 300, chamado
+  relacionado e Tela/Funcionalidade 200 caracteres (`CAMPO_LONGO`, `TELA_LONGA`).
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
   — e o atendimento inteiro, 180 dias depois.
@@ -360,17 +377,19 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, e a anális
 | PUT | `/atendimentos/chave-gemini` | `{chave, nivelPagoConfirmado}`: testa com o Google e guarda cifrada (`CHAVE_GEMINI_RECUSADA`, `NIVEL_PAGO_NAO_CONFIRMADO`, `GEMINI_INDISPONIVEL`, `SEM_INTERNET`...) |
 | POST · DELETE | `/atendimentos/chave-gemini/testar` · `/atendimentos/chave-gemini` | Testa de novo (situação: `valida`, `sem_cota`, `recusada`) · apaga |
 | POST | `/atendimentos` | Corpo = o PDF do Digisac (`application/pdf`), cabeçalho `X-Nome-Arquivo` (codificado): `201 {criado: true, atendimento, leitura}` · `200 {criado: false, ...}` se o chamado já tem atendimento |
-| GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada) e os anexos com a validade dos links (o link em si nunca vem) |
+| GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada), os anexos com a validade dos links (o link em si nunca vem) e os dados dos chamados (`campos`) |
+| PUT | `/atendimentos/{id}/campos` | Os dados dos chamados: `{versaoCliente, testadoUltimaVersao (true, false ou null), caminhoBackup, chamadoRelacionado}` (`CAMPO_LONGO`) |
 | DELETE | `/atendimentos/{id}` | Apaga o atendimento e os arquivos dele |
-| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads, as análises e as saídas pedidas que faltam (corpo opcional `{saidas: ["resumo"]}`, `SAIDA_DESCONHECIDA`) · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini, saidas[{id, tipo, versao, situacao, erro, assunto}]}` |
+| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads, as análises e as saídas pedidas que faltam (corpo opcional `{saidas: ["resumo", "dev_erro", "dev_alteracao"]}`, `SAIDA_DESCONHECIDA`) · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini, saidas[{id, tipo, versao, situacao, erro, assunto}]}` |
 | GET | `/atendimentos/{id}/progresso` · `/atendimentos/eventos` | O progresso agora · SSE do módulo (`atendimento-progresso`, só os meus atendimentos) |
 | POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | O download ou a análise que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
 | GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}` (`ANALISE_NAO_ENCONTRADA`) |
 | GET · POST | `/atendimentos/{id}/saidas` · `/atendimentos/{id}/saidas/{tipo}/gerar` | A versão mais recente de cada texto · gerar de novo (`JA_EM_REDACAO`, `PROCESSE_PRIMEIRO`) |
 | GET | `/atendimentos/{id}/linha-do-tempo` | O material da redação (as fontes de cada trecho) |
-| GET | `/atendimentos/{id}/saidas/{saidaId}` | O texto: assunto, HTML (`data-fontes`, `data-imagem`), imagens, avisos e campos da base |
+| GET | `/atendimentos/{id}/saidas/{saidaId}` | O texto: assunto, HTML (`data-fontes`, `data-imagem`), imagens, avisos e campos da base; nos chamados, `telaFuncionalidade`, `cabecalho`, `rodape` e `variantes` |
+| PUT | `.../saidas/{saidaId}/tela` | `{telaFuncionalidade}` do cabeçalho do chamado (`SO_NOS_CHAMADOS`, `TELA_LONGA`) |
 | PUT · POST | `.../saidas/{saidaId}/assunto` · `/texto` · `/imagens` · `/desfazer` | `{assunto}` até 150 (`ASSUNTO_LONGO`) · `{html}` editado (limpo no servidor) · `{incluidas: [ids]}` na ordem (o servidor renumera) · volta ao texto gerado |
-| GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência |
+| GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência (nos chamados, com o cabeçalho e o rodapé) |
 | GET | `.../saidas/{saidaId}/imagens/{imagemId}` · `/imagens.zip` | Uma imagem · todas, na ordem do texto (`IMAGEM_APAGADA` depois da retenção) |
 | PUT | `/atendimentos/{id}/arquivos?origem=ligacao\|video\|print_extra&nome=&modificadoEm=` | Corpo = o arquivo: `201` com o arquivo guardado (`ORIGEM_INVALIDA`, `TIPO_NAO_SUPORTADO`, `ARQUIVO_GRANDE_DEMAIS`, `ARQUIVO_VAZIO`, `409 DISCO_CHEIO`) |
 | PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |

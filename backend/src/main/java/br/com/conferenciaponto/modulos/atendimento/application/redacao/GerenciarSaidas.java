@@ -4,9 +4,11 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.ItemDaLinha;
 import br.com.conferenciaponto.modulos.atendimento.domain.linha.LinhaDoTempo;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.CabecalhoDoChamado;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.ConferenciaDoTexto;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.ImagemDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
@@ -45,6 +47,7 @@ import java.util.zip.ZipOutputStream;
 public class GerenciarSaidas {
 
     private static final Logger log = LoggerFactory.getLogger(GerenciarSaidas.class);
+    static final int LIMITE_DA_TELA = 200;
 
     private final Atendimentos atendimentos;
     private final Saidas saidas;
@@ -145,20 +148,51 @@ public class GerenciarSaidas {
         return detalhe(usuario, atendimentoId, saidaId);
     }
 
-    /** O texto para colar no sistema de chamados, no modo pedido. */
+    /**
+     * O texto para colar no sistema de chamados, no modo pedido (nos chamados para o desenvolvimento, com o cabeçalho
+     * e o rodapé montados com os campos de agora).
+     */
     public CopiaView copia(Usuario usuario, UUID atendimentoId, UUID saidaId, ModoDeCopia modo) {
         SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        String completo = completo(saida);
         List<String> avisos = new ArrayList<>();
         String html;
         if (modo == ModoDeCopia.COM_IMAGENS) {
             Map<UUID, ImagemDaSaida> imagens = new HashMap<>();
             saidas.imagens(saida.id()).forEach(i -> imagens.put(i.id(), i));
-            html = HtmlDaSaida.paraCopiar(saida.htmlAtual(), id -> embutida(imagens.get(id), avisos));
+            html = HtmlDaSaida.paraCopiar(completo, id -> embutida(imagens.get(id), avisos));
         } else {
-            html = HtmlDaSaida.paraCopiar(saida.htmlAtual(), null);
+            html = HtmlDaSaida.paraCopiar(completo, null);
         }
-        return new CopiaView(modo.name().toLowerCase(Locale.ROOT), html, HtmlDaSaida.textoSimples(saida.htmlAtual()),
+        return new CopiaView(modo.name().toLowerCase(Locale.ROOT), html, HtmlDaSaida.textoSimples(completo),
                 List.copyOf(avisos));
+    }
+
+    /** A Tela/Funcionalidade do cabeçalho de um chamado (a sugestão do sistema pode ser trocada). */
+    public SaidaView salvarTela(Usuario usuario, UUID atendimentoId, UUID saidaId, String tela) {
+        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        if (!saida.tipo().paraODesenvolvimento()) {
+            throw new RegraNegocioException("SO_NOS_CHAMADOS", "A Tela/Funcionalidade só existe nos chamados para o "
+                    + "desenvolvimento.");
+        }
+        String limpa = tela == null ? "" : tela.strip().replaceAll("\\s+", " ");
+        if (limpa.length() > LIMITE_DA_TELA) {
+            throw new RegraNegocioException("TELA_LONGA", "A Tela/Funcionalidade tem " + limpa.length() + " caracteres; o "
+                    + "limite é " + LIMITE_DA_TELA + ".");
+        }
+        saidas.salvarTela(saida.id(), limpa.isEmpty() ? null : limpa);
+        return detalhe(usuario, atendimentoId, saidaId);
+    }
+
+    /** O texto inteiro: cabeçalho, corpo (o editado, se houver) e rodapé. */
+    private String completo(SaidaGuardada saida) {
+        if (!saida.tipo().paraODesenvolvimento()) {
+            return saida.htmlAtual();
+        }
+        CamposInformados campos = atendimentos.camposInformados(saida.atendimentoId());
+        TextoRedigido texto = EstruturaDaSaida.ler(json, saida.estrutura());
+        return CabecalhoDoChamado.cabecalho(saida.tipo(), campos, texto.telaFuncionalidade()) + saida.htmlAtual() + "\n"
+                + CabecalhoDoChamado.rodape(saida.tipo(), campos);
     }
 
     /** O arquivo de uma imagem da saída (para a miniatura na tela). */
@@ -207,11 +241,13 @@ public class GerenciarSaidas {
                         Files.isRegularFile(pasta.localDoArquivo(i.caminho())), nomeNoZip(i)))
                 .toList();
         boolean apagadas = !imagens.isEmpty() && imagens.stream().noneMatch(SaidaView.Imagem::disponivel);
+        CamposInformados campos = atendimentos.camposInformados(saida.atendimentoId());
         return new SaidaView(saida.id(), saida.tipo().codigo(), saida.tipo().rotulo(), saida.versao(),
                 saida.situacao().codigo(), saida.erroMensagem(), saida.assunto(), ConferenciaDoTexto.LIMITE_DO_ASSUNTO,
                 saida.htmlAtual(), saida.htmlEditado() != null, texto.avisos(), texto.base(), texto.telaFuncionalidade(),
                 imagens, saida.modelo(), saida.versaoPrompt(), saida.tokensEntrada(), saida.tokensSaida(), saida.criadaEm(),
-                apagadas);
+                apagadas, CabecalhoDoChamado.cabecalho(saida.tipo(), campos, texto.telaFuncionalidade()),
+                CabecalhoDoChamado.rodape(saida.tipo(), campos), texto.variantes());
     }
 
     private Optional<String> embutida(ImagemDaSaida imagem, List<String> avisos) {

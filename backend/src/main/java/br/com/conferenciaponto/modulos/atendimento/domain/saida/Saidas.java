@@ -60,6 +60,9 @@ public interface Saidas {
 
     void salvarAssunto(UUID saidaId, String assunto);
 
+    /** A Tela/Funcionalidade do cabeçalho dos chamados (fica na estrutura do texto). */
+    void salvarTela(UUID saidaId, String telaFuncionalidade);
+
     /** Tokens gastos nas redações do atendimento (todas as versões): [entrada, saída]. */
     long[] tokens(UUID atendimentoId);
 

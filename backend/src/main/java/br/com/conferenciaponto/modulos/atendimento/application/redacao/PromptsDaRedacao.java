@@ -30,10 +30,13 @@ final class PromptsDaRedacao {
     static final String SISTEMA = ArquivosDePrompt.prompt("sistema-redacao", 1);
 
     static final Prompt RESUMO = carregar("resumo", 1);
+    static final Prompt DEV_ERRO = carregar("dev-erro", 1);
+    static final Prompt DEV_ALTERACAO = carregar("dev-alteracao", 1);
     /** Um assunto mais curto, quando o primeiro passou do limite. */
     static final Prompt ASSUNTO_CURTO = carregar("assunto-curto", 1);
 
-    private static final Map<TipoDeSaida, Prompt> POR_TIPO = Map.of(TipoDeSaida.RESUMO, RESUMO);
+    private static final Map<TipoDeSaida, Prompt> POR_TIPO = Map.of(TipoDeSaida.RESUMO, RESUMO,
+            TipoDeSaida.DEV_ERRO, DEV_ERRO, TipoDeSaida.DEV_ALTERACAO, DEV_ALTERACAO);
 
     private PromptsDaRedacao() {
     }

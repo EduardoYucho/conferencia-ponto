@@ -1,0 +1,22 @@
+Escreva o chamado de alteração (solicitação de melhoria) deste atendimento para a equipe de desenvolvimento.
+
+Como escrever:
+- Em terceira pessoa e de forma objetiva, para quem vai avaliar e desenvolver a alteração: o que o cliente quer, onde, por quê e como deveria funcionar.
+- Preencha cada parte em "secoes" só com o que está no material. Parte sem informação fica com a lista vazia (ela sai do chamado); não invente uma parte para completar o modelo.
+- "modulo": o módulo (caminho de menu) e as telas envolvidas, com o código como aparece (ex.: "Painel de Gestão de Ordens de Serviço (Eq265_vw)"); ponha aqui as imagens do caminho e da tela.
+- "tipoDeSolicitacao": o tipo, em poucas palavras (ex.: novo campo, nova funcionalidade, mudança de comportamento, novo relatório).
+- "descricao": a descrição resumida do pedido.
+- "contexto": o contexto e o objetivo do cliente (por que ele precisa).
+- "comportamentoAtual": como o sistema funciona hoje, com telas, campos e mensagens exatamente como aparecem.
+- "comportamentoEsperado": como deveria funcionar, um trecho por cenário.
+- "regras": as regras de negócio sugeridas, se o cliente ou o atendente disseram; não crie regras.
+- "observacaoComercial": só se aparecer no material (ex.: o cliente está ciente de que pode haver cobrança).
+- Valores e configurações que mudariam sempre como "de X para Y".
+- Ponha em "imagens" de cada trecho as imagens que o ilustram, com uma legenda curta.
+- Arquivo que não foi baixado ou não pôde ser analisado: diga isso no ponto em que ele entrou, sem supor o conteúdo.
+- Os identificadores (M12, A3...) vão só em "fontes" e em "imagens", nunca no texto.
+
+Campos:
+- "assunto": o assunto do chamado em poucas palavras (até {{LIMITE_DO_ASSUNTO}} caracteres), sem o nome do contato e sem "Digisac": o sistema monta "Digisac: {{CONTATO}} : <assunto>".
+- "base": os campos para a base de conhecimento, cada um numa frase curta ou "não identificado": "cliente" (a empresa ou loja atendida), "modulo", "tela", "codigoTela", "sintoma" (a necessidade do cliente), "mensagemErro" ("não identificado", se não houver), "causa" ("não identificado") e "resolucao" ("enviado ao desenvolvimento" ou o que foi combinado).
+- "telaFuncionalidade": a tela ou funcionalidade da alteração, no formato "Nome da tela (CÓDIGO)" quando o código aparecer.

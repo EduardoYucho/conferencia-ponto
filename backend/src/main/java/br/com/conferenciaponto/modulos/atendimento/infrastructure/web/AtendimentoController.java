@@ -6,6 +6,7 @@ import br.com.conferenciaponto.modulos.atendimento.application.atendimento.Atend
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.ResultadoDoEnvio;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.ResumoView;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
@@ -14,6 +15,8 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -33,6 +36,8 @@ import java.util.UUID;
  * GET    /api/v1/atendimentos        lista, do mais novo para o mais antigo
  * GET    /api/v1/atendimentos/{id}   conversa lida e anexos (atendimento de outra pessoa: 404)
  * DELETE /api/v1/atendimentos/{id}   apaga o atendimento e os arquivos
+ * PUT    /api/v1/atendimentos/{id}/campos  {versaoCliente, testadoUltimaVersao, caminhoBackup, chamadoRelacionado}
+ *                                    o que a pessoa informa para os chamados do desenvolvimento
  * </pre>
  *
  * O PDF chega em fluxo (sem multipart): vai direto para um arquivo temporário, sem passar inteiro pela memória.
@@ -66,6 +71,11 @@ public class AtendimentoController {
     @GetMapping("/{id}")
     public ApiResponse<AtendimentoView> detalhe(@PathVariable UUID id) {
         return ApiResponse.ok(atendimentos.detalhe(acesso.logado(), id));
+    }
+
+    @PutMapping("/{id}/campos")
+    public ApiResponse<CamposInformados> campos(@PathVariable UUID id, @RequestBody CamposInformados campos) {
+        return ApiResponse.ok(atendimentos.salvarCampos(acesso.logado(), id, campos));
     }
 
     @DeleteMapping("/{id}")

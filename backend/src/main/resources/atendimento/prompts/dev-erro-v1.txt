@@ -1,0 +1,22 @@
+Escreva o chamado de erro deste atendimento para a equipe de desenvolvimento.
+
+Como escrever:
+- Em terceira pessoa e de forma objetiva, para quem vai reproduzir e corrigir o erro: o que acontece, onde, como reproduzir e o que se espera.
+- Preencha cada parte em "secoes" só com o que está no material. Parte sem informação fica com a lista vazia (ela sai do chamado); não invente uma parte para completar o modelo.
+- "caminhoTela": o caminho de menu até a tela, com o código, como aparece nas telas (ex.: "Relatórios -> Vendas -> Pedidos/Orçamentos de Vendas -> Pedidos de Vendas (EQR76)").
+- "passos": os passos para reproduzir, um por trecho, na ordem, com os nomes de telas, botões, campos e atalhos exatamente como aparecem.
+- "resultadoObtido": a mensagem de erro literal, entre aspas.
+- "dadosDoRegistro": número, série, data, valor e outros dados do registro afetado, transcritos no texto (não só nas imagens).
+- "desdeQuando": desde quando ocorre e o que mudou, se o material disser (ex.: "após a atualização de 01/10/2026").
+- "tentativas": o que já foi verificado e tentado no atendimento, e o resultado.
+- "causa": só se a causa foi identificada no atendimento. Sem causa identificada, deixe a lista vazia (o sistema escreve "Causa não identificada.") e não arrisque um diagnóstico.
+- "pedido": o que se pede ao desenvolvimento (ex.: verificar e corrigir o erro).
+- Em "variantes", marque o que o material mostra: "comparacao" (numa tela a mesma sequência funciona e em outra não; descreva as duas em "comparacao"), "sem_causa_identificada" e "apos_atualizacao" (o erro começou depois de uma atualização do sistema). Pode ser nenhuma.
+- Ponha em "imagens" de cada trecho as imagens que o ilustram (o print da mensagem de erro em "resultadoObtido"; o print de uma tela no passo feito nela), com uma legenda curta.
+- Arquivo que não foi baixado ou não pôde ser analisado: diga isso no ponto em que ele entrou, sem supor o conteúdo.
+- Os identificadores (M12, A3...) vão só em "fontes" e em "imagens", nunca no texto.
+
+Campos:
+- "assunto": o assunto do chamado em poucas palavras (até {{LIMITE_DO_ASSUNTO}} caracteres), sem o nome do contato e sem "Digisac": o sistema monta "Digisac: {{CONTATO}} : <assunto>".
+- "base": os campos para a base de conhecimento, cada um numa frase curta ou "não identificado": "cliente" (a empresa ou loja atendida), "modulo", "tela", "codigoTela", "sintoma" (o que o cliente percebeu), "mensagemErro" (a mensagem literal), "causa" (só se identificada) e "resolucao" (o que foi feito ou "enviado ao desenvolvimento").
+- "telaFuncionalidade": a tela ou funcionalidade com o erro, no formato "Nome da tela (CÓDIGO)" quando o código aparecer.
