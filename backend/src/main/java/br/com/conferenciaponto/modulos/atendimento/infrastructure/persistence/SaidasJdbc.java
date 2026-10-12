@@ -28,7 +28,8 @@ class SaidasJdbc implements Saidas {
 
     private static final String COLUNAS = """
             s.id, s.atendimento_id, s.tipo, s.versao, s.situacao, s.erro_mensagem, s.estrutura::text AS estrutura, s.html,
-            s.html_editado, s.assunto, s.modelo, s.versao_prompt, s.tokens_entrada, s.tokens_saida, s.criada_em""";
+            s.html_editado, s.assunto, s.modelo, s.versao_prompt, s.tokens_entrada, s.tokens_saida, s.criada_em,
+            s.confirmada_em""";
 
     private final JdbcClient jdbc;
     private final TransactionOperations transacao;
@@ -249,6 +250,30 @@ class SaidasJdbc implements Saidas {
     }
 
     @Override
+    public boolean confirmar(UUID saidaId, Instant agora) {
+        return jdbc.sql("""
+                        UPDATE atendimento.saida SET situacao = 'confirmada', confirmada_em = :agora, erro_mensagem = NULL
+                         WHERE id = :id AND situacao = 'pronta'
+                        """)
+                .param("id", saidaId)
+                .param("agora", utc(agora))
+                .update() == 1;
+    }
+
+    @Override
+    public Optional<SaidaGuardada> ultimaConfirmada(UUID atendimentoId, TipoDeSaida tipo) {
+        return jdbc.sql("SELECT " + COLUNAS + """
+                         FROM atendimento.saida s
+                        WHERE s.atendimento_id = :atendimento AND s.tipo = :tipo AND s.situacao = 'confirmada'
+                        ORDER BY s.versao DESC LIMIT 1
+                        """)
+                .param("atendimento", atendimentoId)
+                .param("tipo", tipo.codigo())
+                .query(SaidasJdbc::saida)
+                .optional();
+    }
+
+    @Override
     public long[] tokens(UUID atendimentoId) {
         return jdbc.sql("""
                         SELECT coalesce(sum(tokens_entrada), 0) AS entrada, coalesce(sum(tokens_saida), 0) AS saida
@@ -265,7 +290,7 @@ class SaidasJdbc implements Saidas {
                 SituacaoDaSaida.doCodigo(rs.getString("situacao")), rs.getString("erro_mensagem"), rs.getString("estrutura"),
                 rs.getString("html"), rs.getString("html_editado"), rs.getString("assunto"), rs.getString("modelo"),
                 rs.getObject("versao_prompt", Integer.class), rs.getObject("tokens_entrada", Integer.class),
-                rs.getObject("tokens_saida", Integer.class), instante(rs, "criada_em"));
+                rs.getObject("tokens_saida", Integer.class), instante(rs, "criada_em"), instante(rs, "confirmada_em"));
     }
 
     private static String limitar(String texto, int maximo) {

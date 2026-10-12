@@ -1,6 +1,11 @@
 <script setup>
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { atendimentoApi } from '@/modulos/atendimento/api'
+import { conhecimentoApi } from '@/modulos/conhecimento/api'
+import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
+import { dataHora as dataHoraDaBase, formularioDoRegistro, problemasDoRegistro } from '@/modulos/conhecimento/formato'
+import FormularioDoRegistro from '@/modulos/conhecimento/components/FormularioDoRegistro.vue'
 import { mensagemDe } from '@/utils/erros'
 import { salvarResposta } from '@/utils/download'
 import {
@@ -27,7 +32,9 @@ import CamposDoChamado from './CamposDoChamado.vue'
  * cada trecho, a edição do texto, as imagens numeradas (tirar, reordenar, baixar) e as três formas de copiar para o
  * sistema de chamados. Nos chamados, também a Tela/Funcionalidade, o que o Gemini identificou no erro e os dados que
  * a pessoa informa, que o servidor monta no cabeçalho e no rodapé (fora da edição; mudar não exige gerar de novo).
- * O HTML da prévia vem sempre gerado ou limpo pelo servidor.
+ * No fim, confirmar o texto e enviá-lo para a base de conhecimento, revisando antes o registro já preenchido; depois
+ * de confirmado, o texto não muda mais aqui (continua dando para copiar). O HTML da prévia vem sempre gerado ou limpo
+ * pelo servidor.
  */
 const props = defineProps({
   atendimentoId: { type: String, required: true },
@@ -35,7 +42,9 @@ const props = defineProps({
   /** Os dados dos chamados do atendimento (para o formulário). */
   campos: { type: Object, default: null },
 })
-const emit = defineEmits(['progresso', 'campos'])
+const emit = defineEmits(['progresso', 'campos', 'confirmada'])
+const router = useRouter()
+const modulos = useAcessoModulosStore()
 
 const saida = ref(null)
 const carregando = ref(true)
@@ -57,6 +66,8 @@ const miniaturas = ref({})
 const paraCopiar = ref(null) // { modo, rotulo, conteudo, como }
 
 const tela = ref('')
+const confirmando = ref(false)
+const registro = ref(formularioDoRegistro(null, true))
 const alterandoCampos = ref(false)
 const camposEditados = ref(camposDaTela(null))
 
@@ -78,6 +89,9 @@ const telaMudou = computed(() => saida.value && tela.value.trim().replace(/\s+/g
 const telaLonga = computed(() => tela.value.trim().length > LIMITE_DA_TELA)
 const variantes = computed(() => (saida.value?.variantes ?? []).map((v) => VARIANTES[v] ?? v))
 const camposComProblema = computed(() => problemasDosCampos(camposEditados.value).length > 0)
+/** Confirmado e enviado para a base: o texto não muda mais aqui. */
+const travado = computed(() => saida.value?.situacao === 'confirmada')
+const registroComProblema = computed(() => problemasDoRegistro(registro.value).length > 0)
 
 async function carregar() {
   carregando.value = true
@@ -199,6 +213,29 @@ async function gerarDeNovo() {
   if (progresso) emit('progresso', progresso)
 }
 
+// ------------------------------------------------------------------------------------------- base de conhecimento
+
+function abrirConfirmacao() {
+  registro.value = formularioDoRegistro(saida.value.registro, true)
+  confirmando.value = true
+  editando.value = false
+}
+
+async function confirmar() {
+  const resultado = await executar('confirmar', () => atendimentoApi.confirmar(props.atendimentoId, props.saidaId, registro.value))
+  if (!resultado) return
+  confirmando.value = false
+  aplicar(resultado.saida)
+  const avisos = resultado.avisos ?? []
+  mensagem.value = { tipo: avisos.length ? 'aviso' : 'ok', texto: ['Texto confirmado e enviado para a base de conhecimento.', ...avisos].join(' ') }
+  emit('confirmada', resultado.saida)
+}
+
+async function abrirRegistro() {
+  const achado = await executar('registro', () => conhecimentoApi.daSaida(props.saidaId))
+  if (achado?.id) router.push({ name: 'registro-da-base', params: { id: achado.id } })
+}
+
 // ------------------------------------------------------------------------------------------- fontes
 
 async function aoClicarNaPrevia(evento) {
@@ -316,10 +353,11 @@ function copiarAgora() {
             type="text"
             class="campo min-w-0 flex-1 font-sans! text-sm!"
             :class="assuntoLongo ? 'border-carimbo!' : ''"
+            :readonly="travado"
             :aria-describedby="`contador-${saida.id}`"
-            @keydown.enter.prevent="assuntoMudou && !assuntoLongo && salvarAssunto()"
+            @keydown.enter.prevent="assuntoMudou && !assuntoLongo && !travado && salvarAssunto()"
           />
-          <button v-if="assuntoMudou" type="button" class="botao-primario" :disabled="!!acao || assuntoLongo || !assunto.trim()" @click="salvarAssunto">
+          <button v-if="assuntoMudou && !travado" type="button" class="botao-primario" :disabled="!!acao || assuntoLongo || !assunto.trim()" @click="salvarAssunto">
             {{ acao === 'assunto' ? 'Salvando…' : 'Salvar' }}
           </button>
           <button v-else type="button" class="botao-secundario" :disabled="!!acao" @click="copiarAssunto">Copiar o assunto</button>
@@ -341,9 +379,10 @@ function copiarAgora() {
               class="campo min-w-0 flex-1 font-sans! text-sm!"
               :class="telaLonga ? 'border-carimbo!' : ''"
               placeholder="não informado"
-              @keydown.enter.prevent="telaMudou && !telaLonga && salvarTela()"
+              :readonly="travado"
+              @keydown.enter.prevent="telaMudou && !telaLonga && !travado && salvarTela()"
             />
-            <button v-if="telaMudou" type="button" class="botao-primario" :disabled="!!acao || telaLonga" @click="salvarTela">
+            <button v-if="telaMudou && !travado" type="button" class="botao-primario" :disabled="!!acao || telaLonga" @click="salvarTela">
               {{ acao === 'tela' ? 'Salvando…' : 'Salvar a tela' }}
             </button>
           </div>
@@ -434,7 +473,7 @@ function copiarAgora() {
               <button type="button" class="botao-primario" :disabled="!!acao" @click="salvarTexto">{{ acao === 'texto' ? 'Salvando…' : 'Salvar o texto' }}</button>
               <button type="button" class="botao-secundario" :disabled="!!acao" @click="editando = false">Cancelar</button>
             </template>
-            <template v-else>
+            <template v-else-if="!travado">
               <button type="button" class="botao-secundario" :disabled="!!acao" @click="editar">Editar o texto</button>
               <button v-if="saida.editado" type="button" class="botao-secundario" :disabled="!!acao" @click="desfazer">
                 {{ acao === 'desfazer' ? 'Desfazendo…' : 'Desfazer as mudanças' }}
@@ -511,7 +550,7 @@ function copiarAgora() {
             <div class="min-w-0 flex-1 text-sm">
               <p class="font-semibold">Imagem {{ imagem.numero }} <span class="carimbo text-xs font-normal text-tinta-suave">{{ imagem.arquivo }}</span></p>
               <p class="break-words text-tinta-suave">{{ imagem.legenda ?? 'sem legenda' }}</p>
-              <div class="mt-1 flex flex-wrap gap-x-3 text-xs">
+              <div v-if="!travado" class="mt-1 flex flex-wrap gap-x-3 text-xs">
                 <button type="button" class="underline underline-offset-4 disabled:opacity-40" :disabled="!!acao || editando || i === 0" :aria-label="`Subir a imagem ${imagem.numero}`" @click="mover(imagem, -1)">Subir</button>
                 <button type="button" class="underline underline-offset-4 disabled:opacity-40" :disabled="!!acao || editando || i === incluidas.length - 1" :aria-label="`Descer a imagem ${imagem.numero}`" @click="mover(imagem, 1)">Descer</button>
                 <button type="button" class="text-carimbo underline underline-offset-4 disabled:opacity-40" :disabled="!!acao || editando" @click="tirar(imagem)">Tirar do texto</button>
@@ -524,20 +563,60 @@ function copiarAgora() {
           <ul class="mt-1 flex flex-wrap gap-2">
             <li v-for="imagem in tiradas" :key="imagem.id" class="rounded-[2px] border border-linha px-2 py-1 text-xs">
               {{ imagem.legenda ?? imagem.arquivo }}
-              <button type="button" class="ml-1 font-semibold underline underline-offset-4" :disabled="!!acao || editando" @click="devolver(imagem)">Voltar ao texto</button>
+              <button v-if="!travado" type="button" class="ml-1 font-semibold underline underline-offset-4" :disabled="!!acao || editando" @click="devolver(imagem)">Voltar ao texto</button>
             </li>
           </ul>
         </div>
       </div>
 
-      <!-- campos da base -->
-      <details class="text-sm">
-        <summary class="cursor-pointer text-xs font-semibold">Campos para a base de conhecimento</summary>
-        <dl class="mt-2 grid gap-x-4 gap-y-1 sm:grid-cols-2">
-          <div v-if="saida.telaFuncionalidade && !chamado" class="sm:col-span-2"><dt class="rotulo">Tela/Funcionalidade</dt><dd>{{ saida.telaFuncionalidade }}</dd></div>
-          <div v-for="(valor, campo) in saida.base" :key="campo"><dt class="rotulo">{{ campo }}</dt><dd class="break-words">{{ valor }}</dd></div>
-        </dl>
-      </details>
+      <!-- base de conhecimento -->
+      <section class="rounded-[3px] border border-linha px-3 py-3 text-sm" aria-label="Base de conhecimento">
+        <template v-if="travado">
+          <p class="font-semibold text-credito">Enviado para a base de conhecimento em {{ dataHoraDaBase(saida.confirmadaEm) }}.</p>
+          <p class="mt-0.5 text-xs text-tinta-suave">
+            O texto não muda mais aqui (dá para copiar e baixar as imagens). Para corrigir o que está na base, edite o
+            registro; para um texto novo, gere de novo.
+          </p>
+          <button v-if="modulos.pesquisar" type="button" class="botao-secundario mt-2" :disabled="!!acao" @click="abrirRegistro">
+            {{ acao === 'registro' ? 'Abrindo…' : 'Abrir o registro na base' }}
+          </button>
+        </template>
+        <template v-else-if="!confirmando">
+          <div class="flex flex-wrap items-center justify-between gap-2">
+            <div class="min-w-0">
+              <p class="font-semibold">Base de conhecimento</p>
+              <p class="text-xs text-tinta-suave">
+                Confirme o texto quando ele estiver certo: o caso entra na base para a pesquisa, com uma cópia do texto e
+                das imagens.
+              </p>
+            </div>
+            <button type="button" class="botao-primario" :disabled="!!acao || editando || !modulos.pesquisar || !saida.registro" @click="abrirConfirmacao">
+              Confirmar e enviar para a base
+            </button>
+          </div>
+          <p v-if="!modulos.pesquisar" class="mt-1 text-xs font-semibold text-carimbo">
+            A base de conhecimento não está liberada para você: peça ao administrador para poder enviar.
+          </p>
+          <p v-if="saida.naBase" class="mt-1 text-xs text-carimbo">
+            A versão {{ saida.naBase.versao }} deste texto já foi para a base em {{ dataHoraDaBase(saida.naBase.confirmadaEm) }}:
+            confirmar esta cria outro registro.
+          </p>
+        </template>
+        <div v-else role="region" aria-label="Revisar o registro">
+          <p class="font-semibold">Revise o registro antes de enviar</p>
+          <p class="mt-0.5 mb-3 text-xs text-tinta-suave">
+            Preenchido com o que o Gemini preparou para a base ("não identificado" ficou em branco). É o que entra na
+            pesquisa; o texto como está acima e as imagens vão junto. Depois de enviado, o texto não muda mais aqui.
+          </p>
+          <FormularioDoRegistro v-model="registro" :prefixo="`registro-${saida.id}`" :desligado="!!acao" com-situacao />
+          <div class="mt-3 flex flex-wrap gap-2">
+            <button type="button" class="botao-primario" :disabled="!!acao || registroComProblema" @click="confirmar">
+              {{ acao === 'confirmar' ? 'Enviando…' : 'Confirmar e enviar' }}
+            </button>
+            <button type="button" class="botao-secundario" :disabled="!!acao" @click="confirmando = false">Cancelar</button>
+          </div>
+        </div>
+      </section>
 
       <!-- rodapé -->
       <div class="flex flex-wrap items-center justify-between gap-2 border-t border-linha pt-3">

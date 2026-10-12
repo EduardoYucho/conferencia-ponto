@@ -219,6 +219,15 @@ class AtendimentosJdbc implements Atendimentos {
     }
 
     @Override
+    public Optional<String> contato(UUID id) {
+        return jdbc.sql("SELECT contato FROM atendimento.atendimento WHERE id = :id")
+                .param("id", id)
+                .query((rs, linha) -> Optional.ofNullable(rs.getString("contato")))
+                .optional()
+                .flatMap(c -> c);
+    }
+
+    @Override
     public CamposInformados camposInformados(UUID id) {
         return jdbc.sql("""
                         SELECT versao_cliente, testado_ultima_versao, caminho_backup, chamado_relacionado

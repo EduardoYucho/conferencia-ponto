@@ -115,6 +115,11 @@ export const atendimentoApi = {
   /** As imagens que ficam no texto, na ordem (o servidor renumera). */
   ordenarImagens: (id, saidaId, incluidas) => http.put(`/atendimentos/${id}/saidas/${saidaId}/imagens`, { incluidas }),
   desfazerEdicao: (id, saidaId) => http.post(`/atendimentos/${id}/saidas/${saidaId}/desfazer`),
+  /**
+   * Confirma o texto e o envia para a base de conhecimento com o registro revisado. Devolve { saida, avisos }; a base
+   * pode recusar (campo longo, base não liberada), e então o texto continua pronto.
+   */
+  confirmar: (id, saidaId, registro) => http.post(`/atendimentos/${id}/saidas/${saidaId}/confirmar`, registro),
   /** { html, texto, avisos } para a área de transferência; modo: com_imagens, so_texto ou codigo_fonte. */
   copia: (id, saidaId, modo) => http.get(`/atendimentos/${id}/saidas/${saidaId}/copia`, { params: { modo }, timeout: 60000 }),
   /** A imagem (Blob na resposta inteira), para a miniatura. */

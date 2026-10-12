@@ -9,6 +9,7 @@ import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.CopiaView;
@@ -98,6 +99,25 @@ class SaidasWebTest {
                 Map.of("cliente", "Loja"), "Pedidos (VEN010)",
                 List.of(new SaidaView.Imagem(IMAGEM, 1, "tela", true, true, "Imagem_01.png")), "gemini-3.8-flash", 1, 1000,
                 200, Instant.parse("2026-10-12T15:00:00Z"), false, "", "", List.of());
+    }
+
+    @Test
+    void confirmarEnviaOFormularioRevisado() throws Exception {
+        when(acessos.liberado(maria)).thenReturn(true);
+        TextoConfirmado.Formulario formulario = new TextoConfirmado.Formulario("Erro ao gravar", "erro", "Loja", "Maria",
+                null, "Pedidos", "VEN010", "Não grava", null, null, "Acertar", "enviado_desenvolvimento", "OTRS 1");
+        when(saidas.confirmar(maria, ID, SAIDA, formulario)).thenReturn(new GerenciarSaidas.ConfirmacaoView(view("x"),
+                List.of("A imagem 2 não está mais no servidor (prazo de retenção) e não foi para a base.")));
+
+        mvc.perform(post(ROTA + "/confirmar").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"titulo":"Erro ao gravar","tipo":"erro","cliente":"Loja","contato":"Maria","telaNome":"Pedidos",
+                                 "telaCodigo":"VEN010","sintoma":"Não grava","resolucao":"Acertar",
+                                 "situacao":"enviado_desenvolvimento","chamadoDev":"OTRS 1"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.saida.id").value(SAIDA.toString()))
+                .andExpect(jsonPath("$.dados.avisos[0]").exists());
     }
 
     @Test
