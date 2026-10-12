@@ -4,13 +4,18 @@ import { useRouter } from 'vue-router'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import CamposDoChamado from '@/modulos/atendimento/components/CamposDoChamado.vue'
 import { mensagemDe } from '@/utils/erros'
 import { ApiError } from '@/api/http'
 import {
   anexosPorCategoria,
+  camposPreenchidos,
+  camposVazios,
   contagem,
   dataHora,
+  paraODesenvolvimento,
   periodo,
+  problemasDosCampos,
   textoDosOmitidos,
   TIPOS_DE_SAIDA,
   validadeDosLinks,
@@ -18,9 +23,9 @@ import {
 
 /**
  * Novo atendimento: a pessoa solta o PDF da conversa exportada do Digisac e vê, na hora, o que o servidor leu
- * (mensagens, eventos, anexos, validade dos links e o que foi omitido), escolhe os textos a gerar e põe para
- * processar. Toda regra é do servidor: a tela só confere que é um arquivo .pdf, para não mandar outro tipo de
- * arquivo à toa.
+ * (mensagens, eventos, anexos, validade dos links e o que foi omitido), escolhe os textos a gerar (com os dados dos
+ * chamados para o desenvolvimento, quando pedidos) e põe para processar. Toda regra é do servidor: a tela só confere
+ * que é um arquivo .pdf, para não mandar outro tipo de arquivo à toa, e o tamanho dos dados dos chamados.
  */
 const modulos = useAcessoModulosStore()
 const router = useRouter()
@@ -37,8 +42,12 @@ const resultado = ref(null)
 const falha = ref(null)
 const aviso = ref('')
 
-/** Os textos escolhidos (os de desenvolvimento chegam numa etapa seguinte). */
+/** Os textos escolhidos. */
 const saidas = ref(['resumo'])
+/** Os dados dos chamados para o desenvolvimento (saem no cabeçalho e no rodapé; dá para mudar depois). */
+const campos = ref(camposVazios())
+const pedeChamado = computed(() => saidas.value.some(paraODesenvolvimento))
+const camposComProblema = computed(() => pedeChamado.value && problemasDosCampos(campos.value).length > 0)
 
 const leitura = computed(() => resultado.value?.leitura)
 const podeBaixar = computed(() => !!leitura.value?.anexos && !leitura.value.linksVencidos)
@@ -95,6 +104,7 @@ async function baixarEAbrir() {
   falha.value = null
   const id = resultado.value.atendimento.id
   try {
+    if (pedeChamado.value && camposPreenchidos(campos.value)) await atendimentoApi.salvarCampos(id, campos.value)
     await atendimentoApi.processar(id, saidas.value)
     router.push({ name: 'atendimento', params: { id } })
   } catch (e) {
@@ -109,6 +119,7 @@ function recomecar() {
   falha.value = null
   aviso.value = ''
   nomeDoArquivo.value = ''
+  campos.value = camposVazios()
 }
 </script>
 
@@ -246,6 +257,14 @@ function recomecar() {
               </label>
             </fieldset>
 
+            <fieldset v-if="(resultado.criado || resultado.linksRenovados) && pedeChamado" class="mt-4 rounded-[3px] border border-linha px-4 py-3">
+              <legend class="rotulo px-1">Dados dos chamados para o desenvolvimento</legend>
+              <p class="mb-3 text-xs text-tinta-suave">
+                Não estão na conversa: saem no cabeçalho e no rodapé do chamado. Dá para preencher ou mudar depois, no atendimento.
+              </p>
+              <CamposDoChamado v-model="campos" prefixo="novo" :desligado="baixando" />
+            </fieldset>
+
             <div v-if="falha" role="alert" class="mt-4 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
               <p>{{ falha.mensagem }}</p>
               <p v-if="falha.protocolo" class="mt-1 text-xs">Protocolo: <span class="carimbo font-bold">{{ falha.protocolo }}</span></p>
@@ -255,7 +274,7 @@ function recomecar() {
                 v-if="podeProcessar"
                 type="button"
                 class="botao-primario"
-                :disabled="baixando"
+                :disabled="baixando || camposComProblema"
                 @click="baixarEAbrir"
               >{{ baixando ? 'Pondo na fila…' : rotuloDoProcessar }}</button>
               <RouterLink

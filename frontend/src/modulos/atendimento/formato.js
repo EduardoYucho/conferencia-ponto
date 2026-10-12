@@ -127,22 +127,81 @@ export const ORIGENS = {
 export const ACEITOS_NO_ENVIO =
   '.png,.jpg,.jpeg,.webp,.heic,.heif,.mp3,.m4a,.wav,.ogg,.oga,.opus,.aac,.flac,.mp4,.mov,.webm,.avi,.mkv,.pdf,.txt'
 
-/** Os textos que o gerador escreve (os de desenvolvimento chegam numa etapa seguinte). */
+/** Os textos que o gerador escreve. */
 export const TIPOS_DE_SAIDA = [
   {
     codigo: 'resumo',
     rotulo: 'Resumo do atendimento',
+    curto: 'o resumo',
     descricao: 'Para o registro do chamado: em primeira pessoa, em ordem, com os passos e as imagens.',
     disponivel: true,
   },
-  { codigo: 'dev_erro', rotulo: 'Desenvolvimento: erro', descricao: 'Chamado de erro para o desenvolvimento.', disponivel: false },
+  {
+    codigo: 'dev_erro',
+    rotulo: 'Desenvolvimento: erro',
+    curto: 'o chamado de erro',
+    descricao: 'Chamado de erro: caminho da tela, passos para reproduzir, resultado esperado e obtido, causa e pedido.',
+    disponivel: true,
+  },
   {
     codigo: 'dev_alteracao',
     rotulo: 'Desenvolvimento: alteração',
-    descricao: 'Pedido de alteração para o desenvolvimento.',
-    disponivel: false,
+    curto: 'o chamado de alteração',
+    descricao: 'Solicitação de melhoria: módulo e telas, contexto, comportamento atual e esperado, regras de negócio.',
+    disponivel: true,
   },
 ]
+
+/** Os chamados para o desenvolvimento levam os campos que a pessoa informa. */
+export const paraODesenvolvimento = (tipo) => tipo === 'dev_erro' || tipo === 'dev_alteracao'
+
+/** Os campos dos chamados (não estão em nenhuma fonte: a pessoa informa). Os limites são os do servidor. */
+export const LIMITES_DOS_CAMPOS = { versaoCliente: 40, caminhoBackup: 300, chamadoRelacionado: 200 }
+export const LIMITE_DA_TELA = 200
+
+export function camposVazios() {
+  return { versaoCliente: '', testadoUltimaVersao: null, caminhoBackup: '', chamadoRelacionado: '' }
+}
+
+/** Os campos que vieram do servidor (null vira texto vazio, para os campos da tela). */
+export function camposDaTela(campos) {
+  return {
+    versaoCliente: campos?.versaoCliente ?? '',
+    testadoUltimaVersao: campos?.testadoUltimaVersao ?? null,
+    caminhoBackup: campos?.caminhoBackup ?? '',
+    chamadoRelacionado: campos?.chamadoRelacionado ?? '',
+  }
+}
+
+/** Algum campo preenchido. */
+export function camposPreenchidos(campos) {
+  return !!(campos?.versaoCliente?.trim() || campos?.caminhoBackup?.trim() || campos?.chamadoRelacionado?.trim()
+    || campos?.testadoUltimaVersao != null)
+}
+
+/** Os mesmos campos (para saber se a pessoa mudou alguma coisa). */
+export function mesmosCampos(a, b) {
+  const x = camposDaTela(a)
+  const y = camposDaTela(b)
+  return x.versaoCliente.trim() === y.versaoCliente.trim() && x.testadoUltimaVersao === y.testadoUltimaVersao
+    && x.caminhoBackup.trim() === y.caminhoBackup.trim() && x.chamadoRelacionado.trim() === y.chamadoRelacionado.trim()
+}
+
+/** "O caminho do backup tem 320 caracteres; o limite é 300." (a mesma conta do servidor). */
+export function problemasDosCampos(campos) {
+  const nomes = { versaoCliente: 'A versão do cliente', caminhoBackup: 'O caminho do backup', chamadoRelacionado: 'O chamado relacionado' }
+  return Object.entries(LIMITES_DOS_CAMPOS)
+    .map(([campo, limite]) => [campo, (campos?.[campo] ?? '').trim().length, limite])
+    .filter(([, tamanho, limite]) => tamanho > limite)
+    .map(([campo, tamanho, limite]) => `${nomes[campo]} tem ${tamanho} caracteres; o limite é ${limite}.`)
+}
+
+/** O que o Gemini identificou num chamado de erro. */
+export const VARIANTES = {
+  comparacao: 'Erro por comparação',
+  sem_causa_identificada: 'Sem causa identificada',
+  apos_atualizacao: 'Após atualização',
+}
 
 /** A redação de cada texto. */
 export const SITUACOES_DA_SAIDA = {
