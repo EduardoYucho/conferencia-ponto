@@ -402,6 +402,22 @@ com a pesquisa exata:
   validada** e apagam; quem só pesquisa lê. Cada mudança leva a versão que a pessoa viu: se outra pessoa mudou antes,
   nada muda e a tela pede para recarregar (`409 REGISTRO_JA_ALTERADO`). O registro não depende do atendimento: a
   retenção apaga o atendimento e o registro continua inteiro, com as imagens.
+- **Pesquisa por significado** (`conhecimento.vetor.*`): cada registro ganha um **vetor** (`gemini-embedding-2`, 768
+  valores) calculado pelo Gemini com a chave do autor — título, sintoma, mensagem de erro, causa e resolução. Os vetores
+  são gerados em segundo plano logo depois que o registro é criado ou editado (e a cada minuto, para os pendentes), com
+  novas tentativas: sem chave, sem cota ou com o Gemini fora, o registro fica pendente e aparece só na pesquisa exata
+  até o vetor sair. Na pesquisa, o texto digitado também vira vetor (com a chave de quem pesquisa; o mesmo texto não é
+  calculado de novo) e é comparado com os dos registros na memória (cosseno); os parecidos acima de
+  `similaridade-minima` entram junto com os da pesquisa exata, e a ordem funde as duas posições (quem aparece bem nas
+  duas sobe). A tela diz quando a pesquisa por significado está ligada, marca os resultados que entraram só por ela
+  (com o quanto são parecidos) e avisa quando ficou só a exata (sem chave, Gemini fora) e quantos registros ainda estão
+  sem vetor. Os vetores ficam no banco (`conhecimento.vetor`) e são lidos para a memória na subida; trocar o modelo
+  ou o tamanho na configuração faz recalcular todos aos poucos. O cálculo é do gerador (que guarda as chaves): a base
+  só pede o vetor, pelo pacote que o gerador publica.
+- **Aviso de caso parecido**: na tela dos chamados para o desenvolvimento, antes de copiar ou confirmar, aparecem até
+  5 registros da base parecidos pelo significado (acima de `conhecimento.parecidos.similaridade-minima`) ou da mesma
+  tela, com a situação, o número do chamado e o quanto são parecidos — para não abrir um chamado repetido. Os do
+  próprio atendimento não entram; sem a chave do Gemini, só os da mesma tela, com aviso.
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
   — e o atendimento inteiro, 180 dias depois.
@@ -433,7 +449,8 @@ com a pesquisa exata:
 | GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência (nos chamados, com o cabeçalho e o rodapé) |
 | GET | `.../saidas/{saidaId}/imagens/{imagemId}` · `/imagens.zip` | Uma imagem · todas, na ordem do texto (`IMAGEM_APAGADA` depois da retenção) |
 | POST | `.../saidas/{saidaId}/confirmar` | O registro revisado `{titulo, tipo, cliente, contato, modulo, telaNome, telaCodigo, sintoma, mensagemErro, causa, resolucao, situacao, chamadoDev}`: confirma o texto e cria o registro na base. Devolve `{saida, avisos}` (`TEXTO_JA_CONFIRMADO`, `TEXTO_MUDOU`, `REGISTRO_INVALIDO`, `SEM_PERMISSAO_NA_BASE`, `IMAGEM_NAO_COPIADA`) |
-| GET | `/conhecimento/registros?q=&tipo=&situacao=&cliente=&modulo=&autor=&de=&ate=&validadas=&pagina=` | A pesquisa: `{registros[{id, tipo, situacao, titulo[], telaCodigo[], trecho[], ...}], total, pagina, paginas, tamanho, comTexto}`; os destaques vêm em partes `{texto, destaque}` (`FILTRO_INVALIDO`, `PERIODO_INVALIDO`) |
+| GET | `/conhecimento/registros?q=&tipo=&situacao=&cliente=&modulo=&autor=&de=&ate=&validadas=&pagina=` | A pesquisa: `{registros[{id, tipo, situacao, titulo[], telaCodigo[], trecho[], porSignificado, similaridade, ...}], total, pagina, paginas, tamanho, comTexto, significado{ativa, aviso, pendentes}}`; os destaques vêm em partes `{texto, destaque}` (`FILTRO_INVALIDO`, `PERIODO_INVALIDO`) |
+| POST | `/conhecimento/registros/parecidos` | `{titulo, texto, telaCodigo, atendimentoId}`: `{registros[{id, titulo, situacao, chamadoDev, versaoCorrecao, telaCodigo, similaridade, mesmaTela}], porSignificado, aviso}` |
 | GET | `/conhecimento/autores` · `/conhecimento/registros/da-saida/{saidaId}` | Quem já escreveu registros (o filtro) · `{id}` do registro de um texto confirmado |
 | GET | `/conhecimento/registros/{id}` · `/conhecimento/registros/{id}/imagens/{n}` | O registro, as imagens, o histórico e se quem vê pode mudar (`REGISTRO_NAO_ENCONTRADO`) · a imagem N |
 | PUT | `/conhecimento/registros/{id}` | (autor ou quem cura) `{versao, titulo, tipo, cliente, ...}` (`REGISTRO_JA_ALTERADO`, `SEM_PERMISSAO_NA_BASE`, `REGISTRO_INVALIDO`) |

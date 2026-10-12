@@ -21,6 +21,10 @@ public final class RepositoriosDaBase {
         return new RegistrosJdbc(PostgresDeTeste.jdbc(), transacao());
     }
 
+    public static br.com.conferenciaponto.modulos.conhecimento.domain.vetor.Vetores vetores() {
+        return new VetoresJdbc(PostgresDeTeste.jdbc(), transacao());
+    }
+
     public static TransactionOperations transacao() {
         return new TransactionTemplate(new DataSourceTransactionManager(PostgresDeTeste.banco()));
     }

@@ -22,4 +22,10 @@ public interface ModeloDeIA {
 
     /** Uma geração com resposta em JSON no esquema pedido. */
     RespostaDoModelo gerar(String chave, PedidoAoModelo pedido);
+
+    /**
+     * O vetor (embedding) de um texto, com {@code dimensao} valores, normalizado (tamanho 1): a comparação vira o
+     * produto escalar.
+     */
+    float[] vetor(String chave, String modelo, int dimensao, String texto);
 }

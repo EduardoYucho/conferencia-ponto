@@ -9,6 +9,7 @@ import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.CasosParecidos;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.FiltrosDaPesquisa;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.PesquisarNaBase;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.RegistroEncontrado;
@@ -77,6 +78,8 @@ class RegistrosWebTest {
     private PesquisarNaBase pesquisa;
     @MockitoBean
     private GerenciarRegistros registros;
+    @MockitoBean
+    private CasosParecidos parecidos;
 
     private Usuario maria;
     private Usuario joao;
@@ -107,7 +110,7 @@ class RegistrosWebTest {
                 "Enviado ao desenvolvimento", null, null, false, null, null, versao, Instant.parse("2026-10-12T15:00:00Z"),
                 Instant.parse("2026-10-12T15:00:00Z"), new RegistroView.Autor(UUID.randomUUID(), "Maria", "maria"),
                 UUID.randomUUID(), UUID.randomUUID(), List.of(new RegistroView.Imagem(1, "tela", true, "Imagem_01.png")),
-                List.of(), true, true);
+                List.of(), true, true, true);
     }
 
     @Test
@@ -210,5 +213,24 @@ class RegistrosWebTest {
                 .andExpect(status().isOk())
                 .andExpect(content().contentType("image/png"))
                 .andExpect(content().bytes(new byte[]{(byte) 0x89, 'P', 'N', 'G'}));
+    }
+
+    @Test
+    void casosParecidos() throws Exception {
+        UUID atendimento = UUID.randomUUID();
+        CasosParecidos.Pedido pedido = new CasosParecidos.Pedido("Pedido não grava", "Erro ao gravar", "VEN010", atendimento);
+        when(parecidos.procurar(maria, pedido)).thenReturn(new CasosParecidos.Resultado(List.of(new CasosParecidos.Parecido(ID,
+                "Erro ao gravar o pedido", "erro", "Erro", "corrigido", "Corrigido", "OTRS 1", "5.3", "Pedidos", "VEN010", 0.91,
+                true)), true, null));
+
+        mvc.perform(post(ROTA + "/parecidos").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"titulo\":\"Pedido não grava\",\"texto\":\"Erro ao gravar\",\"telaCodigo\":\"VEN010\","
+                                + "\"atendimentoId\":\"" + atendimento + "\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.registros[0].similaridade").value(0.91))
+                .andExpect(jsonPath("$.dados.registros[0].mesmaTela").value(true))
+                .andExpect(jsonPath("$.dados.porSignificado").value(true));
+        mvc.perform(post(ROTA + "/parecidos").with(como(joao)).contentType(MediaType.APPLICATION_JSON).content("{}"))
+                .andExpect(status().isForbidden());
     }
 }

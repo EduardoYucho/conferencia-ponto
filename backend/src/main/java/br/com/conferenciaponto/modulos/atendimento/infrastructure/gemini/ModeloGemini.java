@@ -286,6 +286,63 @@ public class ModeloGemini implements ModeloDeIA {
         return lida;
     }
 
+    // ------------------------------------------------------------------------------------------------ vetores
+
+    /**
+     * embedContent com {@code outputDimensionality}. Abaixo do tamanho cheio o Google não normaliza o vetor: a
+     * normalização é feita aqui. Se vier maior que o pedido (modelo sem corte), fica o começo (os modelos de
+     * vetores do Gemini são treinados para isso) e normaliza.
+     */
+    @Override
+    public float[] vetor(String chave, String modelo, int dimensao, String texto) {
+        if (!NOME_DO_MODELO.matcher(modelo).matches()) {
+            throw new FalhaDoModelo(Tipo.MODELO_INEXISTENTE, "O nome do modelo de vetores na configuração é inválido.");
+        }
+        if (dimensao < 1 || texto == null || texto.isBlank()) {
+            throw new FalhaDoModelo(Tipo.PEDIDO_RECUSADO, "Texto vazio ou tamanho do vetor inválido.");
+        }
+        ObjectNode raiz = json.createObjectNode();
+        raiz.putObject("content").putArray("parts").addObject().put("text", texto);
+        raiz.put("outputDimensionality", dimensao);
+        HttpRequest requisicao = HttpRequest.newBuilder(endereco("/v1beta/models/" + modelo + ":embedContent"))
+                .header("x-goog-api-key", chave)
+                .header("Content-Type", "application/json")
+                .header("Accept", "application/json")
+                .timeout(properties.tempoLimite())
+                .POST(HttpRequest.BodyPublishers.ofString(raiz.toString()))
+                .build();
+        HttpResponse<String> resposta = enviarPedido(requisicao, "vetor");
+        if (resposta.statusCode() != 200) {
+            FalhaDoModelo falha = falha(resposta.statusCode(), resposta.body(), true);
+            log.info("Gemini {} (vetor): HTTP {} -> {}", modelo, resposta.statusCode(), falha.tipo());
+            throw falha;
+        }
+        JsonNode valores;
+        try {
+            valores = json.readTree(resposta.body()).path("embedding").path("values");
+        } catch (IOException e) {
+            throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "A resposta do Gemini (vetor) não é JSON.");
+        }
+        if (!valores.isArray() || valores.size() < dimensao) {
+            throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "O Gemini devolveu um vetor com " + valores.size()
+                    + " valores; eram esperados " + dimensao + ".");
+        }
+        float[] vetor = new float[dimensao];
+        double soma = 0;
+        for (int i = 0; i < dimensao; i++) {
+            vetor[i] = (float) valores.get(i).asDouble();
+            soma += (double) vetor[i] * vetor[i];
+        }
+        if (soma == 0 || Double.isNaN(soma)) {
+            throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "O Gemini devolveu um vetor vazio.");
+        }
+        double norma = Math.sqrt(soma);
+        for (int i = 0; i < dimensao; i++) {
+            vetor[i] = (float) (vetor[i] / norma);
+        }
+        return vetor;
+    }
+
     private ObjectNode corpo(PedidoAoModelo pedido) throws IOException {
         ObjectNode raiz = json.createObjectNode();
         if (pedido.instrucaoDoSistema() != null && !pedido.instrucaoDoSistema().isBlank()) {

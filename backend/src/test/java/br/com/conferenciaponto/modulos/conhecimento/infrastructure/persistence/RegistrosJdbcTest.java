@@ -14,6 +14,7 @@ import br.com.conferenciaponto.modulos.conhecimento.domain.registro.Registro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.Registros;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.SituacaoDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.TipoDoRegistro;
+import br.com.conferenciaponto.modulos.conhecimento.domain.vetor.Semelhante;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -258,5 +259,50 @@ class RegistrosJdbcTest {
         criar(pedido(), SituacaoDoRegistro.RESOLVIDO_SUPORTE, AGORA);
 
         assertThat(registros.autores()).extracting(Registros.Autor::id).contains(autor);
+    }
+
+    @Test
+    void fusaoDaPesquisaExataComAPorSignificado() {
+        UUID soTexto = criar(dados("Estoque negativo", TipoDoRegistro.ERRO, null, null, null, null, "O estoque fica negativo.",
+                null, null, null), SituacaoDoRegistro.RESOLVIDO_SUPORTE, AGORA);
+        UUID nasDuas = criar(dados("Estoque some do depósito", TipoDoRegistro.ERRO, null, null, null, null, "Estoque some.",
+                null, null, null), SituacaoDoRegistro.RESOLVIDO_SUPORTE, AGORA.plusSeconds(1));
+        UUID soSignificado = criar(dados("Saldo do produto errado", TipoDoRegistro.DUVIDA, null, null, null, null,
+                "O saldo aparece menor.", null, null, null), SituacaoDoRegistro.RESOLVIDO_SUPORTE, AGORA.plusSeconds(2));
+        UUID foraDoFiltro = criar(dados("Saldo zerado", TipoDoRegistro.DUVIDA, null, null, null, null, null, null, null, null),
+                SituacaoDoRegistro.CORRIGIDO, AGORA);
+        List<Semelhante> significado = List.of(new Semelhante(soSignificado, 0.91), new Semelhante(nasDuas, 0.88),
+                new Semelhante(foraDoFiltro, 0.80));
+
+        Registros.Pagina pagina = registros.pesquisar(new Pesquisa(ConsultaDeTexto.de("estoque"), null,
+                SituacaoDoRegistro.RESOLVIDO_SUPORTE, null, null, autor, null, null, false, 1, 20, significado));
+
+        assertThat(pagina.total()).isEqualTo(3);
+        assertThat(pagina.registros()).extracting(e -> e.registro().id()).first().isEqualTo(nasDuas);
+        assertThat(pagina.registros()).extracting(e -> e.registro().id()).containsExactlyInAnyOrder(nasDuas, soTexto, soSignificado)
+                .doesNotContain(foraDoFiltro);
+        Encontrado peloSignificado = pagina.registros().stream().filter(e -> e.registro().id().equals(soSignificado))
+                .findFirst().orElseThrow();
+        assertThat(peloSignificado.textual()).isFalse();
+        assertThat(peloSignificado.similaridade()).isEqualTo(0.91);
+        Encontrado peloTexto = pagina.registros().stream().filter(e -> e.registro().id().equals(soTexto)).findFirst().orElseThrow();
+        assertThat(peloTexto.textual()).isTrue();
+        assertThat(peloTexto.similaridade()).isNull();
+    }
+
+    @Test
+    void resumosEMesmaTela() {
+        String codigo = "Z" + UUID.randomUUID().toString().substring(0, 6);
+        UUID id = criar(dados("Erro na tela", TipoDoRegistro.ERRO, null, null, null, codigo, null, null, null, null),
+                SituacaoDoRegistro.ENVIADO_DESENVOLVIMENTO, AGORA);
+
+        assertThat(registros.comCodigoDeTela(" " + codigo.toLowerCase() + " ", 5)).containsExactly(id);
+        assertThat(registros.comCodigoDeTela(null, 5)).isEmpty();
+        assertThat(registros.resumos(List.of(id))).singleElement().satisfies(r -> {
+            assertThat(r.titulo()).isEqualTo("Erro na tela");
+            assertThat(r.situacao()).isEqualTo(SituacaoDoRegistro.ENVIADO_DESENVOLVIMENTO);
+            assertThat(r.telaCodigo()).isEqualTo(codigo);
+        });
+        assertThat(registros.resumos(List.of())).isEmpty();
     }
 }

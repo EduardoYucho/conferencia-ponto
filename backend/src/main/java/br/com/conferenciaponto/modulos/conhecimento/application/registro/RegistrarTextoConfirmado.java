@@ -6,6 +6,7 @@ import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
 import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.vetor.VetoresDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.DadosDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.ImagemDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.NovoRegistro;
@@ -17,6 +18,7 @@ import org.jsoup.nodes.Document;
 import org.jsoup.safety.Safelist;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -44,13 +46,22 @@ public class RegistrarTextoConfirmado {
     private final PastaDaBase pasta;
     private final GerenciarAcessosABase acessos;
     private final UsuarioRepository usuarios;
+    private final VetoresDaBase vetores;
 
+    @Autowired
     public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos,
-                                    UsuarioRepository usuarios) {
+                                    UsuarioRepository usuarios, VetoresDaBase vetores) {
         this.registros = registros;
         this.pasta = pasta;
         this.acessos = acessos;
         this.usuarios = usuarios;
+        this.vetores = vetores;
+    }
+
+    /** Sem a pesquisa por significado. */
+    public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos,
+                                    UsuarioRepository usuarios) {
+        this(registros, pasta, acessos, usuarios, null);
     }
 
     @EventListener
@@ -77,6 +88,9 @@ public class RegistrarTextoConfirmado {
         } catch (RuntimeException e) {
             pasta.apagar(id);
             throw e;
+        }
+        if (vetores != null) {
+            vetores.registroNovo(); // o vetor sai logo depois da gravação, com a chave do autor
         }
         log.info("Registro {} criado na base a partir da saída {} ({}, {} imagens, por {})", id, texto.saidaId(),
                 dados.tipo().codigo(), imagens.size(), autor.login());

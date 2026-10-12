@@ -2,8 +2,10 @@ package br.com.conferenciaponto.modulos.conhecimento.domain.pesquisa;
 
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.SituacaoDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.TipoDoRegistro;
+import br.com.conferenciaponto.modulos.conhecimento.domain.vetor.Semelhante;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 /**
@@ -15,15 +17,24 @@ import java.util.UUID;
  * @param desde    criados a partir deste instante (null = sem limite)
  * @param ate      criados antes deste instante (null = sem limite)
  * @param pagina   a partir de 1
+ * @param porSignificado os registros parecidos pelo significado, do mais para o menos parecido (vazio = só a
+ *                       pesquisa exata); entram na lista mesmo sem bater no texto, e a ordem final funde as duas
+ *                       posições
  */
 public record Pesquisa(ConsultaDeTexto texto, TipoDoRegistro tipo, SituacaoDoRegistro situacao, String cliente,
                        String modulo, UUID autorId, Instant desde, Instant ate, boolean soValidadas, int pagina,
-                       int tamanho) {
+                       int tamanho, List<Semelhante> porSignificado) {
 
     public Pesquisa {
         texto = texto == null ? ConsultaDeTexto.de(null) : texto;
         pagina = Math.max(1, pagina);
         tamanho = Math.max(1, tamanho);
+        porSignificado = porSignificado == null ? List.of() : List.copyOf(porSignificado);
+    }
+
+    public Pesquisa(ConsultaDeTexto texto, TipoDoRegistro tipo, SituacaoDoRegistro situacao, String cliente,
+                    String modulo, UUID autorId, Instant desde, Instant ate, boolean soValidadas, int pagina, int tamanho) {
+        this(texto, tipo, situacao, cliente, modulo, autorId, desde, ate, soValidadas, pagina, tamanho, List.of());
     }
 
     public int deslocamento() {
