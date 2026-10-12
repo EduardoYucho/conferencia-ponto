@@ -1,8 +1,10 @@
 package br.com.conferenciaponto.modulos.atendimento.application.redacao;
 
+import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
@@ -18,13 +20,19 @@ import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoRedigido;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.support.TransactionOperations;
 
 import java.io.IOException;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
+import java.time.Instant;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.HashMap;
@@ -40,8 +48,9 @@ import java.util.zip.ZipOutputStream;
 
 /**
  * A tela de resultado: abrir uma saída (texto, imagens, fontes), mexer no assunto, no texto e nas imagens, copiar
- * nos três modos e baixar as imagens. Cada pessoa só vê as saídas dos próprios atendimentos (a de outra pessoa dá
- * 404). "Gerar de novo" fica no processamento, que cuida da situação do atendimento.
+ * nos três modos, baixar as imagens e confirmar o texto para a base de conhecimento. Cada pessoa só vê as saídas dos
+ * próprios atendimentos (a de outra pessoa dá 404). "Gerar de novo" fica no processamento, que cuida da situação do
+ * atendimento. Depois de confirmado, o texto não muda mais aqui (continua dando para copiar e baixar as imagens).
  */
 @Service
 public class GerenciarSaidas {
@@ -54,14 +63,37 @@ public class GerenciarSaidas {
     private final PastaDosAtendimentos pasta;
     private final ConfiguracaoDaRedacao configuracao;
     private final ObjectMapper json;
+    private final ApplicationEventPublisher eventos;
+    private final TransactionOperations transacao;
+    private final Clock clock;
 
+    @Autowired
     public GerenciarSaidas(Atendimentos atendimentos, Saidas saidas, PastaDosAtendimentos pasta,
-                           ConfiguracaoDaRedacao configuracao, ObjectMapper json) {
+                           ConfiguracaoDaRedacao configuracao, ObjectMapper json, ApplicationEventPublisher eventos,
+                           TransactionOperations transacao, Clock clock) {
         this.atendimentos = atendimentos;
         this.saidas = saidas;
         this.pasta = pasta;
         this.configuracao = configuracao;
         this.json = json;
+        this.eventos = eventos;
+        this.transacao = transacao;
+        this.clock = clock;
+    }
+
+    /** Sem a base de conhecimento (testes do gerador): confirmar só marca a saída. */
+    public GerenciarSaidas(Atendimentos atendimentos, Saidas saidas, PastaDosAtendimentos pasta,
+                           ConfiguracaoDaRedacao configuracao, ObjectMapper json) {
+        this(atendimentos, saidas, pasta, configuracao, json, evento -> { }, TransactionOperations.withoutTransaction(),
+                Clock.systemDefaultZone());
+    }
+
+    /**
+     * O resultado da confirmação.
+     *
+     * @param avisos o que não foi para a base (ex.: uma imagem que a retenção já apagou)
+     */
+    public record ConfirmacaoView(SaidaView saida, List<String> avisos) {
     }
 
     /** Uma imagem para abrir na tela ou ir no .zip. */
@@ -89,7 +121,7 @@ public class GerenciarSaidas {
     }
 
     public SaidaView salvarAssunto(Usuario usuario, UUID atendimentoId, UUID saidaId, String assunto) {
-        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
         String limpo = assunto == null ? "" : assunto.strip().replaceAll("\\s+", " ");
         if (limpo.isEmpty()) {
             throw new RegraNegocioException("ASSUNTO_VAZIO", "Escreva o assunto.");
@@ -104,7 +136,7 @@ public class GerenciarSaidas {
 
     /** O texto editado na tela: limpo no servidor e com as imagens renumeradas na ordem em que ficaram. */
     public SaidaView salvarTexto(Usuario usuario, UUID atendimentoId, UUID saidaId, String html) {
-        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
         String limpo = HtmlDaSaida.limpar(html);
         if (!HtmlDaSaida.temConteudo(limpo)) {
             throw new RegraNegocioException("TEXTO_VAZIO", "O texto ficou vazio. Para voltar ao texto gerado, use "
@@ -122,7 +154,7 @@ public class GerenciarSaidas {
      * O servidor renumera.
      */
     public SaidaView ordenarImagens(Usuario usuario, UUID atendimentoId, UUID saidaId, List<UUID> incluidas) {
-        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
         List<ImagemDaSaida> imagens = saidas.imagens(saida.id());
         Set<UUID> daSaida = new HashSet<>(imagens.stream().map(ImagemDaSaida::id).toList());
         List<UUID> pedidas = incluidas == null ? List.of() : incluidas;
@@ -138,7 +170,7 @@ public class GerenciarSaidas {
 
     /** Volta ao texto gerado (e às imagens na numeração dele). */
     public SaidaView desfazerEdicao(Usuario usuario, UUID atendimentoId, UUID saidaId) {
-        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
         List<ImagemDaSaida> imagens = saidas.imagens(saida.id());
         TextoRedigido texto = EstruturaDaSaida.ler(json, saida.estrutura());
         // as legendas do texto gerado (a renumeração lê do HTML original)
@@ -170,7 +202,7 @@ public class GerenciarSaidas {
 
     /** A Tela/Funcionalidade do cabeçalho de um chamado (a sugestão do sistema pode ser trocada). */
     public SaidaView salvarTela(Usuario usuario, UUID atendimentoId, UUID saidaId, String tela) {
-        SaidaGuardada saida = comTexto(daPessoa(usuario, atendimentoId, saidaId));
+        SaidaGuardada saida = editavel(daPessoa(usuario, atendimentoId, saidaId));
         if (!saida.tipo().paraODesenvolvimento()) {
             throw new RegraNegocioException("SO_NOS_CHAMADOS", "A Tela/Funcionalidade só existe nos chamados para o "
                     + "desenvolvimento.");
@@ -182,6 +214,48 @@ public class GerenciarSaidas {
         }
         saidas.salvarTela(saida.id(), limpa.isEmpty() ? null : limpa);
         return detalhe(usuario, atendimentoId, saidaId);
+    }
+
+    /**
+     * Confirma o texto e o envia para a base de conhecimento com o formulário revisado pelo autor: a saída fica
+     * confirmada e sai o {@link TextoConfirmado} (com o texto como vai para o chamado e as imagens que ainda estão no
+     * servidor), numa transação só. Se a base recusar, a saída continua pronta.
+     */
+    public ConfirmacaoView confirmar(Usuario usuario, UUID atendimentoId, UUID saidaId, TextoConfirmado.Formulario formulario) {
+        SaidaGuardada saida = daPessoa(usuario, atendimentoId, saidaId);
+        if (saida.situacao() == SituacaoDaSaida.CONFIRMADA) {
+            throw jaConfirmada(saida);
+        }
+        comTexto(saida);
+        if (formulario == null) {
+            throw new RegraNegocioException("REGISTRO_VAZIO", "Preencha o registro antes de confirmar.");
+        }
+        String html = HtmlDaSaida.paraCopiar(completo(saida), null);
+        List<TextoConfirmado.Imagem> imagens = new ArrayList<>();
+        List<String> avisos = new ArrayList<>();
+        for (ImagemDaSaida imagem : saidas.imagens(saida.id())) {
+            if (!imagem.incluida()) {
+                continue;
+            }
+            Path local = pasta.localDoArquivo(imagem.caminho());
+            if (Files.isRegularFile(local)) {
+                imagens.add(new TextoConfirmado.Imagem(imagem.numero(), local, imagem.legenda()));
+            } else {
+                avisos.add("A imagem " + imagem.numero() + " não está mais no servidor (prazo de retenção) e não foi "
+                        + "para a base.");
+            }
+        }
+        Instant agora = clock.instant();
+        transacao.executeWithoutResult(status -> {
+            if (!saidas.confirmar(saida.id(), agora)) {
+                throw new ConflitoException("TEXTO_MUDOU", "Este texto mudou enquanto você revisava (foi confirmado em "
+                        + "outra janela ou está sendo gerado de novo). Recarregue a tela.");
+            }
+            eventos.publishEvent(new TextoConfirmado(atendimentoId, saida.id(), saida.tipo().codigo(), usuario.id(),
+                    usuario.login(), formulario, html, imagens, agora));
+        });
+        log.info("Saída {}: confirmada e enviada para a base ({} imagens)", saida.id(), imagens.size());
+        return new ConfirmacaoView(detalhe(usuario, atendimentoId, saidaId), List.copyOf(avisos));
     }
 
     /** O texto inteiro: cabeçalho, corpo (o editado, se houver) e rodapé. */
@@ -242,12 +316,18 @@ public class GerenciarSaidas {
                 .toList();
         boolean apagadas = !imagens.isEmpty() && imagens.stream().noneMatch(SaidaView.Imagem::disponivel);
         CamposInformados campos = atendimentos.camposInformados(saida.atendimentoId());
+        TextoConfirmado.Formulario registro = saida.situacao() == SituacaoDaSaida.PRONTA
+                ? RascunhoDoRegistro.de(saida, texto, atendimentos.contato(saida.atendimentoId()).orElse(null)) : null;
+        SaidaView.VersaoNaBase naBase = saidas.ultimaConfirmada(saida.atendimentoId(), saida.tipo())
+                .filter(c -> !c.id().equals(saida.id()))
+                .map(c -> new SaidaView.VersaoNaBase(c.id(), c.versao(), c.confirmadaEm()))
+                .orElse(null);
         return new SaidaView(saida.id(), saida.tipo().codigo(), saida.tipo().rotulo(), saida.versao(),
                 saida.situacao().codigo(), saida.erroMensagem(), saida.assunto(), ConferenciaDoTexto.LIMITE_DO_ASSUNTO,
                 saida.htmlAtual(), saida.htmlEditado() != null, texto.avisos(), texto.base(), texto.telaFuncionalidade(),
                 imagens, saida.modelo(), saida.versaoPrompt(), saida.tokensEntrada(), saida.tokensSaida(), saida.criadaEm(),
                 apagadas, CabecalhoDoChamado.cabecalho(saida.tipo(), campos, texto.telaFuncionalidade()),
-                CabecalhoDoChamado.rodape(saida.tipo(), campos), texto.variantes());
+                CabecalhoDoChamado.rodape(saida.tipo(), campos), texto.variantes(), saida.confirmadaEm(), registro, naBase);
     }
 
     private Optional<String> embutida(ImagemDaSaida imagem, List<String> avisos) {
@@ -283,13 +363,30 @@ public class GerenciarSaidas {
                         + "pode ter sido apagado junto com o atendimento."));
     }
 
+    /** Tem texto para copiar (pronta ou já confirmada). */
     private static SaidaGuardada comTexto(SaidaGuardada saida) {
-        if (saida.situacao() != SituacaoDaSaida.PRONTA) {
+        if (!saida.situacao().comTexto()) {
             throw new RegraNegocioException("SAIDA_SEM_TEXTO", saida.situacao().emAndamento()
                     ? "O texto ainda está sendo gerado. Aguarde terminar."
                     : "Este texto não ficou pronto. Clique em Gerar de novo.");
         }
         return saida;
+    }
+
+    /** Pode mudar: pronta (depois de confirmado, o texto é o que foi para a base). */
+    private SaidaGuardada editavel(SaidaGuardada saida) {
+        if (saida.situacao() == SituacaoDaSaida.CONFIRMADA) {
+            throw new RegraNegocioException("TEXTO_CONFIRMADO", "Este texto já foi enviado para a base de conhecimento e "
+                    + "não muda mais aqui (dá para copiar). Para corrigir o que está na base, edite o registro lá; para "
+                    + "um texto novo, gere de novo.");
+        }
+        return comTexto(saida);
+    }
+
+    private ConflitoException jaConfirmada(SaidaGuardada saida) {
+        String quando = saida.confirmadaEm() == null ? "" : " em " + DateTimeFormatter.ofPattern("dd/MM/yyyy 'às' HH:mm")
+                .withZone(clock.getZone()).format(saida.confirmadaEm());
+        return new ConflitoException("TEXTO_JA_CONFIRMADO", "Este texto já foi enviado para a base" + quando + ".");
     }
 
     private void dono(Usuario usuario, UUID atendimentoId) {

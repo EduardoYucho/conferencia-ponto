@@ -52,6 +52,9 @@ public interface Atendimentos {
      */
     boolean finalizarSeOcioso(UUID id, SituacaoDoAtendimento nova, Instant agora);
 
+    /** O contato do atendimento (o nome no Digisac), ou vazio se ele não existe mais. */
+    Optional<String> contato(UUID id);
+
     /** O que a pessoa informou para os chamados do desenvolvimento. */
     CamposInformados camposInformados(UUID id);
 

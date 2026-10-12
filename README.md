@@ -262,7 +262,8 @@ desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados).
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
 deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
 download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini (inclusive os
-passos e os quadros dos vídeos) e a redação do resumo e dos chamados para o desenvolvimento:
+passos e os quadros dos vídeos), a redação do resumo e dos chamados para o desenvolvimento e a base de conhecimento
+com a pesquisa exata:
 
 - **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
@@ -375,6 +376,32 @@ passos e os quadros dos vídeos) e a redação do resumo e dos chamados para o d
   Tela/Funcionalidade vem do Gemini ou, se ele não informar, é sugerida pelo código de tela lido nas imagens
   (`tela Nome (COD)` na linha do tempo); dá para corrigir na tela. Limites: versão 40, backup 300, chamado
   relacionado e Tela/Funcionalidade 200 caracteres (`CAMPO_LONGO`, `TELA_LONGA`).
+- **Confirmar e enviar para a base** (no fim da tela do texto): o autor revisa o **registro** já preenchido com o que
+  o Gemini preparou para a base — título (o assunto sem o "Digisac: contato :"), tipo (dúvida, erro ou alteração),
+  cliente, contato, módulo, tela e código, sintoma, mensagem de erro literal, causa, resolução, situação e, nos
+  chamados, o número do chamado no desenvolvimento ("não identificado" fica em branco, para não entrar na pesquisa).
+  Ao confirmar, o gerador marca o texto como confirmado e publica o evento `TextoConfirmado`; a base (que só
+  conhece esse evento) cria o registro e **copia as imagens** do texto para `atendimentos\base\<id do registro>\`
+  (`Imagem_01.png`...), a pasta que o `ponto backup` leva e a retenção não toca. Tudo numa transação só: se a base
+  recusar (campo longo demais, `REGISTRO_INVALIDO`; base não liberada para o autor, `SEM_PERMISSAO_NA_BASE`), o texto
+  continua pronto e nenhuma cópia fica. Depois de confirmado, o texto não muda mais na tela do atendimento (continua
+  dando para copiar e baixar as imagens; `TEXTO_CONFIRMADO` se tentar mudar), e confirmar de novo dá
+  `TEXTO_JA_CONFIRMADO`. Imagem que a retenção já apagou não vai, com aviso. Se uma versão anterior do mesmo texto já
+  foi para a base, a tela avisa que confirmar a nova cria outro registro.
+- **Base de conhecimento** (menu, para quem pesquisa): a **pesquisa exata** em português e sem diferença de acento
+  nem de maiúsculas, pelo índice de busca do PostgreSQL (`tsvector`, mantido por gatilho; pesos: título, código,
+  tela e erro > sintoma, causa, módulo e cliente > resolução; quem procura "configurações" acha "configuração"), mais
+  **trigramas** para o que a busca por palavras não acha: um pedaço do código da tela (`eqr7` acha `EQR76`), a
+  mensagem de erro com uma palavra diferente e um pedaço do nome do cliente. Os resultados vêm do que mais bate para
+  o que menos bate, com o que bateu **destacado** no título, no código e num trecho (`ts_headline`, com os acentos de
+  volta); sem texto, do mais novo para o mais antigo. Filtros: tipo, situação, cliente, módulo, autor, período e só
+  soluções validadas; 20 por página; a pesquisa fica no endereço da página. O **registro** mostra a identificação, o
+  problema e a resolução, o texto confirmado (como foi para o chamado) e as imagens. O autor e quem **cura** a base
+  editam os campos, mudam a **situação** (resolvido no suporte, enviado ao desenvolvimento, corrigido na versão X,
+  não será feito; com o número do chamado e **histórico** de quem mudou e quando), marcam a **solução como
+  validada** e apagam; quem só pesquisa lê. Cada mudança leva a versão que a pessoa viu: se outra pessoa mudou antes,
+  nada muda e a tela pede para recarregar (`409 REGISTRO_JA_ALTERADO`). O registro não depende do atendimento: a
+  retenção apaga o atendimento e o registro continua inteiro, com as imagens.
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
   — e o atendimento inteiro, 180 dias depois.
@@ -405,6 +432,13 @@ passos e os quadros dos vídeos) e a redação do resumo e dos chamados para o d
 | PUT · POST | `.../saidas/{saidaId}/assunto` · `/texto` · `/imagens` · `/desfazer` | `{assunto}` até 150 (`ASSUNTO_LONGO`) · `{html}` editado (limpo no servidor) · `{incluidas: [ids]}` na ordem (o servidor renumera) · volta ao texto gerado |
 | GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência (nos chamados, com o cabeçalho e o rodapé) |
 | GET | `.../saidas/{saidaId}/imagens/{imagemId}` · `/imagens.zip` | Uma imagem · todas, na ordem do texto (`IMAGEM_APAGADA` depois da retenção) |
+| POST | `.../saidas/{saidaId}/confirmar` | O registro revisado `{titulo, tipo, cliente, contato, modulo, telaNome, telaCodigo, sintoma, mensagemErro, causa, resolucao, situacao, chamadoDev}`: confirma o texto e cria o registro na base. Devolve `{saida, avisos}` (`TEXTO_JA_CONFIRMADO`, `TEXTO_MUDOU`, `REGISTRO_INVALIDO`, `SEM_PERMISSAO_NA_BASE`, `IMAGEM_NAO_COPIADA`) |
+| GET | `/conhecimento/registros?q=&tipo=&situacao=&cliente=&modulo=&autor=&de=&ate=&validadas=&pagina=` | A pesquisa: `{registros[{id, tipo, situacao, titulo[], telaCodigo[], trecho[], ...}], total, pagina, paginas, tamanho, comTexto}`; os destaques vêm em partes `{texto, destaque}` (`FILTRO_INVALIDO`, `PERIODO_INVALIDO`) |
+| GET | `/conhecimento/autores` · `/conhecimento/registros/da-saida/{saidaId}` | Quem já escreveu registros (o filtro) · `{id}` do registro de um texto confirmado |
+| GET | `/conhecimento/registros/{id}` · `/conhecimento/registros/{id}/imagens/{n}` | O registro, as imagens, o histórico e se quem vê pode mudar (`REGISTRO_NAO_ENCONTRADO`) · a imagem N |
+| PUT | `/conhecimento/registros/{id}` | (autor ou quem cura) `{versao, titulo, tipo, cliente, ...}` (`REGISTRO_JA_ALTERADO`, `SEM_PERMISSAO_NA_BASE`, `REGISTRO_INVALIDO`) |
+| PUT · POST | `/conhecimento/registros/{id}/situacao` · `/validar-solucao` | (autor ou quem cura) `{versao, situacao, chamadoDev, versaoCorrecao}`, com histórico · `{versao, validada}` |
+| DELETE | `/conhecimento/registros/{id}` | (autor ou quem cura) apaga o registro e as imagens dele |
 | PUT | `/atendimentos/{id}/arquivos?origem=ligacao\|video\|print_extra&nome=&modificadoEm=` | Corpo = o arquivo: `201` com o arquivo guardado (`ORIGEM_INVALIDA`, `TIPO_NAO_SUPORTADO`, `ARQUIVO_GRANDE_DEMAIS`, `ARQUIVO_VAZIO`, `409 DISCO_CHEIO`) |
 | PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |
 | DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |

@@ -63,6 +63,16 @@ public interface Saidas {
     /** A Tela/Funcionalidade do cabeçalho dos chamados (fica na estrutura do texto). */
     void salvarTela(UUID saidaId, String telaFuncionalidade);
 
+    /**
+     * Marca a saída como confirmada (enviada para a base), só se ela está pronta.
+     *
+     * @return false se ela já não estava pronta (outra confirmação chegou antes, ou ela está sendo gerada de novo)
+     */
+    boolean confirmar(UUID saidaId, Instant agora);
+
+    /** A versão mais recente do tipo que já foi confirmada (enviada para a base), se houver. */
+    Optional<SaidaGuardada> ultimaConfirmada(UUID atendimentoId, TipoDeSaida tipo);
+
     /** Tokens gastos nas redações do atendimento (todas as versões): [entrada, saída]. */
     long[] tokens(UUID atendimentoId);
 

@@ -3,6 +3,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
+import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.CopiaView;
@@ -46,6 +47,7 @@ import java.util.UUID;
  * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/texto               {html} editado (limpo no servidor)
  * PUT  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens             {incluidas: [ids na ordem]} (o servidor renumera)
  * POST /api/v1/atendimentos/{id}/saidas/{saidaId}/desfazer            volta ao texto gerado
+ * POST /api/v1/atendimentos/{id}/saidas/{saidaId}/confirmar           {registro revisado}: envia para a base
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/copia?modo=         com_imagens, so_texto ou codigo_fonte
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens/{imagemId}  a imagem (miniatura na tela)
  * GET  /api/v1/atendimentos/{id}/saidas/{saidaId}/imagens.zip         Imagem_01..., na ordem do texto
@@ -129,6 +131,12 @@ public class SaidasController {
     @PostMapping("/saidas/{saidaId}/desfazer")
     public ApiResponse<SaidaView> desfazer(@PathVariable UUID id, @PathVariable UUID saidaId) {
         return ApiResponse.ok(saidas.desfazerEdicao(acesso.logado(), id, saidaId));
+    }
+
+    @PostMapping("/saidas/{saidaId}/confirmar")
+    public ApiResponse<GerenciarSaidas.ConfirmacaoView> confirmar(@PathVariable UUID id, @PathVariable UUID saidaId,
+                                                                 @RequestBody TextoConfirmado.Formulario registro) {
+        return ApiResponse.ok(saidas.confirmar(acesso.logado(), id, saidaId, registro));
     }
 
     @GetMapping("/saidas/{saidaId}/copia")
