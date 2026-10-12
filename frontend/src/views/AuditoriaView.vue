@@ -8,15 +8,16 @@ import { usePontoStore } from '@/stores/ponto'
 import { salvarResposta } from '@/utils/download'
 import { mensagemDe } from '@/utils/erros'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
-import { dataCurta, dataISO, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
+import { dataBR, dataCurta, dataISO, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
 
 /**
  * Portal da coordenação: grade do mês com horários reais x considerados, cálculo da
- * tolerância, saldo diário e download dos comprovantes PDF arquivados.
+ * tolerância, saldo diário e download dos comprovantes PDF arquivados. O banco de horas é o do ciclo
+ * (o mesmo número do painel no mês corrente), não o acumulado do ano.
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
-const { ultimoEvento, hoje, planilha, reconectouEm } = storeToRefs(ponto)
+const { ultimoEvento, hoje, planilha, reconectouEm, bancoMudouEm } = storeToRefs(ponto)
 const route = useRoute()
 const router = useRouter()
 
@@ -99,15 +100,24 @@ function navegar(deslocamento) {
   mes.value = alvo.getMonth() + 1
 }
 
-// Tempo real: um PDF importado ou um lançamento no mês em tela recarrega a grade
+function agendarRecarga() {
+  clearTimeout(timerRecarga)
+  timerRecarga = setTimeout(carregar, 400)
+}
+
+// Tempo real: um PDF importado no mês em tela recarrega a grade; um dia de mês anterior muda o banco de horas do mês
 watch(ultimoEvento, (evento) => {
   if (evento?.tipo !== 'jornada-atualizada') return
   const [a, m] = evento.data.split('-').map(Number)
-  if (a !== ano.value || m !== mes.value) return
-  clearTimeout(timerRecarga)
-  timerRecarga = setTimeout(carregar, 400)
-  if (evento.origem === 'COMPROVANTE_PDF') mostrarAviso(`Atualizado agora: ${evento.mensagem}`)
+  const doMes = a === ano.value && m === mes.value
+  const antes = a * 12 + m < ano.value * 12 + mes.value
+  if (!doMes && !antes) return
+  agendarRecarga()
+  if (doMes && evento.origem === 'COMPROVANTE_PDF') mostrarAviso(`Atualizado agora: ${evento.mensagem}`)
 })
+
+// Banco de horas fechado, período do ciclo corrigido ou lançamento no banco: o banco de horas do mês muda
+watch(bancoMudouEm, (momento) => momento && agendarRecarga())
 
 // A conexão voltou depois de uma queda: o que mudou nesse meio-tempo não chegou por evento
 watch(reconectouEm, (momento) => momento && carregar())
@@ -197,8 +207,24 @@ const totais = computed(() => {
   }
 })
 
+/** O mês em tela é o corrente (ou um seguinte): o banco é o de agora, não o do fim do mês. */
+const mesCorrente = computed(() => {
+  const [a, m] = (hoje.value ?? dataISO()).split('-').map(Number)
+  return ano.value * 12 + mes.value >= a * 12 + m
+})
+
+/** "ciclo desde 01/06/2026" ou, num mês passado, "no fim de setembro · ciclo desde 01/06/2026". */
+function textoDoBanco(banco) {
+  if (!banco) return 'mês fora dos ciclos do banco'
+  const ciclo = banco.cicloAberto
+    ? `ciclo desde ${dataBR(banco.cicloInicio)}`
+    : `ciclo de ${dataBR(banco.cicloInicio)} a ${dataBR(banco.cicloFim)}, fechado`
+  return mesCorrente.value ? ciclo : `no fim de ${nomeMes(mes.value).toLowerCase()} · ${ciclo}`
+}
+
 const indicadores = computed(() => {
   const r = dados.value?.resumo
+  const banco = dados.value?.bancoDeHoras
   // sem os dados do mês (carregando ou falhou) os números não são zero: são desconhecidos ("—")
   const tem = !!dados.value
   return [
@@ -208,7 +234,12 @@ const indicadores = computed(() => {
       saldo: r?.saldoMensalSegundos ?? null,
       detalhe: r?.segundosLancados ? `inclui ${formatarSaldo(r.segundosLancados)} lançado(s) no banco` : undefined,
     },
-    { rotulo: `Acumulado ${ano.value}`, valor: formatarSaldo(r?.saldoAnualAcumuladoSegundos), saldo: r?.saldoAnualAcumuladoSegundos ?? null },
+    {
+      rotulo: 'Banco de horas',
+      valor: tem ? formatarSaldo(banco?.saldoSegundos) : '—',
+      saldo: banco?.saldoSegundos ?? null,
+      detalhe: tem ? textoDoBanco(banco) : undefined,
+    },
     {
       rotulo: 'Dias registrados',
       valor: tem ? String(linhas.value.length) : '—',

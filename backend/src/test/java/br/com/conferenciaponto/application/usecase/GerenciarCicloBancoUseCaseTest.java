@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
@@ -20,6 +21,7 @@ import org.junit.jupiter.api.Test;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.YearMonth;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.util.ArrayList;
@@ -187,6 +189,47 @@ class GerenciarCicloBancoUseCaseTest {
         useCase().fechar(USUARIO, LocalDate.of(2026, 6, 30), null, "eduardo");
         assertThatThrownBy(() -> useCase().corrigirPeriodo(USUARIO, LocalDate.of(2026, 6, 30), null))
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("a partir de 01/07/2026");
+    }
+
+    @Test
+    @DisplayName("Banco de horas no fim do mês (auditoria): o do ciclo, igual ao painel, e acompanha a correção do período")
+    void bancoNoFimDoMesSegueOCiclo() {
+        YearMonth setembro = YearMonth.of(2026, 9);
+        // o acumulado do ano somaria o 22/05 (antes do ciclo); o banco é só o do ciclo, o mesmo número do painel
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, setembro)).hasValueSatisfying(b -> {
+            assertThat(b.saldoSegundos()).isEqualTo(5_000).isEqualTo(useCase().atual(USUARIO).saldoSegundos());
+            assertThat(b.ciclo().ciclo().dataInicio()).isEqualTo(INICIO);
+        });
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, YearMonth.of(2026, 6))).get()
+                .extracting(BancoDeHorasPorMes.NoMes::saldoSegundos).isEqualTo(600 - 1_000);
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, YearMonth.of(2026, 4))).isEmpty(); // antes do primeiro ciclo
+
+        // o período começa em 01/06: o 25/05 sai do banco de todos os meses do ciclo, e maio fica fora
+        useCase().corrigirPeriodo(USUARIO, LocalDate.of(2026, 6, 1), null);
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, setembro)).get()
+                .extracting(BancoDeHorasPorMes.NoMes::saldoSegundos).isEqualTo(4_400);
+        assertThat(useCase().atual(USUARIO).saldoSegundos()).isEqualTo(4_400);
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, YearMonth.of(2026, 5))).isEmpty();
+
+        // e volta a acompanhar se o início mudar de novo
+        useCase().corrigirPeriodo(USUARIO, LocalDate.of(2026, 5, 22), null);
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, setembro)).get()
+                .extracting(BancoDeHorasPorMes.NoMes::saldoSegundos).isEqualTo(7_200 + 5_000);
+    }
+
+    @Test
+    @DisplayName("Banco no fim do mês com o ciclo fechado no meio do mês: vale o ciclo seguinte; os meses antes, o fechado")
+    void bancoNoFimDoMesComFechamento() {
+        useCase().fechar(USUARIO, LocalDate.of(2026, 9, 28), null, "eduardo");
+
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, YearMonth.of(2026, 9))).hasValueSatisfying(b -> {
+            assertThat(b.saldoSegundos()).isEqualTo(3_600); // só o 29/09, do ciclo novo
+            assertThat(b.ciclo().ciclo().isAberto()).isTrue();
+        });
+        assertThat(useCase().bancoNoFimDoMes(USUARIO, YearMonth.of(2026, 8))).hasValueSatisfying(b -> {
+            assertThat(b.saldoSegundos()).isEqualTo(600 - 1_000);
+            assertThat(b.ciclo().ciclo().status()).isEqualTo(StatusCiclo.FECHADO);
+        });
     }
 
     @Test

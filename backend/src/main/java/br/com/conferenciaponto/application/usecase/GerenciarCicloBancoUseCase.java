@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
 import br.com.conferenciaponto.application.TextoDuracao;
@@ -93,6 +94,16 @@ public class GerenciarCicloBancoUseCase {
     @Transactional(readOnly = true)
     public List<CicloBancoView> listar(UUID usuarioId) {
         return ciclos.listar(usuarioId).stream().map(this::visao).toList();
+    }
+
+    /**
+     * O banco de horas no fim do mês (a auditoria e a planilha mostram este número): o acumulado do ciclo que cobre
+     * o mês, desde o início do ciclo. No mês corrente é o saldo do ciclo aberto, o mesmo do painel. Vazio quando o
+     * mês está fora de todos os ciclos (antes do primeiro, por exemplo).
+     */
+    @Transactional(readOnly = true)
+    public Optional<BancoDeHorasPorMes.NoMes> bancoNoFimDoMes(UUID usuarioId, YearMonth mes) {
+        return Optional.ofNullable(BancoDeHorasPorMes.de(listar(usuarioId)).get(mes));
     }
 
     /**

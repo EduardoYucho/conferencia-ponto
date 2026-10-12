@@ -1,5 +1,9 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.application.BancoDeHorasPorMes;
+import br.com.conferenciaponto.application.view.AuditoriaMesView;
+import br.com.conferenciaponto.application.view.CicloBancoView;
+import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.application.usecase.AjustarBatidasUseCase;
 import br.com.conferenciaponto.application.usecase.AutenticarUsuarioUseCase;
 import br.com.conferenciaponto.application.usecase.BaixarComprovanteUseCase;
@@ -294,6 +298,32 @@ class SegurancaRbacWebTest {
 
         verify(lancarManual, never()).executar(any(), any(), any());
         verify(excluir, never()).executar(any(), any());
+    }
+
+    @Test
+    @DisplayName("Auditoria: a coordenação vê o banco de horas do ciclo da pessoa (o mesmo do painel), e nada fora dos ciclos")
+    void auditoriaComOBancoDoCiclo() throws Exception {
+        UUID eduardo = idDe("eduardo");
+        YearMonth outubro = YearMonth.of(2026, 10);
+        // o acumulado do ano (79.714 s) atravessa o fechamento do RH; o banco é o do ciclo (86.921 s)
+        when(auditoria.mes(org.mockito.ArgumentMatchers.eq(eduardo), any())).thenAnswer(inv -> new AuditoriaMesView(
+                inv.getArgument(1), List.of(), SaldoMensal.vazio(2026, 10, 79_714), List.of(), List.of(), List.of(), List.of()));
+        CicloBanco ciclo = CicloBanco.abrir(eduardo, LocalDate.of(2026, 6, 1), 6, Instant.parse("2026-06-01T03:00:00Z"));
+        when(ciclos.bancoNoFimDoMes(eduardo, outubro)).thenReturn(Optional.of(new BancoDeHorasPorMes.NoMes(outubro, 86_921,
+                new CicloBancoView(ciclo, 86_921, 87, 0, 49L, null, List.of()))));
+
+        mvc.perform(get("/api/v1/auditoria").param("ano", "2026").param("mes", "10").param("usuario", "eduardo")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.bancoDeHoras.saldoSegundos").value(86_921))
+                .andExpect(jsonPath("$.dados.bancoDeHoras.cicloInicio").value("2026-06-01"))
+                .andExpect(jsonPath("$.dados.bancoDeHoras.cicloFim").value("2026-11-30"))
+                .andExpect(jsonPath("$.dados.bancoDeHoras.cicloAberto").value(true));
+
+        mvc.perform(get("/api/v1/auditoria").param("ano", "2026").param("mes", "4").param("usuario", "eduardo")
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.bancoDeHoras").isEmpty());
     }
 
     @Test

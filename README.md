@@ -520,7 +520,7 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | POST | `/conciliacoes/divergencias/{id}/aceitar` · `/manter` · `/reabrir` | Decisões por dia |
 | POST | `/conciliacoes/divergencias/aceitar-lote` | `{tipos[], inicio?, fim?}` |
 | POST | `/conciliacoes/reconferir` · DELETE `/conciliacoes/relatorios/{id}` | Reconfere tudo · remove um relatório |
-| GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo |
+| GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo + `bancoDeHoras` no fim do mês pelo ciclo `{saldoSegundos, cicloInicio, cicloFim, cicloAberto}` (null fora dos ciclos) |
 | GET | `/planilha/exportar` | Planilha de conferência em Excel (`.xlsx`): resumo + uma aba por mês |
 | GET | `/planilha` | Planilha do Google da pessoa: `{situacao, emailServico, url, titulo, sincronizadaEm, erro}` |
 | PUT | `/planilha` | `{link}` vincula a planilha do Google e grava tudo nela (ADMIN: `?usuario=login`) |
@@ -566,7 +566,8 @@ back-end, não da tela.
 filtro por mês/ano, tipo de dia e situação (débito, crédito, fora da tolerância, em andamento,
 com/sem comprovante);
 para cada batida, o horário real e o considerado, minutos abonados pela tolerância, trabalhado,
-previsto e saldo do dia; botão **PDF ⤓** por batida e **n PDFs** por dia; totais do período;
+previsto e saldo do dia; botão **PDF ⤓** por batida e **n PDFs** por dia; totais do período; o **banco de horas**
+pelo ciclo (no mês corrente, o mesmo número do painel; num mês passado, o do fim do mês);
 **Exportar Excel** (a planilha de conferência completa) e o atalho para a planilha do Google da pessoa, quando
 há uma; e atualização ao vivo quando um comprovante novo chega.
 
@@ -615,7 +616,13 @@ atual", com o gráfico mês a mês do ciclo):
   saldo exato fica congelado no ciclo `FECHADO` e um novo ciclo começa **do zero** no dia seguinte, com previsão de
   6 meses. Dá para **desfazer** o último fechamento.
 - **Período**: corrige o início/previsão do ciclo aberto (o primeiro ciclo nasce de
-  `ponto.banco-horas.inicio-primeiro-ciclo`, padrão `2026-05-25` — dia seguinte ao zeramento de 24/05/2026).
+  `ponto.banco-horas.inicio-primeiro-ciclo`, padrão `2026-05-25` — dia seguinte ao zeramento de 24/05/2026). O
+  saldo do ciclo é apurado na hora, a partir do início: mudar o período muda o banco do painel, da auditoria e da
+  planilha.
+- **O mesmo banco em todo lugar**: o painel, a auditoria (cartão "Banco de horas") e a planilha (coluna "Banco de
+  horas no fim do mês") mostram o acumulado do ciclo que cobre o mês (quando um ciclo fecha no meio do mês, vale o
+  seguinte). O acumulado do ano (de janeiro em diante, em `/saldos`) não é o banco de horas: ele atravessa o
+  fechamento do RH.
 - **Avisos**: todo dia à 01:00 (`@Scheduled`, `ponto.banco-horas.cron-alertas`) e na subida, o sistema confere o
   prazo e cria avisos no sino a **30** e **15 dias** da previsão e quando ela passa. Cada aviso sai uma vez; os do
   ciclo anterior são arquivados ao fechar.
