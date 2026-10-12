@@ -81,8 +81,14 @@ export const atendimentoApi = {
       timeout: 300000,
     }),
 
-  /** A análise de um arquivo: { categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado }. */
+  /**
+   * A análise de um arquivo: { categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado }; no
+   * vídeo, também quadros: [{ passo, instanteMs, instante, disponivel }] e avisoDosQuadros.
+   */
   analise: (id, arquivoId) => http.get(`/atendimentos/${id}/arquivos/${arquivoId}/analise`),
+  /** O quadro de um passo do vídeo (Blob na resposta inteira), para a miniatura. */
+  quadro: (id, arquivoId, instanteMs) =>
+    http.get(`/atendimentos/${id}/arquivos/${arquivoId}/quadros/${instanteMs}`, { responseType: 'blob', timeout: 60000 }),
 
   /**
    * O que a pessoa informa para os chamados do desenvolvimento:
