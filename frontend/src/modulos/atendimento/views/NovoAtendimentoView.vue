@@ -6,12 +6,21 @@ import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { mensagemDe } from '@/utils/erros'
 import { ApiError } from '@/api/http'
-import { anexosPorCategoria, contagem, dataHora, periodo, textoDosOmitidos, validadeDosLinks } from '@/modulos/atendimento/formato'
+import {
+  anexosPorCategoria,
+  contagem,
+  dataHora,
+  periodo,
+  textoDosOmitidos,
+  TIPOS_DE_SAIDA,
+  validadeDosLinks,
+} from '@/modulos/atendimento/formato'
 
 /**
  * Novo atendimento: a pessoa solta o PDF da conversa exportada do Digisac e vê, na hora, o que o servidor leu
- * (mensagens, eventos, anexos, validade dos links e o que foi omitido). Toda regra é do servidor: a tela só
- * confere que é um arquivo .pdf, para não mandar outro tipo de arquivo à toa.
+ * (mensagens, eventos, anexos, validade dos links e o que foi omitido), escolhe os textos a gerar e põe para
+ * processar. Toda regra é do servidor: a tela só confere que é um arquivo .pdf, para não mandar outro tipo de
+ * arquivo à toa.
  */
 const modulos = useAcessoModulosStore()
 const router = useRouter()
@@ -28,7 +37,17 @@ const resultado = ref(null)
 const falha = ref(null)
 const aviso = ref('')
 
+/** Os textos escolhidos (os de desenvolvimento chegam numa etapa seguinte). */
+const saidas = ref(['resumo'])
+
 const leitura = computed(() => resultado.value?.leitura)
+const podeBaixar = computed(() => !!leitura.value?.anexos && !leitura.value.linksVencidos)
+const podeProcessar = computed(() =>
+  !!resultado.value && (resultado.value.criado || resultado.value.linksRenovados) && (podeBaixar.value || saidas.value.length > 0))
+const rotuloDoProcessar = computed(() => {
+  if (podeBaixar.value) return saidas.value.length ? 'Baixar os anexos, gerar e abrir' : 'Baixar os anexos e abrir'
+  return 'Gerar e abrir'
+})
 const percentual = computed(() => (progresso.value == null ? null : Math.round(progresso.value * 100)))
 
 function escolher() {
@@ -76,7 +95,7 @@ async function baixarEAbrir() {
   falha.value = null
   const id = resultado.value.atendimento.id
   try {
-    await atendimentoApi.processar(id)
+    await atendimentoApi.processar(id, saidas.value)
     router.push({ name: 'atendimento', params: { id } })
   } catch (e) {
     falha.value = { mensagem: mensagemDe(e), protocolo: e instanceof ApiError ? e.protocolo : null }
@@ -212,21 +231,36 @@ function recomecar() {
               atendimento; se estiver errada, avise o administrador (o formato do PDF pode ter mudado).
             </p>
 
+            <fieldset v-if="resultado.criado || resultado.linksRenovados" class="mt-5 rounded-[3px] border border-linha px-4 py-3">
+              <legend class="rotulo px-1">Textos a gerar no fim</legend>
+              <p class="text-xs text-tinta-suave">
+                Escritos pelo Gemini quando os anexos estiverem baixados e analisados (dá para gerar depois, no atendimento).
+              </p>
+              <label v-for="tipo in TIPOS_DE_SAIDA" :key="tipo.codigo" class="mt-2 flex items-start gap-2 text-sm"
+                     :class="tipo.disponivel ? '' : 'text-tinta-apagada'">
+                <input v-model="saidas" type="checkbox" :value="tipo.codigo" :disabled="!tipo.disponivel" class="mt-0.5 size-4 accent-tinta" />
+                <span>
+                  <span class="font-semibold">{{ tipo.rotulo }}</span>
+                  <span class="block text-xs">{{ tipo.disponivel ? tipo.descricao : 'Chega numa próxima versão do sistema.' }}</span>
+                </span>
+              </label>
+            </fieldset>
+
             <div v-if="falha" role="alert" class="mt-4 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
               <p>{{ falha.mensagem }}</p>
               <p v-if="falha.protocolo" class="mt-1 text-xs">Protocolo: <span class="carimbo font-bold">{{ falha.protocolo }}</span></p>
             </div>
             <div class="mt-5 flex flex-wrap gap-3">
               <button
-                v-if="leitura.anexos && !leitura.linksVencidos && (resultado.criado || resultado.linksRenovados)"
+                v-if="podeProcessar"
                 type="button"
                 class="botao-primario"
                 :disabled="baixando"
                 @click="baixarEAbrir"
-              >{{ baixando ? 'Pondo na fila…' : 'Baixar os anexos e abrir' }}</button>
+              >{{ baixando ? 'Pondo na fila…' : rotuloDoProcessar }}</button>
               <RouterLink
                 :to="{ name: 'atendimento', params: { id: resultado.atendimento.id } }"
-                :class="leitura.anexos && !leitura.linksVencidos && (resultado.criado || resultado.linksRenovados) ? 'botao-secundario' : 'botao-primario'"
+                :class="podeProcessar ? 'botao-secundario' : 'botao-primario'"
               >
                 {{ resultado.criado ? 'Abrir o atendimento' : 'Abrir o existente' }}
               </RouterLink>

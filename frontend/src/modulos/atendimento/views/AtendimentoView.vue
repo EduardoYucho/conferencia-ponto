@@ -7,12 +7,13 @@ import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import AnexosDaConversa from '@/modulos/atendimento/components/AnexosDaConversa.vue'
 import ArquivosEnviados from '@/modulos/atendimento/components/ArquivosEnviados.vue'
 import ProcessamentoDoAtendimento from '@/modulos/atendimento/components/ProcessamentoDoAtendimento.vue'
+import ResultadoDoAtendimento from '@/modulos/atendimento/components/ResultadoDoAtendimento.vue'
 import { mensagemDe } from '@/utils/erros'
 import { CATEGORIAS, contagem, dataHora, hora, periodo, SITUACOES, textoDosOmitidos } from '@/modulos/atendimento/formato'
 
 /**
- * Um atendimento: o processamento ao vivo (o download dos anexos e a análise de cada arquivo pelo Gemini), os anexos
- * da conversa, as ligações, o vídeo e os prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem
+ * Um atendimento: o processamento ao vivo (o download dos anexos, a análise de cada arquivo pelo Gemini e a redação
+ * do resumo), os textos gerados, os anexos da conversa, as ligações, o vídeo e os prints enviados pela pessoa, e a conversa como o servidor leu do PDF (já sem
  * a chave do bot e sem dados de acesso remoto, que aparecem como [omitido]). O link de download nunca chega à tela.
  */
 const props = defineProps({
@@ -55,6 +56,7 @@ function aplicarProgresso(progresso) {
   a.tokensEntrada = progresso.tokensEntrada ?? a.tokensEntrada
   a.tokensSaida = progresso.tokensSaida ?? a.tokensSaida
   a.semChaveGemini = !!progresso.semChaveGemini
+  if (progresso.saidas) a.saidas = progresso.saidas
   const porId = new Map([...a.anexos, ...a.extras].map((x) => [x.id, x]))
   let desconhecido = false
   for (const arquivo of progresso.arquivos ?? []) {
@@ -169,6 +171,8 @@ async function apagar() {
           </p>
 
           <ProcessamentoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" @recarregar="carregar({ silencioso: true })" />
+
+          <ResultadoDoAtendimento :atendimento="atendimento" @progresso="aplicarProgresso" />
 
           <AnexosDaConversa
             v-if="atendimento.anexos.length"

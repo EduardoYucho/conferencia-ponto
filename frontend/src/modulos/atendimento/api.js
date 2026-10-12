@@ -43,8 +43,11 @@ export const atendimentoApi = {
 
   apagarAtendimento: (id) => http.delete(`/atendimentos/${id}`),
 
-  /** Põe na fila o que falta (o download dos anexos e a análise de cada arquivo). Devolve o progresso. */
-  processar: (id) => http.post(`/atendimentos/${id}/processar`),
+  /**
+   * Põe na fila o que falta (o download dos anexos e a análise de cada arquivo) e, no fim, a redação das saídas
+   * pedidas (ex.: ['resumo']) que ainda não existem. Devolve o progresso.
+   */
+  processar: (id, saidas) => http.post(`/atendimentos/${id}/processar`, saidas?.length ? { saidas } : undefined),
   cancelar: (id) => http.post(`/atendimentos/${id}/cancelar`),
   retomar: (id) => http.post(`/atendimentos/${id}/retomar`),
   tentarDeNovo: (id, arquivoId) => http.post(`/atendimentos/${id}/arquivos/${arquivoId}/tentar-de-novo`),
@@ -80,6 +83,32 @@ export const atendimentoApi = {
 
   /** A análise de um arquivo: { categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado }. */
   analise: (id, arquivoId) => http.get(`/atendimentos/${id}/arquivos/${arquivoId}/analise`),
+
+  /** A versão mais recente de cada texto gerado: [{ id, tipo, rotulo, versao, situacao, erro, assunto }]. */
+  saidas: (id) => http.get(`/atendimentos/${id}/saidas`),
+
+  /** Gera de novo (uma versão nova, com as análises guardadas). Devolve o progresso. */
+  gerarDeNovo: (id, tipo) => http.post(`/atendimentos/${id}/saidas/${tipo}/gerar`),
+
+  /** O material da redação: { montadaEm, itens: [{ id, tipo, momento, lado, remetente, texto, nome, ... }] }. */
+  linhaDoTempo: (id) => http.get(`/atendimentos/${id}/linha-do-tempo`),
+
+  /** Um texto gerado: assunto, HTML (com data-fontes e data-imagem), imagens, avisos e campos da base. */
+  saida: (id, saidaId) => http.get(`/atendimentos/${id}/saidas/${saidaId}`),
+  salvarAssunto: (id, saidaId, assunto) => http.put(`/atendimentos/${id}/saidas/${saidaId}/assunto`, { assunto }),
+  /** O texto editado (o servidor limpa e renumera as imagens). */
+  salvarTexto: (id, saidaId, html) => http.put(`/atendimentos/${id}/saidas/${saidaId}/texto`, { html }),
+  /** As imagens que ficam no texto, na ordem (o servidor renumera). */
+  ordenarImagens: (id, saidaId, incluidas) => http.put(`/atendimentos/${id}/saidas/${saidaId}/imagens`, { incluidas }),
+  desfazerEdicao: (id, saidaId) => http.post(`/atendimentos/${id}/saidas/${saidaId}/desfazer`),
+  /** { html, texto, avisos } para a área de transferência; modo: com_imagens, so_texto ou codigo_fonte. */
+  copia: (id, saidaId, modo) => http.get(`/atendimentos/${id}/saidas/${saidaId}/copia`, { params: { modo }, timeout: 60000 }),
+  /** A imagem (Blob na resposta inteira), para a miniatura. */
+  imagem: (id, saidaId, imagemId) =>
+    http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens/${imagemId}`, { responseType: 'blob', timeout: 60000 }),
+  /** O .zip com Imagem_01, Imagem_02... na ordem do texto (resposta inteira, para salvar). */
+  imagensZip: (id, saidaId) =>
+    http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens.zip`, { responseType: 'blob', timeout: 120000 }),
 
   /** Administrador: { ocupado, livre, pausados } (bytes). */
   espaco: () => http.get('/atendimentos/acessos/espaco'),

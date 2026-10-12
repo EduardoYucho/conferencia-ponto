@@ -323,6 +323,28 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, e a anális
   cota do dia (`GEMINI_COTA_DIARIA`, pausa as análises — os downloads seguem — até a pessoa clicar em Retomar),
   `GEMINI_INDISPONIVEL` (novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os outros seguem),
   `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
+- **Resumo do atendimento** (Gemini, `atendimento.gemini.modelos.redacao`): os textos são escolhidos no Novo
+  atendimento (nesta versão, o resumo; os chamados para o desenvolvimento chegam numa etapa seguinte) ou pedidos
+  depois, na tela do atendimento. Quando não sobra download nem análise na fila, o servidor monta a **linha do
+  tempo** (sem IA): as mensagens na ordem do PDF, a análise de cada anexo logo depois da mensagem em que ele foi
+  enviado e as ligações, o vídeo e os prints pela data do arquivo; o arquivo sem data, ou com data fora do
+  atendimento (mais `atendimento.linha-do-tempo.margem`, 1 h), vai para "material sem horário". Cada item ganha um
+  identificador (M12 para mensagens e eventos, A3 para anexos, L1 ligações, V1 vídeos, P1 prints), e a linha do tempo
+  é o **único material** da redação. A resposta vem em JSON (assunto, trechos com as fontes e as imagens, campos da
+  base) e passa pela **conferência do servidor**: fonte que não existe sai, imagem fora das disponíveis é
+  descartada (nada de tela inventada), cada imagem entra uma vez e é numerada na ordem do texto, dados de acesso
+  remoto que escaparem viram `[omitido]`, e o assunto ganha o padrão `Digisac: <contato> : <assunto>` com até
+  150 caracteres (passando, uma chamada pede um mais curto; se não vier, corta na última palavra). Tudo o que a
+  conferência mudou aparece na tela como aviso. O HTML é montado pelo servidor, com o texto escapado. Na tela de
+  resultado: o assunto com o contador, a prévia (clicar num trecho mostra de onde ele veio; trecho sem fonte fica
+  destacado), a edição do texto (limpa no servidor pelo jsoup, com lista de tags permitidas), as imagens numeradas
+  (tirar, voltar, reordenar: o servidor renumera; `Imagem_01.png`... no .zip, na ordem do texto), **Gerar de novo**
+  (uma versão nova, com as análises guardadas) e três formas de copiar: **com imagens** (HTML com as imagens
+  embutidas), **só o texto** (HTML com "Imagem N" no lugar delas, para anexar os arquivos numerados) e o
+  **código-fonte** (para o botão de código-fonte do editor do chamado). Em endereço sem conexão segura
+  (`http://<ip>:8080`) a cópia usa o modo alternativo do navegador (dois cliques). Os prompts e os esquemas ficam em
+  `backend/src/main/resources/atendimento/prompts` e `esquemas` (`<nome>-v<N>`; mudar um prompt é criar a versão
+  seguinte). Erros: os mesmos da análise, mais `SEM_LINHA_DO_TEMPO`, `JA_EM_REDACAO` e `PROCESSE_PRIMEIRO`.
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
   — e o atendimento inteiro, 180 dias depois.
@@ -340,10 +362,16 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, e a anális
 | POST | `/atendimentos` | Corpo = o PDF do Digisac (`application/pdf`), cabeçalho `X-Nome-Arquivo` (codificado): `201 {criado: true, atendimento, leitura}` · `200 {criado: false, ...}` se o chamado já tem atendimento |
 | GET | `/atendimentos` · `/atendimentos/{id}` | Os meus atendimentos, do mais novo para o mais antigo · a conversa lida (já mascarada) e os anexos com a validade dos links (o link em si nunca vem) |
 | DELETE | `/atendimentos/{id}` | Apaga o atendimento e os arquivos dele |
-| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads e as análises que faltam · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini}` |
+| POST | `/atendimentos/{id}/processar` · `/cancelar` · `/retomar` | Põe na fila os downloads, as análises e as saídas pedidas que faltam (corpo opcional `{saidas: ["resumo"]}`, `SAIDA_DESCONHECIDA`) · cancela o que ainda não começou · retoma o pausado. Devolvem o progresso `{atendimentoId, situacao, motivoPausa, percentual, arquivos[{id, situacao, erro, tamanho, analise, analiseCodigo, analiseErro}], tokensEntrada, tokensSaida, semChaveGemini, saidas[{id, tipo, versao, situacao, erro, assunto}]}` |
 | GET | `/atendimentos/{id}/progresso` · `/atendimentos/eventos` | O progresso agora · SSE do módulo (`atendimento-progresso`, só os meus atendimentos) |
 | POST | `/atendimentos/{id}/arquivos/{arquivoId}/tentar-de-novo` | O download ou a análise que falhou volta para a fila (`NADA_A_TENTAR`, `SEM_LINK`, `LINK_VENCIDO`) |
 | GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}` (`ANALISE_NAO_ENCONTRADA`) |
+| GET · POST | `/atendimentos/{id}/saidas` · `/atendimentos/{id}/saidas/{tipo}/gerar` | A versão mais recente de cada texto · gerar de novo (`JA_EM_REDACAO`, `PROCESSE_PRIMEIRO`) |
+| GET | `/atendimentos/{id}/linha-do-tempo` | O material da redação (as fontes de cada trecho) |
+| GET | `/atendimentos/{id}/saidas/{saidaId}` | O texto: assunto, HTML (`data-fontes`, `data-imagem`), imagens, avisos e campos da base |
+| PUT · POST | `.../saidas/{saidaId}/assunto` · `/texto` · `/imagens` · `/desfazer` | `{assunto}` até 150 (`ASSUNTO_LONGO`) · `{html}` editado (limpo no servidor) · `{incluidas: [ids]}` na ordem (o servidor renumera) · volta ao texto gerado |
+| GET | `.../saidas/{saidaId}/copia?modo=com_imagens\|so_texto\|codigo_fonte` | `{html, texto, avisos}` para a área de transferência |
+| GET | `.../saidas/{saidaId}/imagens/{imagemId}` · `/imagens.zip` | Uma imagem · todas, na ordem do texto (`IMAGEM_APAGADA` depois da retenção) |
 | PUT | `/atendimentos/{id}/arquivos?origem=ligacao\|video\|print_extra&nome=&modificadoEm=` | Corpo = o arquivo: `201` com o arquivo guardado (`ORIGEM_INVALIDA`, `TIPO_NAO_SUPORTADO`, `ARQUIVO_GRANDE_DEMAIS`, `ARQUIVO_VAZIO`, `409 DISCO_CHEIO`) |
 | PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |
 | DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |
