@@ -58,6 +58,15 @@ public interface PastaDosAtendimentos {
      */
     String caminhoDaMarcada(UUID atendimentoId, UUID imagemId);
 
+    /**
+     * Um arquivo do pedido ao app do Gemini ({@code <atendimento>/arquivos/app-gemini/<nome>}): a retenção apaga junto
+     * com os outros arquivos.
+     */
+    String caminhoNoPedidoDoApp(UUID atendimentoId, String nome);
+
+    /** Apaga os arquivos do último pedido ao app do Gemini (o próximo pedido monta de novo). */
+    void apagarPedidoDoApp(UUID atendimentoId);
+
     /** Apaga os quadros tirados de um vídeo (o vídeo saiu do atendimento). */
     void apagarQuadros(UUID atendimentoId, UUID arquivoId);
 

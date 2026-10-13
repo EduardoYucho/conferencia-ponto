@@ -66,8 +66,14 @@ public class MontarLinhaDoTempo implements ExecutorDeTarefa {
         if (talvez.isEmpty()) {
             return ResultadoDaTarefa.definitiva("ATENDIMENTO_NAO_ENCONTRADO", "O atendimento não existe mais.");
         }
-        AtendimentoGuardado atendimento = talvez.get();
-        Map<UUID, TarefaDeAnalise> tarefasDeAnalise = analises.tarefasDoAtendimento(tarefa.atendimentoId()).stream()
+        montar(talvez.get());
+        return ResultadoDaTarefa.concluida();
+    }
+
+    /** Monta e guarda a linha do tempo agora, fora da fila (o pedido ao app do Gemini). */
+    public LinhaDoTempo montar(AtendimentoGuardado atendimento) {
+        UUID id = atendimento.resumo().id();
+        Map<UUID, TarefaDeAnalise> tarefasDeAnalise = analises.tarefasDoAtendimento(id).stream()
                 .collect(Collectors.toMap(TarefaDeAnalise::arquivoId, Function.identity(), (a, b) -> a));
         List<MaterialDoArquivo> materiais = new ArrayList<>();
         for (ArquivoDoAtendimento arquivo : atendimento.arquivos()) {
@@ -75,10 +81,10 @@ public class MontarLinhaDoTempo implements ExecutorDeTarefa {
         }
         LinhaDoTempo linha = montador.montar(atendimento.conversa().itens(), materiais, atendimento.resumo().inicio(),
                 atendimento.resumo().fim(), clock.instant());
-        atendimentos.salvarLinhaDoTempo(tarefa.atendimentoId(), linha, clock.instant());
-        log.info("Linha do tempo do atendimento {} montada: {} itens e {} sem horário", tarefa.atendimentoId(),
-                linha.itens().size(), linha.semHorario().size());
-        return ResultadoDaTarefa.concluida();
+        atendimentos.salvarLinhaDoTempo(id, linha, clock.instant());
+        log.info("Linha do tempo do atendimento {} montada: {} itens e {} sem horário", id, linha.itens().size(),
+                linha.semHorario().size());
+        return linha;
     }
 
     /** O arquivo como entra na linha do tempo (o tirado do atendimento não entra). */

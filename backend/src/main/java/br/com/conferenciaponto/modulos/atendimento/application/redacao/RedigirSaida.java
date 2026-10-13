@@ -28,6 +28,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SituacaoDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoRedigido;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -135,19 +136,12 @@ public class RedigirSaida implements ExecutorDeTarefa {
         try {
             long inicio = System.nanoTime();
             Lida lida = gerarEConferir(dono.chave(), pedido, prompt.get());
-            ConferenciaDoTexto conferencia = new ConferenciaDoTexto(
-                    linha.get().todos().map(ItemDaLinha::id).collect(Collectors.toSet()), imagens,
-                    mascaramento::mascararTrechos, UUID::randomUUID);
             ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(saida.tipo());
-            ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(lida.resultado(), modeloDoTexto), contato);
-            TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
+            ConferenciaDoTexto.Conferido conferido = conferir(saida.tipo(), contato, linha.get(), imagens, lida.resultado());
+            TextoRedigido texto = conferido.texto();
             texto = texto.comMaisAvisos(catalogo.avisos());
             SemConteudo sem = semConteudo(linha.get());
             texto = texto.comMaisAvisos(sem.avisos()).comSemAnalise(sem.arquivos());
-            if (semValor(texto.telaFuncionalidade())) {
-                // a sugestão pelos códigos lidos nas imagens
-                texto = texto.comTela(SugestaoDaTela.de(linha.get()).orElse(texto.telaFuncionalidade()));
-            }
             int entrada = lida.tokensEntrada();
             int saidaDeTokens = lida.tokensSaida();
             if (conferido.assuntoLongo()) {
@@ -170,6 +164,26 @@ public class RedigirSaida implements ExecutorDeTarefa {
                     falha.getMessage());
             return gemini.traduzir(falha, tarefa.usuarioId(), configuracao.modelo(), "redigir este texto");
         }
+    }
+
+    /**
+     * O JSON do Gemini (da API ou colado do app) conferido pelo servidor: as fontes e as imagens que existem, os dados
+     * de acesso mascarados, as partes na ordem do modelo (com o texto do sistema nas vazias que pedem) e a
+     * Tela/Funcionalidade sugerida pelos códigos lidos nas imagens quando o Gemini não disse.
+     *
+     * @throws FalhaDoModelo RESPOSTA_INVALIDA quando faltam as partes do chamado
+     */
+    ConferenciaDoTexto.Conferido conferir(TipoDeSaida tipo, String contato, LinhaDoTempo linha,
+                                          List<ConferenciaDoTexto.ImagemDisponivel> imagens, JsonNode resultado) {
+        ConferenciaDoTexto conferencia = new ConferenciaDoTexto(linha.todos().map(ItemDaLinha::id).collect(Collectors.toSet()),
+                imagens, mascaramento::mascararTrechos, UUID::randomUUID);
+        ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(tipo);
+        ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(resultado, modeloDoTexto), contato);
+        TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
+        if (semValor(texto.telaFuncionalidade())) {
+            texto = texto.comTela(SugestaoDaTela.de(linha).orElse(texto.telaFuncionalidade()));
+        }
+        return new ConferenciaDoTexto.Conferido(texto, conferido.imagens(), conferido.assuntoDoModelo(), conferido.assuntoLongo());
     }
 
     /** Os arquivos cujo conteúdo não entrou no texto e o aviso de cada um, para a pessoa ver antes de usar. */

@@ -33,7 +33,8 @@ import java.util.stream.Stream;
  *     ├── conversa.pdf
  *     └── arquivos/         anexo_001_&lt;nome saneado&gt;.jpeg, video_001_... (os arquivos do atendimento)
  *         ├── quadros/&lt;id do vídeo&gt;/000135000.png   quadros tirados dos vídeos (o nome é o instante, em ms)
- *         └── marcadas/&lt;id da imagem&gt;.png      cópias das imagens dos textos com as marcações em vermelho
+ *         ├── marcadas/&lt;id da imagem&gt;.png      cópias das imagens dos textos com as marcações em vermelho
+ *         └── app-gemini/                   o último pedido ao app do Gemini (o PDF das imagens, os áudios juntos)
  * </pre>
  *
  * Os arquivos são gravados num temporário da própria pasta e movidos no fim (nunca fica um arquivo pela metade com o
@@ -48,6 +49,7 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     private static final String ARQUIVOS = "arquivos";
     private static final String QUADROS = "quadros";
     private static final String MARCADAS = "marcadas";
+    private static final String PEDIDO_DO_APP = "app-gemini";
     private static final String BASE = "base";
     private static final String CHAVE_MESTRA = "chave-mestra";
     private static final int TAMANHO_DO_NOME = 80;
@@ -205,6 +207,17 @@ public class PastaEmDisco implements PastaDosAtendimentos {
     public String caminhoDaMarcada(UUID atendimentoId, UUID imagemId) {
         Path marcada = dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(MARCADAS).resolve(imagemId + ".png"));
         return raiz.relativize(marcada).toString().replace('\\', '/');
+    }
+
+    @Override
+    public String caminhoNoPedidoDoApp(UUID atendimentoId, String nome) {
+        Path arquivo = dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(PEDIDO_DO_APP).resolve(nomeSeguro(nome)));
+        return raiz.relativize(arquivo).toString().replace('\\', '/');
+    }
+
+    @Override
+    public void apagarPedidoDoApp(UUID atendimentoId) {
+        apagarArvore(dentroDaRaiz(pastaDo(atendimentoId).resolve(ARQUIVOS).resolve(PEDIDO_DO_APP)));
     }
 
     @Override
