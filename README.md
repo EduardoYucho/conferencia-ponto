@@ -489,7 +489,9 @@ administrador acha a linha exata: tela **Logs → Buscar**.
 salva, mas a tela não pôde ser atualizada" (nunca um erro que leve a pessoa a repetir a operação); "carregando",
 "não foi possível carregar · Tentar de novo" e "vazio" como estados distintos (nada de zeros inventados);
 sessão vencida leva ao login com a explicação e volta para a tela em que a pessoa estava; depois de uma
-atualização do sistema, a aba aberta se recarrega sozinha. Um defeito da própria tela mostra uma frase genérica
+atualização do sistema, a aba aberta se recarrega sozinha, indo para a tela que a pessoa pediu (se o sistema ainda
+está reiniciando, avisa e espera ele voltar; se a tela continua faltando depois de recarregar, só avisa, sem laço).
+Um defeito da própria tela mostra uma frase genérica
 e é relatado ao servidor (`POST /erros-de-tela`), caindo no log do usuário.
 
 **Logs.** Três lugares, a mesma informação:

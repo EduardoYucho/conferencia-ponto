@@ -10,7 +10,7 @@ import { usePontoStore } from '@/stores/ponto'
  * Avisos que valem para qualquer tela, sempre no mesmo lugar (rodapé):
  * - sem conexão com o sistema (some sozinho quando volta);
  * - a alteração foi salva, mas a tela não pôde se atualizar;
- * - o sistema foi atualizado e a aba precisa ser recarregada;
+ * - o sistema foi atualizado e a aba precisa ser recarregada (ou ele ainda está reiniciando, e a aba recarrega sozinha);
  * - algo deu errado e nenhuma tela tratou.
  */
 const auth = useAuthStore()
@@ -82,6 +82,15 @@ const recarregarPagina = () => window.location.reload()
       <button v-if="!semConexao" type="button" class="botao-secundario px-2! py-1! text-xs" :disabled="atualizando" @click="atualizarTela">
         {{ atualizando ? 'Atualizando…' : 'Atualizar agora' }}
       </button>
+    </p>
+
+    <p
+      v-if="avisos.reiniciando && !avisos.atualizado"
+      role="status"
+      class="pointer-events-auto flex max-w-xl items-center gap-2 rounded-[3px] border border-tinta/30 bg-cartao px-3 py-2 text-sm shadow-lg"
+    >
+      <span class="size-2 shrink-0 animate-pulse rounded-full bg-amber-500" aria-hidden="true" />
+      <span><b>O sistema foi atualizado</b> e está reiniciando. A página recarrega sozinha quando ele voltar.</span>
     </p>
 
     <p
