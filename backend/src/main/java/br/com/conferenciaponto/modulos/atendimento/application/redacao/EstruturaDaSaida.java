@@ -59,6 +59,10 @@ final class EstruturaDaSaida {
         texto.avisos().forEach(avisos::add);
         ArrayNode variantes = raiz.putArray("variantes");
         texto.variantes().forEach(variantes::add);
+        if (!texto.semAnalise().isEmpty()) {
+            ArrayNode sem = raiz.putArray("semAnalise");
+            texto.semAnalise().forEach(id -> sem.add(id.toString()));
+        }
         try {
             return json.writeValueAsString(raiz);
         } catch (JsonProcessingException e) {
@@ -96,8 +100,16 @@ final class EstruturaDaSaida {
         raiz.path("avisos").forEach(a -> avisos.add(a.asText()));
         List<String> variantes = new ArrayList<>();
         raiz.path("variantes").forEach(v -> variantes.add(v.asText()));
+        List<UUID> semAnalise = new ArrayList<>();
+        raiz.path("semAnalise").forEach(id -> {
+            try {
+                semAnalise.add(UUID.fromString(id.asText()));
+            } catch (IllegalArgumentException e) {
+                // id ilegível: fica de fora (o texto continua valendo)
+            }
+        });
         return new TextoRedigido(raiz.path("versao").asInt(TextoRedigido.VERSAO), texto(raiz, "assunto"), blocos, base,
-                texto(raiz, "telaFuncionalidade"), avisos, variantes);
+                texto(raiz, "telaFuncionalidade"), avisos, variantes, semAnalise);
     }
 
     private static String texto(JsonNode raiz, String campo) {

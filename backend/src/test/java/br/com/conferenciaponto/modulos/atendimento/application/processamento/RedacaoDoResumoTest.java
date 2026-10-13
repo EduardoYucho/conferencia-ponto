@@ -132,8 +132,11 @@ class RedacaoDoResumoTest {
 
     // --------------------------------------------------------------------------------------------- montagem
 
+    /** Parado em AGORA; o teste que precisa das novas tentativas (que esperam um pouco) usa um que anda. */
+    private Clock relogio = Clock.fixed(AGORA, FUSO);
+
     private Clock relogio() {
-        return Clock.fixed(AGORA, FUSO);
+        return relogio;
     }
 
     private ProcessarAtendimentos processamento() {
@@ -373,7 +376,12 @@ class RedacaoDoResumoTest {
 
         SaidaView alteracao = gerenciarSaidas().detalhe(maria, id, redacao.estados(id).get(2).id());
         assertThat(alteracao.html()).startsWith("<p><strong>Solicitação de Melhoria</strong></p>\n<p><strong>Módulo e telas envolvidas</strong></p>")
-                .doesNotContain("Contexto e objetivo").doesNotContain("Causa");
+                .doesNotContain("Contexto e objetivo").doesNotContain("Causa")
+                .contains("<p><strong>Detalhamento do que criar ou mudar</strong></p>\n<ol>\n<li data-fontes=\"M1\">Campo Desconto máximo (%)")
+                .endsWith("<p><strong>Pontos a confirmar com o cliente</strong></p>\n<ol>\n<li data-fontes=\"M1\">O limite vale também para o gerente?</li>\n</ol>");
+        PedidoAoModelo pedidoDaAlteracao = modelo.geracoes().stream().map(ModeloDeMentira.Geracao::pedido)
+                .filter(p -> p.esquemaJson().contains("\"pontosAConfirmar\"")).findFirst().orElseThrow();
+        assertThat(pedidoDaAlteracao.instrucao()).contains("\"pontosAConfirmar\"").contains("O detalhe do pedido costuma estar no vídeo");
         assertThat(alteracao.telaFuncionalidade()).isEqualTo("Pedidos de Venda (VEN010)");
         assertThat(alteracao.rodape()).doesNotContain("Data de atualização");
         PedidoAoModelo pedidoDoErro = modelo.geracoes().stream().map(ModeloDeMentira.Geracao::pedido)
@@ -490,6 +498,110 @@ class RedacaoDoResumoTest {
 
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         assertThat(resumo(id).situacao()).isEqualTo("pronta");
+    }
+
+    private UUID arquivoChamado(UUID id, String nome) {
+        return arquivos.doAtendimento(id).stream().filter(a -> nome.equals(a.nome())).findFirst().orElseThrow().id();
+    }
+
+    private static boolean ehVideo(PedidoAoModelo p) {
+        return p.esquemaJson().contains("\"instanteDoQuadro\"");
+    }
+
+    @Test
+    void geminiSobrecarregadoNaAnaliseDoVideoPausaSemEscreverNadaEOsTextosSaemDepoisDoRetomar() {
+        relogio = Clock.offset(Clock.system(FUSO), Duration.between(Instant.now(), AGORA)); // as tentativas esperam
+        cadastrarChave();
+        AtomicInteger sobrecarga = new AtomicInteger(1);
+        modelo.padrao(p -> {
+            if (ehVideo(p) && sobrecarga.get() == 1) {
+                throw new FalhaDoModelo(FalhaDoModelo.Tipo.INDISPONIVEL, "Gemini indisponível (HTTP 503).", null, 503);
+            }
+            return ModeloDeMentira.respostaPadrao(p);
+        });
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO, TipoDeSaida.DEV_ALTERACAO));
+
+        esperarAte(id, SituacaoDoAtendimento.PAUSADO);
+        assertThat(atendimentos.estado(id).orElseThrow().motivoPausa()).contains("sobrecarregado")
+                .contains("sem analisar o vídeo gravacao-tela.mp4").contains("Retomar");
+        assertThat(modelo.geracoes()).filteredOn(g -> ehVideo(g.pedido())).as("as 3 tentativas").hasSize(3);
+        assertThat(redacoes()).as("nenhum texto escrito sem o vídeo").isEmpty();
+        assertThat(redacao.estados(id)).allSatisfy(s -> assertThat(s.situacao()).isEqualTo("pendente"));
+
+        sobrecarga.set(0);
+        processamento().retomar(maria, id);
+
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(resumo(id).situacao()).isEqualTo("pronta");
+        assertThat(resumo(id).versao()).isEqualTo(1);
+        assertThat(redacoes()).singleElement().satisfies(p -> assertThat(p.instrucao()).contains("Gravação da tela emitindo"));
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.avisos()).noneMatch(a -> a.contains("Escrito sem o conteúdo"));
+    }
+
+    @Test
+    void gerarDeNovoRefazAntesAAnaliseQueTinhaFalhadoPorSobrecarga() {
+        cadastrarChave();
+        UUID id = criar();
+        iniciarFila();
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        // como ficou um atendimento da versão anterior: a análise do vídeo falhou de vez com o Gemini sobrecarregado
+        UUID video = arquivoChamado(id, "gravacao-tela.mp4");
+        fila.esquecer(video);
+        PostgresDeTeste.jdbc().sql("""
+                        UPDATE atendimento.tarefa SET situacao = 'falhou', erro_codigo = 'GEMINI_INDISPONIVEL'
+                         WHERE arquivo_id = ? AND tipo = 'analisar'
+                        """).param(video).update();
+        int antes = modelo.geracoes().size();
+
+        processamento().gerar(maria, id, TipoDeSaida.RESUMO);
+
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+                .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        List<ModeloDeMentira.Geracao> depois = modelo.geracoes().subList(antes, modelo.geracoes().size());
+        assertThat(depois).as("primeiro o vídeo, depois o texto").hasSize(2);
+        assertThat(ehVideo(depois.get(0).pedido())).isTrue();
+        assertThat(depois.get(1).pedido().instrucao()).contains("Gravação da tela emitindo");
+    }
+
+    @Test
+    void textoEscritoSemAAnaliseAvisaEEGeradoDeNovoSozinhoQuandoElaChega() {
+        cadastrarChave();
+        AtomicInteger bloqueio = new AtomicInteger(1);
+        modelo.padrao(p -> {
+            if (ehVideo(p) && bloqueio.get() == 1) {
+                throw new FalhaDoModelo(FalhaDoModelo.Tipo.BLOQUEOU, "segurança");
+            }
+            return ModeloDeMentira.respostaPadrao(p);
+        });
+        UUID id = criar();
+        iniciarFila();
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO, TipoDeSaida.DEV_ERRO));
+        esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
+        EstadoDaSaida primeira = resumo(id);
+        assertThat(primeira.situacao()).isEqualTo("pronta");
+        assertThat(gerenciarSaidas().detalhe(maria, id, primeira.id()).avisos())
+                .anyMatch(a -> a.startsWith("Escrito sem o conteúdo do vídeo gravacao-tela.mp4 (a análise falhou)")
+                        && a.contains("gerado de novo sozinho"));
+        // o chamado de erro foi editado pela pessoa: esse não muda sozinho
+        EstadoDaSaida erro = redacao.estados(id).stream().filter(s -> s.tipo().equals("dev_erro")).findFirst().orElseThrow();
+        gerenciarSaidas().salvarTexto(maria, id, erro.id(), "<p data-fontes=\"M1\">Texto revisado à mão.</p>");
+
+        bloqueio.set(0);
+        processamento().tentarDeNovo(maria, id, arquivoChamado(id, "gravacao-tela.mp4"));
+
+        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+                .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+        assertThat(gerenciarSaidas().detalhe(maria, id, resumo(id).id()).avisos()).noneMatch(a -> a.contains("Escrito sem o conteúdo"));
+        assertThat(redacoes().get(redacoes().size() - 1).instrucao()).contains("Gravação da tela emitindo");
+        assertThat(redacao.estados(id)).filteredOn(s -> s.tipo().equals("dev_erro")).singleElement()
+                .satisfies(s -> assertThat(s.versao()).as("editado não muda").isEqualTo(1));
     }
 
     @Test

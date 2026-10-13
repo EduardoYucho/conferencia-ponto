@@ -1,0 +1,176 @@
+{
+  "type": "object",
+  "properties": {
+    "tipoDoVideo": {
+      "type": "string",
+      "enum": [
+        "problema",
+        "pedido",
+        "outro"
+      ],
+      "description": "O vídeo reproduz um problema, explica um pedido ou outra coisa."
+    },
+    "descricao": {
+      "type": "string",
+      "description": "O que o vídeo mostra, em 1 a 3 frases."
+    },
+    "duracao": {
+      "type": "string",
+      "description": "MM:SS"
+    },
+    "pedido": {
+      "type": "object",
+      "description": "O que o vídeo pede, quando ele explica um pedido.",
+      "properties": {
+        "resumo": {
+          "type": "string",
+          "description": "O que é pedido, em 1 ou 2 frases concretas; sem pedido: não identificado."
+        },
+        "itens": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Cada coisa concreta pedida (colunas, campos, filtros, totais, ordem, formato), com os nomes como aparecem ou são falados."
+        },
+        "exemplos": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "O que é mostrado como modelo (planilha, relatório de outro sistema), com as colunas ou campos visíveis."
+        }
+      },
+      "required": [
+        "resumo",
+        "itens",
+        "exemplos"
+      ]
+    },
+    "passos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "instante": {
+            "type": "string",
+            "description": "MM:SS em que o passo começa."
+          },
+          "tela": {
+            "type": "object",
+            "properties": {
+              "nome": {
+                "type": "string",
+                "description": "Nome ou título da tela, como aparece."
+              },
+              "codigo": {
+                "type": "string",
+                "description": "Código da tela ou da rotina, se aparecer."
+              },
+              "caminhoMenu": {
+                "type": "string",
+                "description": "Caminho de menu visível (ex.: Vendas > Pedidos)."
+              }
+            },
+            "required": [
+              "nome",
+              "codigo",
+              "caminhoMenu"
+            ]
+          },
+          "acoes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mensagens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "texto": {
+                  "type": "string",
+                  "description": "Texto literal, como está na tela."
+                },
+                "tipo": {
+                  "type": "string",
+                  "enum": [
+                    "erro",
+                    "aviso",
+                    "informacao",
+                    "confirmacao",
+                    "outro"
+                  ]
+                }
+              },
+              "required": [
+                "texto",
+                "tipo"
+              ]
+            }
+          },
+          "conteudoNaTela": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Texto literal na tela que importa: cabeçalhos de colunas, rótulos e valores de campos, título do relatório, filtros."
+          },
+          "descricao": {
+            "type": "string",
+            "description": "O que acontece no passo, em uma frase."
+          },
+          "instanteDoQuadro": {
+            "type": "string",
+            "description": "MM:SS da melhor imagem do passo."
+          }
+        },
+        "required": [
+          "instante",
+          "tela",
+          "acoes",
+          "mensagens",
+          "conteudoNaTela",
+          "descricao",
+          "instanteDoQuadro"
+        ]
+      }
+    },
+    "narracao": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "inicio": {
+            "type": "string",
+            "description": "MM:SS"
+          },
+          "falante": {
+            "type": "string"
+          },
+          "texto": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "inicio",
+          "falante",
+          "texto"
+        ]
+      }
+    },
+    "textoLegivel": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "tipoDoVideo",
+    "descricao",
+    "duracao",
+    "pedido",
+    "passos",
+    "narracao",
+    "textoLegivel"
+  ]
+}

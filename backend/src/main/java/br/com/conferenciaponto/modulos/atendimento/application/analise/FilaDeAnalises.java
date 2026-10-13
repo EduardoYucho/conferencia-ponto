@@ -27,8 +27,12 @@ import java.util.stream.Collectors;
 @Component
 public class FilaDeAnalises implements EtapaDeAnalise {
 
-    /** Falhas que se resolvem fora do arquivo (a chave): "Processar" de novo tenta outra vez. */
-    static final Set<String> FALHAS_QUE_VOLTAM = Set.of("SEM_CHAVE_GEMINI", "CHAVE_GEMINI_ILEGIVEL", "CHAVE_GEMINI_RECUSADA");
+    /**
+     * Falhas que se resolvem fora do arquivo (a chave, o Gemini sobrecarregado ou fora do ar, um erro do sistema):
+     * "Processar", "Retomar" e "Gerar de novo" tentam outra vez, e o texto espera.
+     */
+    static final Set<String> FALHAS_QUE_VOLTAM = Set.of("SEM_CHAVE_GEMINI", "CHAVE_GEMINI_ILEGIVEL", "CHAVE_GEMINI_RECUSADA",
+            "GEMINI_INDISPONIVEL", "GEMINI_LIMITE", "ERRO_INTERNO");
     private static final Set<String> AINDA_VAI_SER_BAIXADO = Set.of("aguardando", "baixando");
 
     private final Analises analises;

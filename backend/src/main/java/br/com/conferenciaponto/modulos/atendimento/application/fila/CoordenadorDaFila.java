@@ -37,7 +37,8 @@ import java.util.concurrent.atomic.AtomicInteger;
  *
  * <ul>
  *   <li>Falha temporária: volta para a fila com espera crescente (10 s, 20 s, 40 s… até 10 min), respeitando o tempo
- *       pedido pelo outro lado; na última tentativa vira falha definitiva.</li>
+ *       pedido pelo outro lado; na última tentativa vira falha definitiva, ou pausa o atendimento quando a falha
+ *       pede (o Gemini sobrecarregado: o texto não é escrito sem a análise).</li>
  *   <li>Falha de um item não para os outros.</li>
  *   <li>Na subida, o que estava "executando" volta para a fila (o serviço parou no meio). Durante a execução o prazo
  *       é renovado; uma tarefa presa além do prazo volta sozinha.</li>
@@ -219,6 +220,13 @@ public class CoordenadorDaFila {
             return f;
         }
         if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t) {
+            if (tarefa.ultimaTentativa() && t.aoEsgotar() != null) {
+                // o que não pode ficar para trás sem a pessoa saber: pausa (o Retomar recomeça as tentativas)
+                tarefas.pausar(tarefa.id(), t.codigo(), t.aoEsgotar(), agora);
+                log.warn("Tarefa {} ({}) esgotou as {} tentativas ({}) e pausou o atendimento {}", tarefa.id(),
+                        tarefa.tipo().codigo(), tarefa.tentativa(), t.codigo(), tarefa.atendimentoId());
+                return ResultadoDaTarefa.pausar(t.codigo(), t.aoEsgotar());
+            }
             if (tarefa.ultimaTentativa()) {
                 tarefas.falhar(tarefa.id(), t.codigo(), t.mensagem(), agora);
                 log.info("Tarefa {} ({}) falhou na última tentativa ({}): {}", tarefa.id(), tarefa.tipo().codigo(),

@@ -135,7 +135,7 @@ class AnalisarArquivoTest {
     }
 
     private JsonNode resultado(UUID arquivo) throws IOException {
-        AnaliseGuardada guardada = analises.buscar(arquivo, 1, "gemini-3.8-flash").orElseThrow();
+        AnaliseGuardada guardada = analises.maisRecente(arquivo).orElseThrow(); // a versão do prompt muda por tipo
         return JSON.readTree(guardada.resultado());
     }
 
@@ -280,8 +280,11 @@ class AnalisarArquivoTest {
 
         assertThat(executar(print)).isEqualTo(ResultadoDaTarefa.pausar("GEMINI_COTA_DIARIA", AnalisarArquivo.COTA_DIARIA));
         assertThat(chaves.buscar(usuario).orElseThrow().situacao()).isEqualTo(SituacaoDaChave.SEM_COTA);
-        assertThat(executar(print)).isEqualTo(ResultadoDaTarefa.temporaria("GEMINI_LIMITE", "Aguardando o limite do Gemini.",
-                Duration.ofSeconds(37)));
+        assertThat(executar(print)).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaTemporaria.class, t -> {
+            assertThat(t.codigo()).isEqualTo("GEMINI_LIMITE");
+            assertThat(t.esperar()).isEqualTo(Duration.ofSeconds(37));
+            assertThat(t.aoEsgotar()).contains("Clique em Retomar"); // esgotado, pausa em vez de seguir sem a análise
+        });
     }
 
     @Test
@@ -293,9 +296,11 @@ class AnalisarArquivoTest {
                 .falhar(new FalhaDoModelo(FalhaDoModelo.Tipo.MODELO_INEXISTENTE, "404"));
 
         assertThat(executar(print)).isEqualTo(ResultadoDaTarefa.definitiva("GEMINI_BLOQUEOU",
-                "O Gemini recusou analisar este arquivo (motivo: segurança)."));
-        assertThat(executar(print)).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaTemporaria.class,
-                t -> assertThat(t.codigo()).isEqualTo("GEMINI_INDISPONIVEL"));
+                "O Gemini recusou analisar a imagem a.png (motivo: segurança)."));
+        assertThat(executar(print)).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaTemporaria.class, t -> {
+            assertThat(t.codigo()).isEqualTo("GEMINI_INDISPONIVEL");
+            assertThat(t.aoEsgotar()).contains("sem analisar a imagem a.png").contains("Clique em Retomar");
+        });
         assertThat(executar(print)).isInstanceOfSatisfying(ResultadoDaTarefa.FalhaDefinitiva.class,
                 f -> assertThat(f.mensagem()).contains("gemini-3.8-flash").contains("atendimento.gemini.modelos"));
     }
@@ -371,8 +376,8 @@ class AnalisarArquivoTest {
         assertThat(geracao.pedido().midia().quadrosPorSegundo()).isEqualTo(2.0);
         assertThat(geracao.pedido().midia().uri()).startsWith("https://gemini/files/");
         assertThat(geracao.pedido().esquemaJson()).contains("instanteDoQuadro");
-        assertThat(analises.buscar(video, 1, "gemini-3.8-flash")).as("a taxa entra na identificação").isEmpty();
-        AnaliseGuardada guardada = analises.buscar(video, 1, "gemini-3.8-flash (2 quadros/s)").orElseThrow();
+        assertThat(analises.buscar(video, 2, "gemini-3.8-flash")).as("a taxa entra na identificação").isEmpty();
+        AnaliseGuardada guardada = analises.buscar(video, 2, "gemini-3.8-flash (2 quadros/s)").orElseThrow();
         assertThat(guardada.resultado()).contains("[omitido]").doesNotContain("123 456 789");
         for (long ms : new long[]{3_000, 12_000, 30_000}) {
             assertThat(raiz.resolve(new PastaEmDisco(raiz).caminhoDoQuadro(atendimento, video, ms))).as("quadro de %d ms", ms)

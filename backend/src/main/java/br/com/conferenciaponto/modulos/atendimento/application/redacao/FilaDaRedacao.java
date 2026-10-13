@@ -4,11 +4,14 @@ import br.com.conferenciaponto.modulos.atendimento.domain.fila.ResultadoDaTarefa
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefas;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.TipoDeTarefa;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SituacaoDaSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.time.Instant;
@@ -33,11 +36,18 @@ public class FilaDaRedacao implements EtapaDeRedacao {
     private final Saidas saidas;
     private final Tarefas tarefas;
     private final ConfiguracaoDaRedacao configuracao;
+    private final ObjectMapper json;
 
-    public FilaDaRedacao(Saidas saidas, Tarefas tarefas, ConfiguracaoDaRedacao configuracao) {
+    @Autowired
+    public FilaDaRedacao(Saidas saidas, Tarefas tarefas, ConfiguracaoDaRedacao configuracao, ObjectMapper json) {
         this.saidas = saidas;
         this.tarefas = tarefas;
         this.configuracao = configuracao;
+        this.json = json;
+    }
+
+    public FilaDaRedacao(Saidas saidas, Tarefas tarefas, ConfiguracaoDaRedacao configuracao) {
+        this(saidas, tarefas, configuracao, new ObjectMapper());
     }
 
     @Override
@@ -54,6 +64,46 @@ public class FilaDaRedacao implements EtapaDeRedacao {
     @Override
     public boolean pedirNova(UUID atendimentoId, TipoDeSaida tipo, Instant agora) {
         return tipo.disponivel() && saidas.criar(atendimentoId, tipo, TERMINADAS, agora).isPresent();
+    }
+
+    @Override
+    public int refazerAsQueFalharam(UUID atendimentoId, Instant agora) {
+        int pedidas = 0;
+        for (SaidaGuardada saida : saidas.ultimas(atendimentoId)) {
+            if (saida.situacao() == SituacaoDaSaida.FALHOU && saida.tipo().disponivel()
+                    && saidas.criar(atendimentoId, saida.tipo(), SEM_TEXTO, agora).isPresent()) {
+                log.info("Atendimento {}: {} falhou e foi pedido de novo", atendimentoId, saida.tipo().codigo());
+                pedidas++;
+            }
+        }
+        return pedidas;
+    }
+
+    @Override
+    public int refazerAsQueFicaramSem(UUID atendimentoId, UUID arquivoId, Instant agora) {
+        int pedidas = 0;
+        for (SaidaGuardada saida : saidas.ultimas(atendimentoId)) {
+            if (saida.situacao() != SituacaoDaSaida.PRONTA || saida.htmlEditado() != null || !saida.tipo().disponivel()) {
+                continue; // confirmado ou editado pela pessoa não muda sozinho
+            }
+            if (!semAnalise(saida).contains(arquivoId)) {
+                continue;
+            }
+            if (saidas.criar(atendimentoId, saida.tipo(), TERMINADAS, agora).isPresent()) {
+                log.info("Atendimento {}: {} v{} foi escrito sem a análise do arquivo {}, que chegou: versão nova pedida",
+                        atendimentoId, saida.tipo().codigo(), saida.versao(), arquivoId);
+                pedidas++;
+            }
+        }
+        return pedidas;
+    }
+
+    private List<UUID> semAnalise(SaidaGuardada saida) {
+        try {
+            return EstruturaDaSaida.ler(json, saida.estrutura()).semAnalise();
+        } catch (RuntimeException e) {
+            return List.of(); // estrutura ilegível: não refaz sozinho
+        }
     }
 
     @Override

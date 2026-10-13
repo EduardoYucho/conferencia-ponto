@@ -44,7 +44,10 @@ public record ModeloDoTexto(String abertura, List<Secao> secoes) {
             new Secao("causa", "Causa", false, CAUSA_NAO_IDENTIFICADA),
             new Secao("pedido", "Pedido ao desenvolvimento", false, null)));
 
-    /** Chamado de alteração: as partes do chamado real mais completo. */
+    /**
+     * Chamado de alteração: as partes do chamado real mais completo, mais o detalhamento (colunas, campos, filtros) e
+     * os pontos a confirmar com o cliente (o que o desenvolvimento precisa e o atendimento não disse).
+     */
     public static final ModeloDoTexto DEV_ALTERACAO = new ModeloDoTexto("Solicitação de Melhoria", List.of(
             new Secao("modulo", "Módulo e telas envolvidas", false, null),
             new Secao("tipoDeSolicitacao", "Tipo de solicitação", false, null),
@@ -52,8 +55,10 @@ public record ModeloDoTexto(String abertura, List<Secao> secoes) {
             new Secao("contexto", "Contexto e objetivo", false, null),
             new Secao("comportamentoAtual", "Comportamento atual", false, null),
             new Secao("comportamentoEsperado", "Comportamento esperado", false, null),
+            new Secao("detalhamento", "Detalhamento do que criar ou mudar", true, null),
             new Secao("regras", "Regras de negócio sugeridas", false, null),
-            new Secao("observacaoComercial", "Observação comercial", false, null)));
+            new Secao("observacaoComercial", "Observação comercial", false, null),
+            new Secao("pontosAConfirmar", "Pontos a confirmar com o cliente", true, null)));
 
     public ModeloDoTexto {
         secoes = List.copyOf(secoes);

@@ -1,0 +1,30 @@
+Escreva o chamado de alteração (solicitação de melhoria) deste atendimento para a equipe de desenvolvimento. Quem lê precisa saber, sem falar com o cliente, exatamente o que criar ou mudar: qual tela ou relatório, quais campos e colunas, quais filtros, como deve funcionar.
+
+Como escrever:
+- Em terceira pessoa e de forma objetiva, para quem vai avaliar e desenvolver a alteração: o que o cliente quer, onde, por quê e como deveria funcionar.
+- Use tudo o que o material traz sobre o pedido: as mensagens, a transcrição dos áudios, a narração, os passos, os itens do pedido e o que aparece na tela dos vídeos, as imagens e os documentos. O detalhe do pedido costuma estar no vídeo ou no áudio, não no chat.
+- Seja concreto, com os nomes de telas, relatórios, campos e colunas exatamente como aparecem ou são falados no material. Frases genéricas como "uma alteração demandada pela diretoria", "ajustes no relatório" ou "conforme a necessidade do cliente" não servem: se o material não diz o que é, escreva que não foi detalhado e liste em "pontosAConfirmar" o que falta saber.
+- Preencha cada parte em "secoes" só com o que está no material. Parte sem informação fica com a lista vazia (ela sai do chamado); não invente uma parte para completar o modelo. "descricao" nunca fica vazia.
+- "modulo": o módulo (caminho de menu) e as telas ou relatórios envolvidos, com o código como aparece (ex.: "Painel de Gestão de Ordens de Serviço (Eq265_vw)"); ponha aqui as imagens do caminho e da tela.
+- "tipoDeSolicitacao": o tipo, em poucas palavras (ex.: novo campo, nova funcionalidade, mudança de comportamento, novo relatório, alteração de relatório).
+- "descricao": o que deve ser criado ou mudado, em 1 a 3 frases concretas (ex.: "Criar o relatório Vendas por Vendedor, com as colunas Vendedor, Cliente e Valor Total, filtrado por período."). Se o material não disser o que é: "O pedido não foi detalhado no atendimento." e os pontos em "pontosAConfirmar".
+- "contexto": o contexto e o objetivo do cliente (por que ele precisa, quem pediu, o que o atendente combinou).
+- "comportamentoAtual": como o sistema funciona hoje, com telas, campos e mensagens exatamente como aparecem; num relatório, como ele sai hoje (colunas, filtros) e o que o atendente verificou.
+- "comportamentoEsperado": como deveria funcionar, um trecho por cenário.
+- "detalhamento": a especificação, um trecho por item, na ordem em que o desenvolvimento precisa:
+  - num relatório: se é um relatório novo ou qual relatório existente muda (nome e código); cada coluna ou campo (e de onde vem o valor, se o material disser); os filtros e parâmetros; os agrupamentos, totais e subtotais; a ordem; o formato de saída (tela, impressão, Excel, PDF);
+  - numa tela: cada campo a criar ou mudar (nome, onde fica, tipo ou valores possíveis, se é obrigatório) e o que cada botão ou ação faz;
+  - num processo: o passo que muda e o que acontece antes e depois.
+  Só o que está no material; o que faltar vai para "pontosAConfirmar".
+- "regras": as regras de negócio sugeridas, se o cliente ou o atendente disseram; não crie regras.
+- "observacaoComercial": só se aparecer no material (ex.: o cliente está ciente de que pode haver cobrança, o atendente vai avaliar o custo).
+- "pontosAConfirmar": o que o desenvolvimento precisa saber e o material não diz, um trecho por ponto, como pergunta direta para confirmar com o cliente (ex.: "Quais colunas o relatório deve ter?", "O relatório substitui o atual ou é um relatório novo?", "Qual período e quais filtros o relatório deve aceitar?"). Até 6 pontos, os mais importantes primeiro. Nunca responda você mesmo. Em "fontes", o trecho do material que levanta a dúvida. Com o pedido completo, lista vazia.
+- Valores e configurações que mudariam sempre como "de X para Y".
+- Ponha em "imagens" de cada trecho as imagens que o ilustram, com uma legenda curta.
+- Arquivo que não foi baixado ou não pôde ser analisado: diga isso no ponto em que ele entrou, sem supor o conteúdo, e ponha em "pontosAConfirmar" o que ele deveria esclarecer.
+- Os identificadores (M12, A3...) vão só em "fontes" e em "imagens", nunca no texto.
+
+Campos:
+- "assunto": o assunto do chamado em poucas palavras (até {{LIMITE_DO_ASSUNTO}} caracteres), concreto (ex.: "Novo relatório de vendas por vendedor"), sem o nome do contato e sem "Digisac": o sistema monta "Digisac: {{CONTATO}} : <assunto>".
+- "base": os campos para a base de conhecimento, cada um numa frase curta ou "não identificado": "cliente" (a empresa ou loja atendida), "modulo", "tela", "codigoTela", "sintoma" (a necessidade do cliente, concreta), "mensagemErro" ("não identificado", se não houver), "causa" ("não identificado") e "resolucao" ("enviado ao desenvolvimento" ou o que foi combinado).
+- "telaFuncionalidade": a tela, o relatório ou a funcionalidade da alteração, no formato "Nome da tela (CÓDIGO)" quando o código aparecer.

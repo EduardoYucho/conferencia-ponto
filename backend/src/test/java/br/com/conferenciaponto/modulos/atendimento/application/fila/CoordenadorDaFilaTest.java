@@ -224,6 +224,32 @@ class CoordenadorDaFilaTest {
     }
 
     @Test
+    void falhaQuePausaNoFimPausaOAtendimentoEmVezDeFalharEORetomarRecomecaAsTentativas() {
+        atendimento(1, 2);
+        AtomicInteger vezes = new AtomicInteger();
+        CoordenadorDaFila coordenador = coordenador(2, 2, baixar(0, t -> {
+            vezes.incrementAndGet();
+            return ResultadoDaTarefa.temporariaQuePausa("GEMINI_INDISPONIVEL", "sobrecarregado; tentando de novo", null,
+                    "O Gemini ficou indisponível em todas as tentativas. Clique em Retomar.");
+        }));
+
+        coordenador.varrer();
+
+        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        assertThat(vezes).hasValue(2);
+        assertThat(terminadas.get(0)).endsWith("FalhaTemporaria");
+        assertThat(terminadas.get(1)).endsWith("Pausar");
+        assertThat(situacoes()).containsEntry("pausada", 1).doesNotContainKey("falhou");
+        assertThat(jdbc.sql("SELECT erro_mensagem FROM atendimento.tarefa").query(String.class).single())
+                .contains("Clique em Retomar");
+
+        UUID atendimento = jdbc.sql("SELECT atendimento_id FROM atendimento.tarefa").query(UUID.class).single();
+        tarefas.retomarDoAtendimento(atendimento, java.time.Instant.now());
+        assertThat(jdbc.sql("SELECT tentativas FROM atendimento.tarefa").query(Integer.class).single())
+                .as("o Retomar dá as tentativas de novo").isZero();
+    }
+
+    @Test
     void pausarDeixaATarefaPausadaSemGastarTentativa() {
         atendimento(1, 3);
         CoordenadorDaFila coordenador = coordenador(1, 1, baixar(0, t -> ResultadoDaTarefa.pausar("DISCO_CHEIO", "cheio")));

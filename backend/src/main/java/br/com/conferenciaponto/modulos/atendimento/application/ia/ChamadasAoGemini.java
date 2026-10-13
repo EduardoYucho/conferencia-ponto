@@ -112,6 +112,11 @@ public class ChamadasAoGemini {
         return lido;
     }
 
+    /** "analisar este arquivo" → "analisar este arquivo" (o que ficou por fazer, para a mensagem da pausa). */
+    private static String semIsso(String oQue) {
+        return oQue == null || oQue.isBlank() ? "terminar esta etapa" : oQue;
+    }
+
     /**
      * O resultado da tarefa para cada falha do Gemini. A chave recusada e a cota do dia pausam as tarefas de IA do
      * atendimento (os downloads seguem) até o Retomar.
@@ -126,15 +131,23 @@ public class ChamadasAoGemini {
                 yield ResultadoDaTarefa.pausar("CHAVE_GEMINI_RECUSADA", falha.getMessage() + " Confira ou cadastre de novo "
                         + "em Atendimentos → Minha chave do Gemini e clique em Retomar.");
             }
-            case LIMITE -> ResultadoDaTarefa.temporaria("GEMINI_LIMITE", "Aguardando o limite do Gemini.", falha.esperar());
+            case LIMITE -> ResultadoDaTarefa.temporariaQuePausa("GEMINI_LIMITE", "Aguardando o limite do Gemini.",
+                    falha.esperar(), "O limite por minuto do Gemini não liberou depois de várias tentativas e o "
+                            + "processamento parou aqui, sem " + semIsso(oQue) + ". Clique em Retomar daqui a alguns minutos.");
             case COTA_DIARIA -> {
                 chaves.atualizarSituacao(usuario, SituacaoDaChave.SEM_COTA, agora);
                 yield ResultadoDaTarefa.pausar("GEMINI_COTA_DIARIA", COTA_DIARIA);
             }
             case SEM_CREDITO -> ResultadoDaTarefa.pausar("GEMINI_SEM_CREDITO", "Os créditos da sua chave do Gemini acabaram. "
                     + "Compre mais créditos no Google AI Studio e clique em Retomar.");
-            case INDISPONIVEL -> ResultadoDaTarefa.temporaria("GEMINI_INDISPONIVEL", "Gemini indisponível; tentando de novo.");
-            case SEM_INTERNET -> ResultadoDaTarefa.temporaria("GEMINI_INDISPONIVEL", "Sem conexão com o Google; tentando de novo.");
+            case INDISPONIVEL -> ResultadoDaTarefa.temporariaQuePausa("GEMINI_INDISPONIVEL",
+                    "Gemini indisponível (sobrecarregado); tentando de novo.", null, "O Gemini ficou indisponível "
+                            + "(sobrecarregado) em todas as tentativas e o processamento parou aqui, sem " + semIsso(oQue)
+                            + ". Nada é escrito sem isso. Clique em Retomar daqui a alguns minutos.");
+            case SEM_INTERNET -> ResultadoDaTarefa.temporariaQuePausa("GEMINI_INDISPONIVEL",
+                    "Sem conexão com o Google; tentando de novo.", null, "O servidor ficou sem conexão com o Google em "
+                            + "todas as tentativas e o processamento parou aqui, sem " + semIsso(oQue) + ". Clique em "
+                            + "Retomar quando a internet voltar.");
             case BLOQUEOU -> ResultadoDaTarefa.definitiva("GEMINI_BLOQUEOU", "O Gemini recusou " + oQue + " (motivo: "
                     + falha.getMessage() + ").");
             case RESPOSTA_INVALIDA -> ResultadoDaTarefa.definitiva("GEMINI_RESPOSTA_INVALIDA", "Resposta inválida do Gemini "

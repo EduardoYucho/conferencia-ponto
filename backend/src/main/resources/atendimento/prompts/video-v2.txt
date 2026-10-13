@@ -1,0 +1,18 @@
+Analise este vídeo de um atendimento. Ele pode ser a gravação da tela reproduzindo um problema ou o cliente explicando um pedido (um relatório, um campo, uma mudança numa tela), às vezes com narração.
+- "tipoDoVideo": "problema" (reproduz um erro ou um comportamento errado), "pedido" (explica o que o cliente quer que seja criado ou mudado) ou "outro".
+- "descricao": o que o vídeo mostra, em 1 a 3 frases.
+- "duracao": a duração do vídeo (MM:SS).
+- "pedido": o que o vídeo pede, quando ele explica um pedido:
+  - "resumo": o que é pedido, em 1 ou 2 frases concretas, com o que for dito ou mostrado (ex.: "incluir a coluna Vendedor no relatório Vendas por Período"); sem pedido: "não identificado";
+  - "itens": cada coisa concreta pedida, uma por item, com os nomes exatamente como aparecem ou são falados: as colunas ou campos do relatório (e de onde vem cada valor, se for dito), os filtros, os agrupamentos e totais, a ordem, o formato de saída (tela, impressão, Excel, PDF), os campos de tela a criar ou mudar e o que cada um faz; sem pedido: lista vazia;
+  - "exemplos": o que é mostrado como modelo (uma planilha, um relatório de outro sistema, um papel), com as colunas ou campos visíveis; sem modelo: lista vazia.
+- "passos": cada passo feito na tela, na ordem, sem pular as ações rápidas (um clique que abre uma janela, um atalho, uma mensagem que aparece e some):
+  - "instante": quando o passo começa (MM:SS);
+  - "tela": o nome (ou título), o código e o caminho de menu da tela em que o passo acontece, se aparecerem;
+  - "acoes": o que foi feito, uma ação por item, com os nomes de botões, campos, menus e atalhos exatamente como aparecem (ex.: "clique no botão Gravar", "atalho F5", "digitação de 10 no campo Desconto");
+  - "mensagens": as mensagens de erro, aviso, informação ou confirmação que aparecem no passo, com o texto literal;
+  - "conteudoNaTela": o que aparece na tela e importa para entender o problema ou o pedido, com o texto literal: os cabeçalhos das colunas de uma grade, de um relatório ou de uma planilha, os rótulos e valores dos campos, o título do relatório, os filtros preenchidos; sem nada que importe: lista vazia;
+  - "descricao": o que acontece no passo, em uma frase;
+  - "instanteDoQuadro": o melhor instante (MM:SS) para uma imagem que ilustre o passo: a tela do passo inteira, sem menu aberto por cima e com a mensagem na tela, quando houver uma.
+- "narracao": o que é falado no vídeo, transcrito sem resumir, com o instante de início (MM:SS) e quem fala; vídeo sem fala: lista vazia.
+- "textoLegivel": se o texto da tela dá para ler.

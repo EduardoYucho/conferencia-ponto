@@ -140,6 +140,27 @@ final class TextoDaAnalise {
         String duracao = valor(a.path("duracao"));
         String descricao = valor(a.path("descricao"));
         linhas.add("Vídeo" + (duracao != null ? " (duração " + duracao + ")" : "") + (descricao != null ? ": " + descricao : ":"));
+        String tipoDoVideo = valor(a.path("tipoDoVideo"));
+        if ("pedido".equals(tipoDoVideo)) {
+            linhas.add("O vídeo explica um pedido do cliente.");
+        } else if ("problema".equals(tipoDoVideo)) {
+            linhas.add("O vídeo reproduz um problema.");
+        }
+        JsonNode pedido = a.path("pedido");
+        String resumoDoPedido = valor(pedido.path("resumo"));
+        if (resumoDoPedido != null) {
+            linhas.add("Pedido: " + resumoDoPedido);
+        }
+        List<String> itens = textos(pedido.path("itens"));
+        if (!itens.isEmpty()) {
+            linhas.add("Itens do pedido:");
+            itens.forEach(i -> linhas.add("- " + i));
+        }
+        List<String> exemplos = textos(pedido.path("exemplos"));
+        if (!exemplos.isEmpty()) {
+            linhas.add("Modelos mostrados:");
+            exemplos.forEach(e -> linhas.add("- " + e));
+        }
         int numero = 0;
         List<String> passos = new ArrayList<>();
         for (JsonNode p : a.path("passos")) {
@@ -178,6 +199,10 @@ final class TextoDaAnalise {
                     linha.append("\n  Mensagem na tela").append(tipo == null || tipo.equals("outro") ? "" : " (" + tipoDeMensagem(tipo) + ")")
                             .append(": \"").append(t).append('"');
                 }
+            }
+            List<String> naTela = textos(p.path("conteudoNaTela"));
+            if (!naTela.isEmpty()) {
+                linha.append("\n  Na tela: ").append(String.join("; ", naTela));
             }
             String quadro = valor(p.path("instanteDoQuadro"));
             if (quadro != null) {
@@ -240,6 +265,18 @@ final class TextoDaAnalise {
                     : conteudo.substring(0, MAXIMO_DO_CONTEUDO) + "\n(… o restante do documento foi cortado)");
         }
         return String.join("\n", linhas);
+    }
+
+    /** Os textos de uma lista, sem os vazios e os "não identificado". */
+    private static List<String> textos(JsonNode lista) {
+        List<String> textos = new ArrayList<>();
+        for (JsonNode item : lista) {
+            String t = valor(item);
+            if (t != null) {
+                textos.add(t);
+            }
+        }
+        return textos;
     }
 
     private static List<String> paresRotuloValor(JsonNode lista) {

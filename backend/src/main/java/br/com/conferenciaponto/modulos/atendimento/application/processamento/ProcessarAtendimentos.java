@@ -3,8 +3,10 @@ package br.com.conferenciaponto.modulos.atendimento.application.processamento;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.EstadoDaAnalise;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.EtapaDeAnalise;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.EtapaDeRedacao;
+import br.com.conferenciaponto.modulos.atendimento.domain.analise.SituacaoDaAnalise;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoParaBaixar;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
@@ -102,7 +104,7 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     public ProgressoView processar(Usuario usuario, UUID atendimentoId, Set<TipoDeSaida> saidas) {
         EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
         Instant agora = clock.instant();
-        int pedidas = redacao.pedir(atendimentoId, saidas, agora);
+        int pedidas = redacao.pedir(atendimentoId, saidas, agora) + redacao.refazerAsQueFalharam(atendimentoId, agora);
         if (estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
             return retomar(usuario, atendimentoId);
         }
@@ -140,7 +142,11 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         return progresso(atendimentoId);
     }
 
-    /** Retoma um atendimento pausado (ou processa de novo um cancelado). */
+    /**
+     * Retoma um atendimento pausado (ou processa de novo um cancelado): as tarefas pausadas voltam com as tentativas
+     * do começo, as análises que falharam por motivo passageiro e os textos que falharam voltam para a fila, e os
+     * textos só são escritos depois das análises.
+     */
     public ProgressoView retomar(Usuario usuario, UUID atendimentoId) {
         EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
         if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
@@ -148,8 +154,11 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         }
         Instant agora = clock.instant();
         int retomadas = tarefas.retomarDoAtendimento(atendimentoId, agora);
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        int textos = redacao.refazerAsQueFalharam(atendimentoId, agora);
         atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
-        log.info("Atendimento {} retomado: {} tarefa(s) de volta à fila", atendimentoId, retomadas);
+        log.info("Atendimento {} retomado: {} tarefa(s) de volta à fila, {} análise(s) e {} texto(s) pedidos de novo",
+                atendimentoId, retomadas, analises, textos);
         atualizarSituacao(atendimentoId); // nada pausado na fila: segue para a redação ou termina
         publicador.publicar(atendimentoId);
         return progresso(atendimentoId);
@@ -197,7 +206,8 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
 
     /**
      * "Gerar de novo": uma versão nova da saída, redigida com as análises guardadas (a linha do tempo é montada de
-     * novo, com o que houver de novo no atendimento).
+     * novo, com o que houver de novo no atendimento). A análise que falta (falhou por motivo passageiro, ou é de um
+     * prompt anterior) é feita antes: o texto espera por ela.
      */
     public ProgressoView gerar(Usuario usuario, UUID atendimentoId, TipoDeSaida tipo) {
         EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
@@ -212,11 +222,16 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         if (!redacao.pedirNova(atendimentoId, tipo, agora)) {
             throw new RegraNegocioException("JA_EM_REDACAO", "Este texto já está sendo gerado. Aguarde terminar.");
         }
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        if (analises > 0 && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+            tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // voltam junto com as outras no Retomar
+        }
         if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
             atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
             atualizarSituacao(atendimentoId);
         }
-        log.info("Atendimento {}: {} pedido de novo", atendimentoId, tipo.codigo());
+        log.info("Atendimento {}: {} pedido de novo{}", atendimentoId, tipo.codigo(),
+                analises > 0 ? " (espera " + analises + " análise(s) antes)" : "");
         publicador.publicar(atendimentoId);
         return progresso(atendimentoId);
     }
@@ -295,6 +310,10 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
             registrarNoArquivo(tarefa, resultado);
         } else if (tarefa.tipo() == TipoDeTarefa.LINHA_DO_TEMPO || tarefa.tipo() == TipoDeTarefa.REDIGIR) {
             redacao.registrar(tarefa, resultado);
+        } else if (tarefa.tipo() == TipoDeTarefa.ANALISAR && tarefa.arquivoId() != null
+                && resultado instanceof ResultadoDaTarefa.Concluida && analisado(tarefa)) {
+            // a análise que faltava chegou: o texto escrito sem ela é gerado de novo quando a fila esvaziar
+            redacao.refazerAsQueFicaramSem(tarefa.atendimentoId(), tarefa.arquivoId(), clock.instant());
         }
         if (resultado instanceof ResultadoDaTarefa.Pausar pausa) {
             Instant agora = clock.instant();
@@ -370,6 +389,11 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     }
 
     // --------------------------------------------------------------------------------------------- apoio
+
+    private boolean analisado(Tarefa tarefa) {
+        EstadoDaAnalise estado = analise.panorama(tarefa.atendimentoId()).estados().get(tarefa.arquivoId());
+        return estado != null && estado.situacao() == SituacaoDaAnalise.PRONTA;
+    }
 
     /** Com falhas: um anexo que não foi baixado, uma análise ou uma saída que falhou de vez. */
     private SituacaoDoAtendimento situacaoFinal(UUID atendimentoId) {

@@ -62,6 +62,26 @@ public interface EtapaDeRedacao {
     /** Tokens gastos nas redações do atendimento (todas as versões): [entrada, saída]. */
     long[] tokens(UUID atendimentoId);
 
+    /**
+     * Retomar ou processar de novo: cada tipo cuja última versão falhou ganha uma versão nova, redigida quando as
+     * análises terminarem.
+     *
+     * @return quantas foram pedidas
+     */
+    default int refazerAsQueFalharam(UUID atendimentoId, Instant agora) {
+        return 0;
+    }
+
+    /**
+     * A análise de um arquivo chegou: os textos prontos escritos sem ela (e não editados nem confirmados) ganham uma
+     * versão nova, redigida quando a fila do atendimento esvaziar.
+     *
+     * @return quantas foram pedidas
+     */
+    default int refazerAsQueFicaramSem(UUID atendimentoId, UUID arquivoId, Instant agora) {
+        return 0;
+    }
+
     /** Sem redação (os testes das etapas anteriores). */
     EtapaDeRedacao NENHUMA = new EtapaDeRedacao() {
         @Override
