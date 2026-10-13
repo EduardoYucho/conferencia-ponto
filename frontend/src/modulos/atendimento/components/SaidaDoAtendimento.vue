@@ -667,7 +667,7 @@ function copiarAgora() {
       <div class="flex flex-wrap items-center justify-between gap-2 border-t border-linha pt-3">
         <p class="text-[0.7rem] text-tinta-apagada">
           Versão {{ saida.versao }} · {{ saida.modelo }} · prompt v{{ saida.versaoPrompt }} · {{ dataHora(saida.criadaEm) }}
-          <template v-if="saida.tokensEntrada != null"> · {{ tokens(saida.tokensEntrada) }} + {{ tokens(saida.tokensSaida) }} tokens</template>
+          <template v-if="saida.tokensEntrada"> · {{ tokens(saida.tokensEntrada) }} + {{ tokens(saida.tokensSaida) }} tokens</template>
           <template v-if="saida.editado"> · editado</template>
         </p>
         <div v-if="!confirmandoGerar">
