@@ -1,6 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.redacao;
 
-import br.com.conferenciaponto.domain.exception.RegraNegocioException;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.ModeloDoTexto;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -12,22 +12,36 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
-/** As partes do pedido ao app do Gemini que não precisam do banco: o JSON colado e os áudios juntos. */
+/** As partes do pacote para o Gem que não precisam do banco: o JSON colado, as instruções e os áudios juntos. */
 class PeloAppDoGeminiPartesTest {
 
     @TempDir
     Path pasta;
 
     @Test
-    void achaOJsonNoQueFoiColado() {
+    void separaOJsonDoTextoDoGem() {
         assertThat(PeloAppDoGemini.jsonDaResposta("Claro! Aqui está:\n```json\n{\"a\":{\"b\":1}}\n```\nPosso ajudar?"))
-                .isEqualTo("{\"a\":{\"b\":1}}");
-        assertThat(PeloAppDoGemini.jsonDaResposta("```\n{\"a\":1}\n```")).isEqualTo("{\"a\":1}");
-        assertThat(PeloAppDoGemini.jsonDaResposta("o resultado: {\"a\":[1,2]} fim")).isEqualTo("{\"a\":[1,2]}");
-        assertThatThrownBy(() -> PeloAppDoGemini.jsonDaResposta(" \n "))
-                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_VAZIA");
-        assertThatThrownBy(() -> PeloAppDoGemini.jsonDaResposta("Não consegui abrir o vídeo."))
-                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_FORA_DO_FORMATO");
+                .contains("{\"a\":{\"b\":1}}");
+        assertThat(PeloAppDoGemini.jsonDaResposta("```\n{\"a\":1}\n```")).contains("{\"a\":1}");
+        assertThat(PeloAppDoGemini.jsonDaResposta("{\"a\":[1,2]}")).contains("{\"a\":[1,2]}");
+        assertThat(PeloAppDoGemini.jsonDaResposta("Assunto: erro {no campo}\n\nTexto.")).as("texto com chaves é texto").isEmpty();
+        assertThat(PeloAppDoGemini.jsonDaResposta("Não consegui abrir o vídeo.")).isEmpty();
+    }
+
+    @Test
+    void asInstrucoesDoGemTrazemCadaParteDosChamadosComOTituloQueOSistemaLe() {
+        String instrucoes = PeloAppDoGemini.INSTRUCOES.texto();
+        for (ModeloDoTexto modelo : List.of(ModeloDoTexto.DEV_ERRO, ModeloDoTexto.DEV_ALTERACAO)) {
+            for (ModeloDoTexto.Secao secao : modelo.secoes()) {
+                assertThat(instrucoes).as(secao.chave()).contains("\n## " + secao.titulo() + "\n");
+            }
+        }
+        assertThat(instrucoes).contains("[Imagem A3: ").contains("Assunto: Digisac:").contains("Tela/Funcionalidade:")
+                .contains("Solicitação de Melhoria").contains(ModeloDoTexto.CAUSA_NAO_IDENTIFICADA)
+                .contains("Código da tela:").doesNotContain("{{");
+        assertThat(PeloAppDoGemini.nomeDoPdf("20261013174527")).isEqualTo("Atendimento_20261013174527.pdf");
+        assertThat(PeloAppDoGemini.nomeDoPdf(null)).isEqualTo("Atendimento.pdf");
+        assertThat(PeloAppDoGemini.nomeDoPdf("../x")).isEqualTo("Atendimento_x.pdf");
     }
 
     private Path wav(String nome, int segundos) throws IOException {

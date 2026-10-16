@@ -78,8 +78,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -245,99 +243,191 @@ class PeloAppDoGeminiTest {
 
     // --------------------------------------------------------------------------------------------- testes
 
-    @Test
-    void oPedidoJuntaAsImagensEOsDocumentosNumPdfEOsAudiosNumArquivoSo() throws IOException {
-        UUID id = baixadoSemAnalise();
+    private static final String PDF = "Atendimento_20261009000001.pdf";
 
-        PeloAppDoGemini.PedidoView pedido = app().pedido(maria, id, TipoDeSaida.RESUMO);
-
-        assertThat(pedido.arquivos()).extracting(PeloAppDoGemini.PedidoView.Arquivo::nome)
-                .containsExactly("Anexos.pdf", "Audios.wav", "A4_gravacao-tela.mp4");
-        assertThat(pedido.arquivos().get(0).conteudo()).contains("A1").contains("A3");
-        assertThat(pedido.arquivos().get(1).conteudo()).contains("A2 de 00:00 a 00:02");
-        assertThat(pedido.pedido())
-                .contains("Use só o que está no material").contains("Escreva o resumo deste atendimento")
-                .contains("Como responder, aqui no app do Gemini").contains("- Anexos.pdf: ")
-                .contains("```json\n{").contains("\"blocos\"")
-                .contains("[A1]").contains("(o conteúdo está no arquivo Anexos.pdf, página 1)")
-                .contains("(o conteúdo está no arquivo Anexos.pdf, a partir da página 2)")
-                .contains("(o conteúdo está no arquivo Audios.wav, de 00:00 a 00:02)")
-                .contains("(o conteúdo está no arquivo A4_gravacao-tela.mp4)")
-                .contains("como A4@00:15").contains("- A1: ")
-                .doesNotContain("{{").doesNotContain("4815162342");
-        assertThat(pedido.avisos()).isEmpty();
-
-        List<PeloAppDoGemini.ArquivoDoPedido> paraBaixar = app().arquivos(maria, id);
-        assertThat(paraBaixar).extracting(PeloAppDoGemini.ArquivoDoPedido::nome)
-                .containsExactly("Anexos.pdf", "Audios.wav", "A4_gravacao-tela.mp4");
-        try (PDDocument anexos = Loader.loadPDF(paraBaixar.get(0).local().toFile())) {
-            assertThat(anexos.getNumberOfPages()).as("a imagem, a capa do documento e a página dele").isEqualTo(3);
-            String texto = new PDFTextStripper().getText(anexos);
-            assertThat(texto).contains("A1 · imagem do cliente").contains("1760011620000.jpeg")
-                    .contains("(1 página a seguir)").contains("Relatorio de vendas: total 1.234,56");
-        }
-        ByteArrayOutputStream zip = new ByteArrayOutputStream();
-        PeloAppDoGemini.escreverZip(paraBaixar, zip);
-        List<String> noZip = new ArrayList<>();
-        try (ZipInputStream entrada = new ZipInputStream(new ByteArrayInputStream(zip.toByteArray()))) {
-            for (ZipEntry e = entrada.getNextEntry(); e != null; e = entrada.getNextEntry()) {
-                noZip.add(e.getName());
+    /** O texto de cada página do PDF (a primeira é a 1). */
+    private static List<String> paginas(Path pdf) throws IOException {
+        List<String> paginas = new ArrayList<>();
+        try (PDDocument documento = Loader.loadPDF(pdf.toFile())) {
+            PDFTextStripper leitor = new PDFTextStripper();
+            for (int i = 1; i <= documento.getNumberOfPages(); i++) {
+                leitor.setStartPage(i);
+                leitor.setEndPage(i);
+                paginas.add(leitor.getText(documento));
             }
         }
-        assertThat(noZip).containsExactly("Anexos.pdf", "Audios.wav", "A4_gravacao-tela.mp4");
+        return paginas;
+    }
+
+    private static int paginaCom(List<String> paginas, String texto) {
+        for (int i = 0; i < paginas.size(); i++) {
+            if (paginas.get(i).contains(texto)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    @Test
+    void oPacoteTemAConversaEOsAnexosNumPdfOsAudiosNumArquivoEOsVideosAParte() throws IOException {
+        UUID id = baixadoSemAnalise();
+
+        PeloAppDoGemini.PacoteView pacote = app().pacote(maria, id);
+
+        assertThat(pacote.arquivos()).extracting(PeloAppDoGemini.PacoteView.Arquivo::nome)
+                .containsExactly(PDF, "Audios.wav", "A4_gravacao-tela.mp4");
+        assertThat(pacote.arquivos().get(0).conteudo()).startsWith("a conversa e, depois dela").contains("A1, A3");
+        assertThat(pacote.arquivos().get(1).conteudo()).contains("A2 de 00:00 a 00:02");
+        assertThat(pacote.avisos()).isEmpty();
+        assertThat(pacote.versaoDasInstrucoes()).isEqualTo(1);
+
+        List<String> paginas = paginas(app().arquivo(maria, id, PDF).local());
+        String conversa = String.join("\n", paginas.subList(0, paginaCom(paginas, "A1 · imagem do cliente") - 1));
+        int imagem = paginaCom(paginas, "A1 · imagem do cliente");
+        int documento = paginaCom(paginas, "(1 página a seguir)");
+        assertThat(imagem).as("a imagem vem depois da conversa").isGreaterThan(1);
+        assertThat(documento).isEqualTo(imagem + 1);
+        assertThat(paginas).hasSize(documento + 1);
+        assertThat(paginas.get(documento)).contains("Relatorio de vendas: total 1.234,56");
+        assertThat(conversa).contains("PACOTE DO ATENDIMENTO PARA O GEM").contains("Contato: Loja Exemplo - Maria")
+                .contains("Digisac: Loja Exemplo - Maria :").contains("[A1]").contains("[M7]")
+                .contains("(o conteúdo está neste PDF, na página " + imagem + ")")
+                .contains("(o conteúdo está neste PDF, a partir da página " + documento + ")")
+                .contains("(o conteúdo está no arquivo Audios.wav, de 00:00 a 00:02)")
+                .contains("(o conteúdo está no arquivo A4_gravacao-tela.mp4)")
+                .contains("Imagens que o texto pode mostrar").contains("- A1: ")
+                .contains("[Imagem A4@00:15:")
+                .doesNotContain("4815162342").doesNotContain("\"imagens\"");
+
+        assertThat(app().arquivo(maria, id, "Audios.wav").local()).isRegularFile();
         assertThat(app().arquivo(maria, id, "A4_gravacao-tela.mp4").local()).isRegularFile();
         assertThatThrownBy(() -> app().arquivo(maria, id, "../conversa.pdf")).isInstanceOf(RecursoNaoEncontradoException.class);
     }
 
     @Test
-    void semFfmpegOsAudiosVaoUmPorUmComAExtensaoQueOAppConhece() {
+    void semFfmpegOsAudiosVaoUmPorUmComAExtensaoQueOAppConhece() throws IOException {
         conversor.disponivel = false;
         extrator.disponivel = false;
         UUID id = baixadoSemAnalise();
 
-        PeloAppDoGemini.PedidoView pedido = app().pedido(maria, id, TipoDeSaida.DEV_ERRO);
+        PeloAppDoGemini.PacoteView pacote = app().pacote(maria, id);
 
-        assertThat(pedido.arquivos()).extracting(PeloAppDoGemini.PedidoView.Arquivo::nome)
-                .containsExactly("Anexos.pdf", "A2_1760011680000.ogg", "A4_gravacao-tela.mp4");
-        assertThat(pedido.avisos()).anyMatch(a -> a.contains("ffmpeg não está instalado"));
-        assertThat(pedido.pedido()).contains("Escreva o chamado de erro").doesNotContain("Quadros dos vídeos");
+        assertThat(pacote.arquivos()).extracting(PeloAppDoGemini.PacoteView.Arquivo::nome)
+                .containsExactly(PDF, "A2_1760011680000.ogg", "A4_gravacao-tela.mp4");
+        assertThat(pacote.avisos()).anyMatch(a -> a.contains("ffmpeg não está instalado"));
+        String conversa = String.join("\n", paginas(app().arquivo(maria, id, PDF).local()));
+        assertThat(conversa).contains("(o conteúdo está no arquivo A2_1760011680000.ogg)")
+                .doesNotContain("Momentos dos vídeos");
     }
 
     @Test
-    void aRespostaColadaViraOTextoComAsImagensEOQuadroDoVideo() {
+    void oTextoDoGemColadoViraOTextoComAsImagensEOMomentoDoVideo() {
         UUID id = baixadoSemAnalise();
-        assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.RESUMO, "{}"))
-                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "PEDIDO_NAO_MONTADO");
-        app().pedido(maria, id, TipoDeSaida.RESUMO);
+        assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.RESUMO, "Assunto: x"))
+                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "PACOTE_NAO_MONTADO");
+        app().pacote(maria, id);
         String colado = """
-                Aqui está o resumo:
-                ```json
-                {"assunto":"Erro ao emitir a nota fiscal",
-                 "blocos":[
-                   {"tipo":"paragrafo","texto":"O cliente relatou o erro ao emitir a nota.","fontes":["M1","A1"],
-                    "imagens":[{"id":"A1","legenda":"tela com o erro"}]},
-                   {"tipo":"passo","texto":"Reproduzi no vídeo enviado.","fontes":["A4"],
-                    "imagens":[{"id":"A4@00:03","legenda":"o erro na tela"}]}],
-                 "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
-                         "sintoma":"erro ao emitir","mensagemErro":"não identificado","causa":"não identificado",
-                         "resolucao":"orientado"},
-                 "telaFuncionalidade":"Pedidos (VEN010)"}
-                ```
-                Se quiser, posso ajustar.""";
+                **Assunto:** Digisac: Loja Exemplo - Maria : Erro ao emitir a nota fiscal
+
+                A cliente Maria relatou que não conseguia emitir a nota fiscal: aparecia um erro na tela de vendas.
+                [Imagem A1: tela de vendas com o erro]
+
+                O que foi feito:
+
+                1. Acessei o computador da cliente por acesso remoto.
+                2. Reproduzi o erro e gravei a tela.
+                [Imagem A4@00:03: o erro na tela]
+                3. Corrigi o cadastro e a nota foi emitida.
+
+                A nota foi emitida e o atendimento foi encerrado.
+                """;
 
         UUID saida = app().usarResposta(maria, id, TipoDeSaida.RESUMO, colado);
 
         SaidaView view = gerenciarSaidas().detalhe(maria, id, saida);
         assertThat(view.situacao()).isEqualTo("pronta");
-        assertThat(view.modelo()).isEqualTo(PeloAppDoGemini.MODELO_DO_APP);
-        assertThat(view.assunto()).endsWith(" : Erro ao emitir a nota fiscal");
-        assertThat(view.html()).contains("<strong>Imagem 1</strong>: tela com o erro")
-                .contains("<strong>Imagem 2</strong>: o erro na tela");
+        assertThat(view.modelo()).isEqualTo(PeloAppDoGemini.MODELO_DO_GEM);
+        assertThat(view.assunto()).isEqualTo("Digisac: Loja Exemplo - Maria : Erro ao emitir a nota fiscal");
+        assertThat(view.html()).contains("aparecia um erro na tela de vendas.")
+                .contains("<strong>Imagem 1</strong>: tela de vendas com o erro")
+                .contains("<li").contains("Reproduzi o erro e gravei a tela.")
+                .contains("<strong>Imagem 2</strong>: o erro na tela")
+                .contains("A nota foi emitida e o atendimento foi encerrado.")
+                .doesNotContain("[Imagem").doesNotContain("**");
         assertThat(view.imagens()).hasSize(2).allMatch(SaidaView.Imagem::disponivel);
         assertThat(extrator.pedidos).containsExactly(3000L);
-        assertThat(view.avisos()).noneMatch(a -> a.contains("Escrito sem o conteúdo"));
+        assertThat(view.avisos()).as("o Gem não traz as fontes: não é aviso").noneMatch(a -> a.contains("sem fonte"))
+                .noneMatch(a -> a.contains("Escrito sem o conteúdo"));
         assertThat(resumo(id).versao()).as("não havia resumo: é a primeira versão").isEqualTo(1);
         assertThat(modelo.geracoes()).as("nenhuma chamada à API").isEmpty();
+    }
+
+    @Test
+    void oChamadoDeErroDoGemVemNasPartesComOsDadosParaABase() {
+        UUID id = baixadoSemAnalise();
+        app().pacote(maria, id);
+        String colado = """
+                Assunto: Digisac: Loja Exemplo - Maria : Erro ao emitir nota na tela de vendas
+                Tela/Funcionalidade: Pedidos (VEN010)
+
+                ## Relato do problema
+                Ao emitir a nota fiscal na tela de vendas, aparece um erro e a nota não é emitida.
+
+                ## Passos para reproduzir
+                1. Abrir a tela Pedidos (VEN010).
+                2. Clicar em Emitir NF-e.
+
+                ## Resultado obtido
+                O sistema mostra a mensagem "Erro ao emitir".
+                [Imagem A1: a mensagem de erro]
+
+                ## Causa
+                Causa não identificada.
+
+                Cliente: Loja Exemplo
+                Módulo: Vendas
+                Tela: Pedidos
+                Código da tela: VEN010
+                Sintoma: a nota não é emitida
+                Mensagem de erro: "Erro ao emitir"
+                Causa: não identificado
+                Resolução: enviado ao desenvolvimento
+                """;
+
+        UUID saida = app().usarResposta(maria, id, TipoDeSaida.DEV_ERRO, colado);
+
+        SaidaView view = gerenciarSaidas().detalhe(maria, id, saida);
+        assertThat(view.telaFuncionalidade()).isEqualTo("Pedidos (VEN010)");
+        assertThat(view.html()).contains("Relato do problema").contains("Passos para reproduzir")
+                .contains("Clicar em Emitir NF-e.").contains("Resultado obtido").contains("<strong>Imagem 1</strong>: a mensagem de erro")
+                .contains("Causa não identificada.").doesNotContain("Cliente: Loja Exemplo").doesNotContain("##");
+        assertThat(view.base()).containsEntry("cliente", "Loja Exemplo").containsEntry("codigoTela", "VEN010")
+                .containsEntry("resolucao", "enviado ao desenvolvimento");
+        assertThat(view.registro()).isNotNull();
+        assertThat(view.registro().cliente()).isEqualTo("Loja Exemplo");
+        assertThat(view.registro().telaCodigo()).isEqualTo("VEN010");
+    }
+
+    @Test
+    void aRespostaEmJsonContinuaValendo() {
+        UUID id = baixadoSemAnalise();
+        app().pacote(maria, id);
+        String colado = """
+                ```json
+                {"assunto":"Erro ao emitir a nota fiscal",
+                 "blocos":[{"tipo":"paragrafo","texto":"O cliente relatou o erro.","fontes":["M7"],
+                            "imagens":[{"id":"A1","legenda":"tela com o erro"}]}],
+                 "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
+                         "sintoma":"erro ao emitir","mensagemErro":"não identificado","causa":"não identificado",
+                         "resolucao":"orientado"},
+                 "telaFuncionalidade":"Pedidos (VEN010)"}
+                ```""";
+
+        UUID saida = app().usarResposta(maria, id, TipoDeSaida.RESUMO, colado);
+
+        SaidaView view = gerenciarSaidas().detalhe(maria, id, saida);
+        assertThat(view.modelo()).isEqualTo(PeloAppDoGemini.MODELO_DO_APP);
+        assertThat(view.html()).contains("data-fontes=\"M7").contains("<strong>Imagem 1</strong>: tela com o erro");
     }
 
     @Test
@@ -353,31 +443,43 @@ class PeloAppDoGeminiTest {
         esperarAte(id, SituacaoDoAtendimento.PAUSADO);
         await().atMost(10, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
                 .allMatch(a -> a.situacao().equals("pronto")));
-        app().pedido(maria, id, TipoDeSaida.RESUMO);
+        app().pacote(maria, id);
 
-        app().usarResposta(maria, id, TipoDeSaida.RESUMO, ModeloDeMentira.RESUMO);
+        app().usarResposta(maria, id, TipoDeSaida.RESUMO, "Assunto: Erro na nota\n\nA cliente relatou o erro na nota.");
 
         assertThat(resumo(id).versao()).isEqualTo(1);
         assertThat(resumo(id).situacao()).isEqualTo("pronta");
     }
 
     @Test
-    void respostaForaDoFormatoOuDeOutraPessoaNaoGrava() {
+    void respostaVaziaSemTextoOuDeOutraPessoaNaoGrava() {
         UUID id = baixadoSemAnalise();
-        app().pedido(maria, id, TipoDeSaida.DEV_ALTERACAO);
+        app().pacote(maria, id);
 
         assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, "  "))
                 .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_VAZIA");
-        assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, "Não consegui abrir os arquivos."))
-                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_FORA_DO_FORMATO");
+        assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, "Assunto: só o assunto"))
+                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_SEM_TEXTO");
         assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, ModeloDeMentira.RESUMO))
                 .as("o JSON do resumo não tem as partes do chamado")
-                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("Responda só com o bloco de código JSON");
-        assertThatThrownBy(() -> app().pedido(usuario("joao"), id, TipoDeSaida.RESUMO))
+                .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "RESPOSTA_FORA_DO_FORMATO");
+        assertThatThrownBy(() -> app().pacote(usuario("joao"), id)).isInstanceOf(RecursoNaoEncontradoException.class);
+        assertThatThrownBy(() -> app().usarResposta(usuario("joao"), id, TipoDeSaida.RESUMO, "Assunto: x\n\ntexto"))
                 .isInstanceOf(RecursoNaoEncontradoException.class);
         assertThat(redacao.estados(id)).noneMatch(s -> s.tipo().equals("dev_alteracao"));
 
-        app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, ModeloDeMentira.DEV_ALTERACAO);
+        app().usarResposta(maria, id, TipoDeSaida.DEV_ALTERACAO, """
+                Assunto: Novo relatório de vendas por vendedor
+                Tela/Funcionalidade: Relatórios de Vendas
+
+                Solicitação de Melhoria
+
+                ## Descrição resumida
+                Criar o relatório Vendas por Vendedor.
+
+                ## Pontos a confirmar com o cliente
+                1. Quais colunas o relatório deve ter?
+                """);
         assertThat(redacao.estados(id)).filteredOn(s -> s.tipo().equals("dev_alteracao")).singleElement()
                 .satisfies(s -> assertThat(s.situacao()).isEqualTo("pronta"));
     }

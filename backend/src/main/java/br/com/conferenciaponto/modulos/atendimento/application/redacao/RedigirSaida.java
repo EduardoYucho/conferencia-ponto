@@ -175,10 +175,16 @@ public class RedigirSaida implements ExecutorDeTarefa {
      */
     ConferenciaDoTexto.Conferido conferir(TipoDeSaida tipo, String contato, LinhaDoTempo linha,
                                           List<ConferenciaDoTexto.ImagemDisponivel> imagens, JsonNode resultado) {
+        return conferir(tipo, contato, linha, imagens, bruto(resultado, ModeloDoTexto.de(tipo)));
+    }
+
+    /** A mesma conferência para um texto já lido (o que veio do Gem do Gemini, por exemplo). */
+    ConferenciaDoTexto.Conferido conferir(TipoDeSaida tipo, String contato, LinhaDoTempo linha,
+                                          List<ConferenciaDoTexto.ImagemDisponivel> imagens, ConferenciaDoTexto.Bruto bruto) {
         ConferenciaDoTexto conferencia = new ConferenciaDoTexto(linha.todos().map(ItemDaLinha::id).collect(Collectors.toSet()),
                 imagens, mascaramento::mascararTrechos, UUID::randomUUID);
         ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(tipo);
-        ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(resultado, modeloDoTexto), contato);
+        ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto, contato);
         TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
         if (semValor(texto.telaFuncionalidade())) {
             texto = texto.comTela(SugestaoDaTela.de(linha).orElse(texto.telaFuncionalidade()));

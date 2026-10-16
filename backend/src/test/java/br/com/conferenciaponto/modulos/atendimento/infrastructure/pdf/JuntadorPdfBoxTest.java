@@ -76,4 +76,39 @@ class JuntadorPdfBoxTest {
         assertThat(resultado.total()).isZero();
         assertThat(destino).doesNotExist();
     }
+
+    @Test
+    void aConversaVemAntesComAsPaginasCertasDosItens() throws IOException {
+        Path destino = pasta.resolve("Atendimento.pdf");
+        StringBuilder conversa = new StringBuilder("PACOTE DO ATENDIMENTO\n");
+        for (int i = 1; i <= 90; i++) {
+            conversa.append("[M").append(i).append("] 09/10 10:").append(i % 60).append(" · mensagem do cliente:\n")
+                    .append("Mensagem número ").append(i).append(" com um emoji \uD83D\uDE00 e acentuação: ação, côco.\n");
+        }
+        conversa.append("Uma palavra comprida: ").append("x".repeat(400));
+        List<List<Integer>> pedidas = new java.util.ArrayList<>();
+
+        JuntadorDePdf.Resultado resultado = new JuntadorPdfBox().juntar(paginas -> {
+            pedidas.add(paginas);
+            return conversa + "\n[A1] imagem (o conteúdo está neste PDF, na página " + paginas.get(0) + ")\n"
+                    + "[A2] documento (a partir da página " + paginas.get(1) + ")";
+        }, List.of(new JuntadorDePdf.Item("A1 · imagem", imagem("a.png", "png", 400, 300), false),
+                new JuntadorDePdf.Item("A2 · documento", pdf("b.pdf", 2), true)), destino);
+
+        int texto = resultado.paginasDoTexto();
+        assertThat(texto).as("90 mensagens não cabem numa página").isGreaterThan(2);
+        assertThat(resultado.paginas()).containsExactly(texto + 1, texto + 2);
+        assertThat(resultado.total()).isEqualTo(texto + 4);
+        assertThat(pedidas.get(pedidas.size() - 1)).containsExactly(texto + 1, texto + 2);
+        try (PDDocument lido = Loader.loadPDF(destino.toFile())) {
+            PDFTextStripper leitor = new PDFTextStripper();
+            String tudo = leitor.getText(lido);
+            assertThat(tudo).contains("Mensagem número 90 com um emoji").contains("e acentuação: ação, côco.")
+                    .contains("na página " + (texto + 1) + ")").contains("a partir da página " + (texto + 2) + ")")
+                    .doesNotContain("?");
+            leitor.setStartPage(texto + 1);
+            leitor.setEndPage(texto + 1);
+            assertThat(leitor.getText(lido)).contains("A1 · imagem");
+        }
+    }
 }

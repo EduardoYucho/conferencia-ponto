@@ -388,25 +388,33 @@ com a pesquisa exata:
   Tela/Funcionalidade vem do Gemini ou, se ele não informar, é sugerida pelo código de tela lido nas imagens
   (`tela Nome (COD)` na linha do tempo); dá para corrigir na tela. Limites: versão 40, backup 300, chamado
   relacionado e Tela/Funcionalidade 200 caracteres (`CAMPO_LONGO`, `TELA_LONGA`).
-- **Gerar pelo app do Gemini** (sem usar a cota da API; em Textos gerados, abaixo do texto): quando a cota da chave
-  acaba ou o Gemini da API fica sobrecarregado, o mesmo texto sai pelo app (gemini.google.com), que tem limites
-  próprios. **Montar o pedido** monta a linha do tempo de agora (guardada: a resposta usa os mesmos identificadores)
-  e os arquivos em `arquivos\app-gemini\` do atendimento (refeitos a cada vez; a retenção apaga junto):
-  `Anexos.pdf` com as imagens e os PDFs, um por página e com o identificador no alto (`A1 · imagem do cliente às
-  09/10 08:07 · nome`; WebP e HEIC viram PNG pelo ffmpeg); `Audios.mp3` com os áudios um depois do outro, com 1 s
-  de silêncio e o mapa de tempos (`A2 de 00:00 a 00:42`; sem o LAME fica `Audios.wav`; sem o ffmpeg vão um por um,
-  `.oga` como `.ogg`); e os vídeos e o resto à parte, como `<id>_<nome>`. O pedido é o mesmo da API (as regras, o
-  prompt do tipo e o material, em que cada arquivo diz em que arquivo e página ou trecho está) mais "Como responder,
-  aqui no app do Gemini" (a lista dos arquivos e o esquema JSON num bloco de código). A tela avisa o que conferir
-  antes de mandar: arquivo que não está no servidor ou que o Gemini não lê, mais de 10 arquivos, mais de 10 min de
-  áudio ou 5 min de vídeo (os limites do app sem assinatura) e arquivo de mais de 100 MB. A pessoa copia o pedido,
-  anexa os arquivos (um a um ou o `.zip`, que sai em fluxo) e cola a resposta inteira em **Usar a resposta**: o
-  servidor acha o JSON (no bloco de código ou do primeiro `{` ao último `}`), tira os quadros de vídeo citados
-  (`A4@00:15`) e passa pela **mesma conferência** da API (fontes, imagens, assunto, dados de acesso remoto). O texto
-  preenche a versão que esperava (o atendimento pausado pela cota) ou vira a versão seguinte, com o modelo "app do
-  Gemini (colado)" e sem tokens; a fila da API não o escreve de novo. Erros: `PEDIDO_NAO_MONTADO`, `RESPOSTA_VAZIA`,
-  `RESPOSTA_FORA_DO_FORMATO` (com o que pedir ao Gemini), `RESPOSTA_SEM_TEXTO`, `TEXTO_SENDO_ESCRITO` (a API está
-  escrevendo esse texto agora), `TEXTO_MUDOU`, `PEDIDO_SEM_ARQUIVOS` e `ARQUIVO_DO_PEDIDO_NAO_ENCONTRADO`.
+- **Gerar pelo Gem do Gemini** (sem usar a cota da API; em Textos gerados, abaixo do texto): quando a cota da chave
+  acaba ou o Gemini da API fica sobrecarregado, o texto sai pelo app (gemini.google.com), que tem limites próprios.
+  **Uma vez só**, a pessoa cria um Gem (gratuito) com as instruções do sistema (`atendimento/prompts/gem-v<N>.txt`:
+  os comandos `resumo`, `erro`, `alteração` e `base`, as regras da redação e o formato da resposta), copiadas ou
+  baixadas em `.txt` na tela, e guarda o endereço do Gem neste navegador (o botão **Abrir o meu Gem** vai direto
+  para ele). Quando a versão das instruções muda, a tela avisa para atualizar o Gem. **Em cada atendimento**, um
+  clique em **Baixar os arquivos** monta o pacote em `arquivos\app-gemini\` do atendimento (refeito a cada vez; a
+  retenção apaga junto) e baixa, um depois do outro: `Atendimento_<chamado>.pdf`, com a conversa nas primeiras
+  páginas (a linha do tempo, com o identificador de cada item e onde está o conteúdo de cada arquivo) e, depois
+  dela, as imagens e os PDFs, um por página e com o identificador no alto (`A1 · imagem do cliente 09/10 às 08:07 ·
+  nome`; WebP e HEIC viram PNG pelo ffmpeg); `Audios.mp3` com os áudios um depois do outro, com 1 s de silêncio e o
+  mapa de tempos na conversa (`A2 de 00:00 a 00:42`; sem o LAME fica `Audios.wav`; sem o ffmpeg vão um por um,
+  `.oga` como `.ogg`); e os vídeos e o resto à parte, como `<id>_<nome>`. A tela avisa o que conferir antes de
+  mandar: arquivo que não está no servidor ou que o Gemini não lê, mais de 10 arquivos, mais de 10 min de áudio ou
+  5 min de vídeo (os limites do app sem assinatura) e arquivo de mais de 100 MB. Não há .zip: o app não lê áudio
+  nem vídeo dentro de um .zip. A pessoa arrasta os arquivos no Gem e escreve o comando; a resposta vem em texto pronto
+  para o chamado (`Assunto: Digisac: <contato> : ...`, nos chamados `Tela/Funcionalidade:` e as partes com
+  `## Título`, listas numeradas e `[Imagem A3: legenda]` ou `[Imagem A4@01:15: legenda]` onde a imagem entra).
+  **Colar a resposta de volta é opcional**: em **Usar a resposta**, o servidor lê o texto (`TextoDoGem`: tira o
+  Markdown, separa as partes pelos títulos, os passos e as marcações de imagem, e os dados para a base se vierem
+  junto), tira os quadros de vídeo citados e passa pela **mesma conferência** da API (imagens, assunto, dados de
+  acesso remoto); o tipo é reconhecido pelo texto e dá para trocar. O texto preenche a versão que esperava (o
+  atendimento pausado pela cota) ou vira a versão seguinte, com o modelo "Gem do Gemini (colado)", sem tokens e
+  sem destaque de trecho sem fonte (o Gem não indica as fontes); a fila da API não o escreve de novo. Uma resposta
+  em JSON no esquema da API também é aceita ("app do Gemini (colado)"). Erros: `PACOTE_NAO_MONTADO`,
+  `RESPOSTA_VAZIA`, `RESPOSTA_SEM_TEXTO`, `RESPOSTA_FORA_DO_FORMATO` (o JSON fora do esquema), `TEXTO_SENDO_ESCRITO`
+  (a API está escrevendo esse texto agora), `TEXTO_MUDOU` e `ARQUIVO_DO_PACOTE_NAO_ENCONTRADO`.
 - **Confirmar e enviar para a base** (no fim da tela do texto): o autor revisa o **registro** já preenchido com o que
   o Gemini preparou para a base — título (o assunto sem o "Digisac: contato :"), tipo (dúvida, erro ou alteração),
   cliente, contato, módulo, tela e código, sintoma, mensagem de erro literal, causa, resolução, situação e, nos
@@ -482,9 +490,9 @@ com a pesquisa exata:
 | GET | `/atendimentos/{id}/arquivos/{arquivoId}/analise` | A análise do arquivo: `{categoria, modelo, versaoPrompt, atual, tokensEntrada, tokensSaida, resultado}`; no vídeo, também `quadros[{passo, instanteMs, instante, disponivel}]` e `avisoDosQuadros` (`ANALISE_NAO_ENCONTRADA`) |
 | GET | `/atendimentos/{id}/arquivos/{arquivoId}/quadros/{instanteMs}` | O quadro de um passo do vídeo, em PNG (`QUADRO_NAO_ENCONTRADO`) |
 | GET · POST | `/atendimentos/{id}/saidas` · `/atendimentos/{id}/saidas/{tipo}/gerar` | A versão mais recente de cada texto · gerar de novo (`JA_EM_REDACAO`, `PROCESSE_PRIMEIRO`) |
-| POST | `/atendimentos/{id}/app-gemini/{tipo}/pedido` | Monta o pedido para o app do Gemini: `{tipo, pedido, arquivos[{nome, tamanho, conteudo}], avisos, audioMs, videoMs}` |
-| GET | `/atendimentos/{id}/app-gemini/arquivos/{nome}` · `/arquivos.zip` | Um arquivo do último pedido · todos num .zip (`ARQUIVO_DO_PEDIDO_NAO_ENCONTRADO`, `PEDIDO_SEM_ARQUIVOS`) |
-| POST | `/atendimentos/{id}/app-gemini/{tipo}/resposta` | `{resposta}` colada do app: vira o texto e devolve o progresso (`RESPOSTA_FORA_DO_FORMATO`, `TEXTO_SENDO_ESCRITO`...) |
+| GET · POST | `/atendimentos/app-gemini/instrucoes-do-gem` · `/atendimentos/{id}/app-gemini/pacote` | As instruções do Gem `{versao, texto}` · monta o pacote para o Gem: `{arquivos[{nome, tamanho, conteudo}], avisos, audioMs, videoMs, versaoDasInstrucoes}` |
+| GET | `/atendimentos/{id}/app-gemini/arquivos/{nome}` | Um arquivo do último pacote (`ARQUIVO_DO_PACOTE_NAO_ENCONTRADO`) |
+| POST | `/atendimentos/{id}/app-gemini/{tipo}/resposta` | `{resposta}` colada do Gem (texto) ou do app (JSON): vira o texto e devolve o progresso (`RESPOSTA_SEM_TEXTO`, `TEXTO_SENDO_ESCRITO`...) |
 | GET | `/atendimentos/{id}/linha-do-tempo` | O material da redação (as fontes de cada trecho) |
 | GET | `/atendimentos/{id}/saidas/{saidaId}` | O texto: assunto, HTML (`data-fontes`, `data-imagem`), imagens, avisos e campos da base; nos chamados, `telaFuncionalidade`, `cabecalho`, `rodape` e `variantes` |
 | PUT | `.../saidas/{saidaId}/tela` | `{telaFuncionalidade}` do cabeçalho do chamado (`SO_NOS_CHAMADOS`, `TELA_LONGA`) |
