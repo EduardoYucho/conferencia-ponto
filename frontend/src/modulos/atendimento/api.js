@@ -135,17 +135,17 @@ export const atendimentoApi = {
   imagensZip: (id, saidaId) =>
     http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens.zip`, { responseType: 'blob', timeout: 120000 }),
 
-  /** As instruções para criar o Gem: { versao, texto }. */
-  instrucoesDoGem: () => http.get('/atendimentos/app-gemini/instrucoes-do-gem'),
+  /** A habilidade para criar no app do Gemini: { versao, nome, instrucoes, skillMd }. */
+  habilidadeDoGemini: () => http.get('/atendimentos/app-gemini/habilidade'),
   /**
-   * Monta o pacote para o Gem: { arquivos: [{ nome, tamanho, conteudo }], avisos, audioMs, videoMs, versaoDasInstrucoes }
+   * Monta o pacote para o Gemini: { arquivos: [{ nome, tamanho, conteudo }], avisos, audioMs, videoMs, versaoDaHabilidade }
    * (a conversa e as imagens num PDF, os áudios num MP3: pode demorar).
    */
-  pacoteParaOGem: (id) => http.post(`/atendimentos/${id}/app-gemini/pacote`, null, { timeout: 300000 }),
+  pacoteParaOGemini: (id) => http.post(`/atendimentos/${id}/app-gemini/pacote`, null, { timeout: 300000 }),
   /** Um arquivo do pacote (resposta inteira, para salvar). */
   arquivoParaOApp: (id, nome) =>
     http.get(`/atendimentos/${id}/app-gemini/arquivos/${encodeURIComponent(nome)}`, { responseType: 'blob', timeout: 600000 }),
-  /** A resposta colada do Gem vira o texto. Devolve o progresso (com os textos). */
+  /** A resposta colada do Gemini vira o texto. Devolve o progresso (com os textos). */
   respostaDoApp: (id, tipo, resposta) => http.post(`/atendimentos/${id}/app-gemini/${tipo}/resposta`, { resposta }, { timeout: 120000 }),
 
   /** Administrador: { ocupado, livre, pausados } (bytes). */

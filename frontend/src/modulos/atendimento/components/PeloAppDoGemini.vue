@@ -2,139 +2,112 @@
 import { computed, ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { copiaDiretaDisponivel, copiarPelaSelecao, copiarTextoDireto } from '@/modulos/atendimento/areaDeTransferencia'
-import { tamanho, TIPOS_DE_SAIDA } from '@/modulos/atendimento/formato'
 import { useAuthStore } from '@/stores/auth'
 import { mensagemDe } from '@/utils/erros'
 import { salvarBlob, salvarResposta } from '@/utils/download'
 
 /**
- * O texto pelo Gem do Gemini (gemini.google.com), sem usar a cota da API. Uma vez só, a pessoa cria o Gem com as
- * instruções do sistema. Em cada atendimento: baixa o pacote (a conversa e as imagens num PDF, os áudios num MP3, os
- * vídeos à parte), arrasta no Gem e escreve "resumo", "erro" ou "alteração". O Gem responde em texto pronto para o
- * chamado; colar a resposta aqui é opcional (numera as imagens e permite mandar para a base).
+ * O texto pelo app do Gemini, com a habilidade do sistema, sem usar a cota da API: a pessoa escolhe o texto e um
+ * clique baixa os arquivos do atendimento, copia o comando e abre o Gemini. Lá, ela arrasta os arquivos e cola o
+ * comando; a resposta vem pronta para o chamado. Colar a resposta aqui é opcional (numera as imagens e permite mandar
+ * para a base).
  */
 const props = defineProps({
   atendimento: { type: Object, required: true },
-  /** O tipo que a tela está mostrando (a resposta colada começa por ele). */
+  /** O tipo que a tela está mostrando (começa por ele). */
   tipoAtual: { type: String, default: null },
 })
 const emit = defineEmits(['progresso', 'usado'])
 
 const GEMINI = 'https://gemini.google.com/app'
-const COMANDOS = [
-  { codigo: 'resumo', texto: 'resumo' },
-  { codigo: 'dev_erro', texto: 'erro' },
-  { codigo: 'dev_alteracao', texto: 'alteração' },
+const OPCOES = [
+  { codigo: 'resumo', rotulo: 'Resumo', comando: 'resumo' },
+  { codigo: 'dev_erro', rotulo: 'Erro', comando: 'erro' },
+  { codigo: 'dev_alteracao', rotulo: 'Alteração', comando: 'alteração' },
 ]
 
 const auth = useAuthStore()
-const chave = (nome) => `conferencia-ponto.gem.${auth.usuario?.login ?? 'anonimo'}.${nome}`
-function lerGuardado(nome) {
+const chave = () => `conferencia-ponto.habilidade.${auth.usuario?.login ?? 'anonimo'}.versao`
+function versaoGuardada() {
   try {
-    return localStorage.getItem(chave(nome))
+    return Number(localStorage.getItem(chave()) ?? 0)
   } catch {
-    return null
-  }
-}
-function guardar(nome, valor) {
-  try {
-    if (valor == null) localStorage.removeItem(chave(nome))
-    else localStorage.setItem(chave(nome), String(valor))
-    return true
-  } catch {
-    return false
+    return 0
   }
 }
 
 const aberto = ref(false)
-const instrucoes = ref(null)
-const urlDoGem = ref(lerGuardado('url') ?? '')
-const urlDigitada = ref(urlDoGem.value)
-const versaoCopiada = ref(Number(lerGuardado('versao') ?? 0))
-const configurando = ref(false)
-const pacote = ref(null)
-const resposta = ref('')
 const tipo = ref(props.tipoAtual ?? 'resumo')
-const tipoEscolhido = ref(false)
+const habilidade = ref(null)
+const versaoBaixada = ref(versaoGuardada())
+const pacote = ref(null)
+const comandoCopiado = ref('')
+const colando = ref(false)
+const resposta = ref('')
 const acao = ref('')
 const mensagem = ref(null)
 
-const tipos = computed(() => TIPOS_DE_SAIDA.filter((t) => t.disponivel))
+const opcao = computed(() => OPCOES.find((o) => o.codigo === tipo.value) ?? OPCOES[0])
+const nomeDaHabilidade = computed(() => habilidade.value?.nome ?? 'resumo-de-atendimento')
+const comando = computed(() => `Use a habilidade ${nomeDaHabilidade.value}: ${opcao.value.comando}`)
+const habilidadeDesatualizada = computed(() => !!habilidade.value && versaoBaixada.value < habilidade.value.versao)
 const faltaBaixar = computed(() => (props.atendimento.anexos ?? []).filter((a) => a.situacao === 'aguardando' && !a.vencido).length)
 const respostaLonga = computed(() => resposta.value.length > 400_000)
-const instrucoesMudaram = computed(() => !!instrucoes.value && versaoCopiada.value > 0 && versaoCopiada.value < instrucoes.value.versao)
-const precisaConfigurar = computed(() => !urlDoGem.value || versaoCopiada.value === 0 || instrucoesMudaram.value)
-const linkDoGem = computed(() => urlDoGem.value || GEMINI)
 
 async function abrir() {
   aberto.value = !aberto.value
   if (!aberto.value) return
-  if (props.tipoAtual && !tipoEscolhido.value) tipo.value = props.tipoAtual
-  if (!instrucoes.value) {
+  if (props.tipoAtual && !acao.value) tipo.value = props.tipoAtual
+  if (!habilidade.value) {
     try {
-      instrucoes.value = await atendimentoApi.instrucoesDoGem()
-    } catch (e) {
-      mensagem.value = { tipo: 'erro', texto: mensagemDe(e) }
+      habilidade.value = await atendimentoApi.habilidadeDoGemini()
+    } catch {
+      // sem a habilidade, o nome padrão serve para o comando
     }
   }
-  configurando.value = precisaConfigurar.value
 }
 
-async function copiarTexto(texto, ok) {
+function escolher(codigo) {
+  tipo.value = codigo
+  pacote.value = null
+  comandoCopiado.value = ''
   mensagem.value = null
+}
+
+/** Copia o comando dentro do próprio clique (o navegador só deixa copiar assim). */
+function copiarComando() {
+  const texto = comando.value
   try {
-    if (copiaDiretaDisponivel()) await copiarTextoDireto(Promise.resolve(texto))
-    else if (!copiarPelaSelecao(texto, 'texto')) throw new Error('cópia recusada')
-    mensagem.value = { tipo: 'ok', texto: ok }
+    if (copiaDiretaDisponivel()) {
+      copiarTextoDireto(Promise.resolve(texto)).catch(() => {})
+    } else if (!copiarPelaSelecao(texto, 'texto')) {
+      return false
+    }
+    comandoCopiado.value = texto
     return true
   } catch {
-    mensagem.value = { tipo: 'erro', texto: 'O navegador não deixou copiar. Use "Baixar as instruções (.txt)" e copie do arquivo.' }
     return false
   }
 }
 
-async function copiarInstrucoes() {
-  if (!instrucoes.value) return
-  if (await copiarTexto(instrucoes.value.texto, 'Instruções copiadas. Cole no campo Instruções do Gem e salve.')) {
-    versaoCopiada.value = instrucoes.value.versao
-    guardar('versao', instrucoes.value.versao)
-  }
-}
-
-function baixarInstrucoes() {
-  if (!instrucoes.value) return
-  salvarBlob(new Blob([instrucoes.value.texto], { type: 'text/plain;charset=utf-8' }), `instrucoes-do-gem-v${instrucoes.value.versao}.txt`)
-  versaoCopiada.value = instrucoes.value.versao
-  guardar('versao', instrucoes.value.versao)
-}
-
-function guardarUrl() {
-  mensagem.value = null
-  const url = urlDigitada.value.trim()
-  if (url && !/^https:\/\/gemini\.google\.com\//.test(url)) {
-    mensagem.value = { tipo: 'erro', texto: 'Cole o endereço do Gem como aparece no navegador (começa com https://gemini.google.com/).' }
-    return
-  }
-  urlDoGem.value = url
-  guardar('url', url || null)
-  mensagem.value = { tipo: 'ok', texto: url ? 'Endereço do Gem guardado neste navegador.' : 'Endereço do Gem apagado.' }
-  if (url && !precisaConfigurar.value) configurando.value = false
-}
-
 const espera = (ms) => new Promise((r) => setTimeout(r, ms))
 
-/** Monta o pacote e baixa os arquivos, um depois do outro (o navegador pode pedir para permitir vários downloads). */
-async function baixarPacote() {
-  acao.value = 'pacote'
+/** Um clique: copia o comando, abre o Gemini numa aba nova e baixa os arquivos do atendimento. */
+async function irParaOGemini() {
   mensagem.value = null
+  const copiou = copiarComando()
+  window.open(GEMINI, '_blank', 'noopener')
+  acao.value = 'pacote'
   try {
-    pacote.value = await atendimentoApi.pacoteParaOGem(props.atendimento.id)
+    pacote.value = await atendimentoApi.pacoteParaOGemini(props.atendimento.id)
     for (const arquivo of pacote.value.arquivos) {
-      acao.value = `baixar-${arquivo.nome}`
+      acao.value = 'baixando'
       salvarResposta(await atendimentoApi.arquivoParaOApp(props.atendimento.id, arquivo.nome), arquivo.nome)
       await espera(400)
     }
-    mensagem.value = { tipo: 'ok', texto: 'Arquivos baixados. Arraste todos para o Gem e escreva o que quer.' }
+    if (!copiou) {
+      mensagem.value = { tipo: 'erro', texto: `O navegador não deixou copiar o comando. No Gemini, escreva: ${comando.value}` }
+    }
   } catch (e) {
     mensagem.value = { tipo: 'erro', texto: mensagemDe(e) }
   } finally {
@@ -154,13 +127,15 @@ async function baixar(arquivo) {
   }
 }
 
-/** Pelo texto colado, qual dos três ele é (até a pessoa escolher). */
-function reconhecerTipo() {
-  if (tipoEscolhido.value) return
-  const t = resposta.value
-  if (/^\s*#*\s*\**\s*(Passos para reproduzir|Relato do problema|Resultado obtido)/im.test(t)) tipo.value = 'dev_erro'
-  else if (/(Solicita[çc][ãa]o de Melhoria|^\s*#*\s*\**\s*Descri[çc][ãa]o resumida)/im.test(t)) tipo.value = 'dev_alteracao'
-  else if (t.trim()) tipo.value = 'resumo'
+function baixarHabilidade() {
+  if (!habilidade.value) return
+  salvarBlob(new Blob([habilidade.value.skillMd], { type: 'text/markdown;charset=utf-8' }), 'SKILL.md')
+  versaoBaixada.value = habilidade.value.versao
+  try {
+    localStorage.setItem(chave(), String(habilidade.value.versao))
+  } catch {
+    // sem armazenamento: o aviso volta na próxima vez
+  }
 }
 
 async function usar() {
@@ -171,7 +146,7 @@ async function usar() {
     emit('progresso', progresso)
     emit('usado', tipo.value)
     resposta.value = ''
-    tipoEscolhido.value = false
+    colando.value = false
     aberto.value = false
   } catch (e) {
     mensagem.value = { tipo: 'erro', texto: mensagemDe(e) }
@@ -182,159 +157,88 @@ async function usar() {
 </script>
 
 <template>
-  <section class="mt-4 border-t border-linha pt-3 text-sm" aria-label="Pelo Gem do Gemini">
+  <section class="mt-4 border-t border-linha pt-3 text-sm" aria-label="Pelo app do Gemini">
     <button type="button" class="flex items-baseline gap-2 text-left font-semibold" :aria-expanded="aberto" @click="abrir">
       <span aria-hidden="true">{{ aberto ? '▾' : '▸' }}</span>
-      <span>Gerar pelo Gem do Gemini <span class="font-normal text-tinta-suave">(sem usar a cota da API)</span></span>
+      <span>Gerar pelo app do Gemini <span class="font-normal text-tinta-suave">(sem usar a cota da API)</span></span>
     </button>
 
-    <div v-if="aberto" class="mt-3 grid gap-4">
-      <p class="text-tinta-suave">
-        O Gem é um Gemini com as instruções do sistema guardadas: você baixa os arquivos do atendimento, arrasta no Gem e
-        escreve o que quer. A resposta vem pronta para o chamado.
-      </p>
-
-      <div class="rounded-[3px] border border-linha">
+    <div v-if="aberto" class="mt-3 grid gap-3">
+      <div class="flex flex-wrap items-center gap-2" role="radiogroup" aria-label="O que gerar">
         <button
+          v-for="o in OPCOES"
+          :key="o.codigo"
           type="button"
-          class="flex w-full items-baseline gap-2 px-3 py-2 text-left"
-          :aria-expanded="configurando"
-          @click="configurando = !configurando"
-        >
-          <span aria-hidden="true">{{ configurando ? '▾' : '▸' }}</span>
-          <span class="font-semibold">Criar o Gem</span>
-          <span class="text-xs text-tinta-suave">(uma vez só)</span>
-          <span v-if="instrucoesMudaram" class="ml-auto text-xs font-semibold text-carimbo">as instruções mudaram</span>
-          <span v-else-if="!precisaConfigurar" class="ml-auto text-xs text-credito">pronto</span>
-        </button>
-        <div v-if="configurando" class="grid gap-3 border-t border-linha px-3 py-3">
-          <p v-if="instrucoesMudaram" role="alert" class="text-carimbo">
-            As instruções do Gem mudaram (versão {{ instrucoes.versao }}): copie de novo, cole no seu Gem no lugar das
-            antigas e salve.
-          </p>
-          <ol class="grid list-decimal gap-2 pl-5">
-            <li>
-              No <a class="underline underline-offset-4" :href="GEMINI" target="_blank" rel="noopener noreferrer">gemini.google.com</a>,
-              no computador, abra <span class="font-semibold">Explorar Gems</span> → <span class="font-semibold">Novo Gem</span>
-              e dê um nome (ex.: Atendimentos).
-            </li>
-            <li>
-              <div class="grid gap-2">
-                <span>Copie as instruções, cole no campo <span class="font-semibold">Instruções</span> do Gem e clique em Salvar.</span>
-                <span class="flex flex-wrap gap-2">
-                  <button type="button" class="botao-primario" :disabled="!instrucoes" @click="copiarInstrucoes">Copiar as instruções</button>
-                  <button type="button" class="botao-secundario" :disabled="!instrucoes" @click="baixarInstrucoes">Baixar as instruções (.txt)</button>
-                </span>
-                <details v-if="instrucoes">
-                  <summary class="cursor-pointer text-xs text-tinta-suave">Ver as instruções (versão {{ instrucoes.versao }})</summary>
-                  <textarea class="campo mt-2 h-40 w-full font-mono text-xs" readonly :value="instrucoes.texto" aria-label="As instruções do Gem" />
-                </details>
-              </div>
-            </li>
-            <li>
-              <div class="grid gap-2">
-                <label for="url-do-gem">Com o Gem aberto, copie o endereço da barra do navegador e cole aqui (o botão Abrir o meu Gem vai direto para ele):</label>
-                <span class="flex flex-wrap gap-2">
-                  <input
-                    id="url-do-gem"
-                    v-model="urlDigitada"
-                    type="url"
-                    class="campo min-w-0 flex-1"
-                    placeholder="https://gemini.google.com/gem/..."
-                    @keydown.enter.prevent="guardarUrl"
-                  />
-                  <button type="button" class="botao-secundario" @click="guardarUrl">Guardar</button>
-                </span>
-              </div>
-            </li>
-          </ol>
-        </div>
+          role="radio"
+          :aria-checked="tipo === o.codigo"
+          class="rounded-[3px] border px-4 py-2 font-semibold"
+          :class="tipo === o.codigo ? 'border-tinta bg-tinta text-papel' : 'border-linha bg-cartao hover:border-tinta'"
+          :disabled="!!acao"
+          @click="escolher(o.codigo)"
+        >{{ o.rotulo }}</button>
       </div>
 
       <p v-if="faltaBaixar" class="text-carimbo">
         {{ faltaBaixar === 1 ? '1 anexo ainda não foi baixado' : `${faltaBaixar} anexos ainda não foram baixados` }}: clique em
-        Processar (os downloads não usam a cota do Gemini) e baixe os arquivos depois, senão o texto sai sem eles.
+        Processar antes, senão o texto sai sem eles.
       </p>
 
-      <ol class="grid gap-4 pl-0">
-        <li class="grid gap-2">
-          <p><span class="font-semibold">1. Baixe os arquivos do atendimento</span></p>
-          <div>
-            <button type="button" class="botao-primario" :disabled="!!acao" @click="baixarPacote">
-              {{ acao === 'pacote' ? 'Montando…' : acao.startsWith('baixar-') ? 'Baixando…' : pacote ? 'Baixar de novo' : 'Baixar os arquivos' }}
-            </button>
-          </div>
-          <p class="text-xs text-tinta-suave">
-            Se o navegador perguntar se deixa baixar vários arquivos, clique em Permitir.
-          </p>
-          <div v-if="pacote?.avisos.length" role="note" class="rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2">
-            <p class="font-semibold text-carimbo">Confira antes de mandar</p>
-            <ul class="mt-1 list-disc pl-5">
-              <li v-for="(aviso, i) in pacote.avisos" :key="i">{{ aviso }}</li>
-            </ul>
-          </div>
-          <ul v-if="pacote?.arquivos.length" class="grid gap-1.5">
-            <li v-for="a in pacote.arquivos" :key="a.nome" class="grid gap-0.5 rounded-[2px] border border-linha px-2 py-1.5">
-              <div class="flex flex-wrap items-baseline gap-x-3">
-                <span class="carimbo min-w-0 break-all font-semibold">{{ a.nome }}</span>
-                <span class="text-xs text-tinta-suave">{{ tamanho(a.tamanho) }}</span>
-                <button type="button" class="ml-auto text-xs underline underline-offset-4" :disabled="!!acao" @click="baixar(a)">
-                  {{ acao === `baixar-${a.nome}` ? 'Baixando…' : 'Baixar' }}
-                </button>
-              </div>
-              <p v-if="a.conteudo" class="text-xs text-tinta-suave">{{ a.conteudo }}</p>
-            </li>
-          </ul>
-        </li>
+      <div>
+        <button type="button" class="botao-primario" :disabled="!!acao" @click="irParaOGemini">
+          {{ acao === 'pacote' ? 'Montando os arquivos…' : acao === 'baixando' ? 'Baixando…' : 'Baixar os arquivos e abrir o Gemini' }}
+        </button>
+      </div>
 
-        <li class="grid gap-2">
-          <p>
-            <span class="font-semibold">2. No Gem, arraste os arquivos e escreva o que quer:</span>
-            <template v-for="(c, i) in COMANDOS" :key="c.codigo">
-              {{ i ? (i === COMANDOS.length - 1 ? ' ou ' : ', ') : ' ' }}<span class="carimbo font-semibold">{{ c.texto }}</span>
-            </template>.
-            A resposta vem pronta para colar no chamado; para os dados da base, escreva <span class="carimbo font-semibold">base</span> depois.
-          </p>
-          <div>
-            <a class="botao-secundario inline-block" :href="linkDoGem" target="_blank" rel="noopener noreferrer">
-              {{ urlDoGem ? 'Abrir o meu Gem' : 'Abrir o Gemini' }}
-            </a>
-          </div>
-        </li>
+      <div v-if="pacote && !acao" role="status" class="grid gap-1 rounded-[3px] border border-credito/40 bg-credito/5 px-3 py-2">
+        <p>
+          No Gemini, arraste {{ pacote.arquivos.length === 1 ? 'o arquivo baixado' : `os ${pacote.arquivos.length} arquivos baixados` }}
+          <template v-if="comandoCopiado">e cole com <span class="font-semibold">Ctrl+V</span> (o comando já está copiado)</template>.
+        </p>
+        <p class="text-xs text-tinta-suave">
+          <template v-for="(a, i) in pacote.arquivos" :key="a.nome">{{ i ? ' · ' : '' }}<button
+            type="button"
+            class="underline underline-offset-4"
+            :disabled="!!acao"
+            :title="`Baixar ${a.nome} de novo`"
+            @click="baixar(a)"
+          >{{ a.nome }}</button></template>
+        </p>
+        <ul v-if="pacote.avisos.length" class="list-disc pl-5 text-xs text-carimbo">
+          <li v-for="(aviso, i) in pacote.avisos" :key="i">{{ aviso }}</li>
+        </ul>
+      </div>
 
-        <li class="grid gap-2">
-          <label for="resposta-do-gem">
-            <span class="font-semibold">3. Opcional: cole aqui a resposta do Gem</span>
-            <span class="text-tinta-suave"> para numerar as imagens (Imagem_01...) e mandar para a base de conhecimento</span>
-          </label>
-          <textarea
-            id="resposta-do-gem"
-            v-model="resposta"
-            class="campo h-40 w-full text-sm"
-            placeholder="Assunto: Digisac: ... &#10;&#10;O texto do Gem, inteiro (cole a resposta de base junto, se pediu)."
-            @input="reconhecerTipo"
-          />
-          <fieldset class="flex flex-wrap items-center gap-x-4 gap-y-2">
-            <legend class="rotulo mb-1">É o texto de</legend>
-            <label v-for="t in tipos" :key="t.codigo" class="flex items-center gap-1.5">
-              <input v-model="tipo" type="radio" name="tipo-do-gem" :value="t.codigo" :disabled="!!acao" @change="tipoEscolhido = true" />
-              {{ t.rotulo }}
-            </label>
-          </fieldset>
+      <div>
+        <button type="button" class="text-xs underline underline-offset-4" :aria-expanded="colando" @click="colando = !colando">
+          {{ colando ? 'Fechar' : 'Colar a resposta aqui' }}
+        </button>
+        <span class="text-xs text-tinta-suave"> (opcional: numera as imagens e manda para a base)</span>
+        <div v-if="colando" class="mt-2 grid gap-2">
+          <label for="resposta-do-gemini" class="sr-only">A resposta do Gemini</label>
+          <textarea id="resposta-do-gemini" v-model="resposta" class="campo h-40 w-full text-sm" placeholder="Cole aqui a resposta inteira do Gemini." />
           <p v-if="respostaLonga" class="text-xs text-carimbo">A resposta passa de 400 mil caracteres: confira se colou só a resposta.</p>
           <div>
-            <button type="button" class="botao-primario" :disabled="!!acao || !resposta.trim() || respostaLonga" @click="usar">
-              {{ acao === 'usar' ? 'Conferindo…' : 'Usar a resposta' }}
+            <button type="button" class="botao-secundario" :disabled="!!acao || !resposta.trim() || respostaLonga" @click="usar">
+              {{ acao === 'usar' ? 'Conferindo…' : `Usar como ${opcao.rotulo.toLowerCase()}` }}
             </button>
           </div>
-        </li>
-      </ol>
+        </div>
+      </div>
 
       <p
         v-if="mensagem"
         :role="mensagem.tipo === 'erro' ? 'alert' : 'status'"
         :class="mensagem.tipo === 'erro' ? 'text-carimbo' : 'text-credito'"
       >{{ mensagem.texto }}</p>
+
+      <p class="border-t border-linha pt-2 text-xs text-tinta-suave">
+        <template v-if="habilidadeDesatualizada">
+          <span class="font-semibold text-carimbo">Atualize a habilidade no Gemini</span> (versão {{ habilidade.versao }}):
+          baixe o SKILL.md e envie de novo em Configurações → Habilidades.
+        </template>
+        <template v-else>Habilidade no Gemini: {{ nomeDaHabilidade }}<template v-if="habilidade"> (versão {{ habilidade.versao }})</template>.</template>
+        <button v-if="habilidade" type="button" class="ml-1 underline underline-offset-4" @click="baixarHabilidade">Baixar o SKILL.md</button>
+      </p>
     </div>
   </section>
 </template>
