@@ -10,14 +10,14 @@ import java.util.Map;
  * <pre>
  * &lt;p data-fontes="M2 A1"&gt;parágrafo&lt;/p&gt;
  * &lt;p data-imagem="&lt;id&gt;"&gt;&lt;strong&gt;Imagem 1&lt;/strong&gt;: legenda&lt;/p&gt;
- * &lt;ol&gt;
- * &lt;li data-fontes="M5"&gt;passo&lt;p data-imagem="&lt;id&gt;"&gt;&lt;strong&gt;Imagem 2&lt;/strong&gt;: legenda&lt;/p&gt;&lt;/li&gt;
- * &lt;/ol&gt;
+ * &lt;p data-fontes="M5"&gt;passo&lt;/p&gt;
+ * &lt;p data-imagem="&lt;id&gt;"&gt;&lt;strong&gt;Imagem 2&lt;/strong&gt;: legenda&lt;/p&gt;
  * </pre>
  *
- * Os passos seguidos formam uma lista numerada; a imagem fica logo depois do parágrafo ou do passo que ela ilustra.
- * Nos chamados para o desenvolvimento, cada parte vem com o título (ver {@link ModeloDoTexto}).
- * Os atributos {@code data-*} servem à tela (fontes de cada trecho, posição de cada imagem) e saem na cópia.
+ * Texto corrido, como os chamados do suporte: nada é numerado. O passo de um passo a passo é um parágrafo curto, com
+ * a imagem logo depois dele, como em qualquer parágrafo. Nos chamados para o desenvolvimento, cada parte vem com o
+ * título (ver {@link ModeloDoTexto}). Os atributos {@code data-*} servem à tela (fontes de cada trecho, posição de cada
+ * imagem) e saem na cópia.
  */
 public final class MontagemDoHtml {
 
@@ -39,42 +39,20 @@ public final class MontagemDoHtml {
             html.append("<p><strong>").append(escapar(modelo.abertura())).append("</strong></p>\n");
         }
         Map<String, String> titulos = modelo.titulos();
-        boolean emLista = false;
         String secaoAtual = null;
         for (BlocoDoTexto bloco : blocos) {
             if (bloco.secao() != null && !bloco.secao().equals(secaoAtual)) {
-                if (emLista) {
-                    html.append("</ol>\n");
-                    emLista = false;
-                }
                 secaoAtual = bloco.secao();
                 String titulo = titulos.get(secaoAtual);
                 if (titulo != null) {
                     html.append("<p><strong>").append(escapar(titulo)).append("</strong></p>\n");
                 }
             }
-            boolean passo = bloco.tipo() == BlocoDoTexto.Tipo.PASSO;
-            if (passo && !emLista) {
-                html.append("<ol>\n");
-                emLista = true;
-            } else if (!passo && emLista) {
-                html.append("</ol>\n");
-                emLista = false;
-            }
             String fontes = bloco.doSistema() ? "" : " data-fontes=\"" + escapar(String.join(" ", bloco.fontes())) + "\"";
-            if (passo) {
-                html.append("<li").append(fontes).append(">").append(texto(bloco.texto()));
-                bloco.imagens().forEach(i -> html.append(imagem(i)));
-                html.append("</li>\n");
-            } else {
-                if (!bloco.texto().isBlank()) {
-                    html.append("<p").append(fontes).append(">").append(texto(bloco.texto())).append("</p>\n");
-                }
-                bloco.imagens().forEach(i -> html.append(imagem(i)).append('\n'));
+            if (!bloco.texto().isBlank()) {
+                html.append("<p").append(fontes).append(">").append(texto(bloco.texto())).append("</p>\n");
             }
-        }
-        if (emLista) {
-            html.append("</ol>\n");
+            bloco.imagens().forEach(i -> html.append(imagem(i)).append('\n'));
         }
         return html.toString().stripTrailing();
     }

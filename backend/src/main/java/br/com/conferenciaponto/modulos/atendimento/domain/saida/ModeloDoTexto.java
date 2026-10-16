@@ -20,7 +20,7 @@ public record ModeloDoTexto(String abertura, List<Secao> secoes) {
      * Uma parte do chamado.
      *
      * @param chave  como vem no JSON do Gemini
-     * @param passos os trechos viram uma lista numerada
+     * @param passos os trechos são passos (um parágrafo curto cada, com a imagem logo depois; nada é numerado)
      * @param seVazia o que o sistema escreve quando a parte vem vazia (null = a parte some)
      */
     public record Secao(String chave, String titulo, boolean passos, String seVazia) {

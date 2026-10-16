@@ -249,7 +249,7 @@ class RedacaoDoResumoTest {
         SaidaView saida = gerenciarSaidas().detalhe(maria, id, estado.id());
         assertThat(saida.assunto()).startsWith("Digisac: ").endsWith(" : Erro ao emitir a nota fiscal na tela de vendas")
                 .hasSizeLessThanOrEqualTo(150);
-        assertThat(saida.html()).contains("<strong>Imagem 1</strong>: tela Pedidos com o erro").contains("<ol>")
+        assertThat(saida.html()).contains("<strong>Imagem 1</strong>: tela Pedidos com o erro").doesNotContain("<ol>")
                 .contains("[omitido]").doesNotContain("123 456 789").doesNotContain("Imagem 2");
         assertThat(saida.imagens()).singleElement().satisfies(i -> {
             assertThat(i.numero()).isEqualTo(1);
@@ -276,6 +276,26 @@ class RedacaoDoResumoTest {
         assertThat(fim.saidas()).singleElement().satisfies(s -> assertThat(s.situacao()).isEqualTo("pronta"));
         assertThat(eventos).anySatisfy(e -> assertThat(e.progresso().saidas())
                 .anyMatch(s -> s.situacao().equals("pronta")));
+    }
+
+    @Test
+    void aFotoDaTelaDoAcessoRemotoNaoEntraNoTexto() {
+        cadastrarChave();
+        modelo.padrao(p -> p.esquemaJson().contains("\"regioes\"") ? """
+                {"descricao":"A foto mostra a tela do software de acesso remoto UltraViewer aberta sobre a área de trabalho",
+                 "tela":{"nome":"UltraViewer"},"campos":[{"rotulo":"Senha","valor":"x1y2z3"}],"mensagens":[],
+                 "textoLegivel":true,"regioes":[]}""" : ModeloDeMentira.respostaPadrao(p));
+        UUID id = criar();
+        iniciarFila();
+
+        processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
+        esperarAte(id, SituacaoDoAtendimento.PRONTO);
+
+        assertThat(redacoes().get(0).instrucao()).as("a imagem não é oferecida ao texto").doesNotContain("- A1:");
+        SaidaView saida = gerenciarSaidas().detalhe(maria, id, resumo(id).id());
+        assertThat(saida.imagens()).isEmpty();
+        assertThat(saida.html()).doesNotContain("data-imagem");
+        assertThat(saida.avisos()).anyMatch(a -> a.contains("A1 é a tela do programa de acesso remoto"));
     }
 
     @Test
@@ -349,7 +369,7 @@ class RedacaoDoResumoTest {
         EstadoDaSaida erro = redacao.estados(id).get(1);
         SaidaView chamado = gerenciarSaidas().detalhe(maria, id, erro.id());
         assertThat(chamado.html()).startsWith("<p><strong>Caminho da tela</strong></p>")
-                .contains("<p><strong>Passos para reproduzir</strong></p>\n<ol>\n<li data-fontes=\"A1\">Abrir a tela Pedidos.</li>")
+                .contains("<p><strong>Passos para reproduzir</strong></p>\n<p data-fontes=\"A1\">Abrir a tela Pedidos.</p>")
                 .contains("<p><strong>Causa</strong></p>\n<p>Causa não identificada.</p>")
                 .contains("Imagem 1").doesNotContain("parte que não existe");
         assertThat(chamado.html().indexOf("Relato do problema")).isLessThan(chamado.html().indexOf("Pedido ao desenvolvimento"));
@@ -372,13 +392,13 @@ class RedacaoDoResumoTest {
         CopiaView copia = gerenciarSaidas().copia(maria, id, erro.id(), ModoDeCopia.SO_TEXTO);
         assertThat(copia.html()).startsWith("<p><strong>Tela/Funcionalidade:</strong> Pedidos de Venda (VEN010)</p>")
                 .endsWith("<p><strong>Caminho do backup:</strong> não informado</p>\n").doesNotContain("data-fontes");
-        assertThat(copia.texto()).startsWith("Tela/Funcionalidade: Pedidos de Venda (VEN010)").contains("1. Abrir a tela Pedidos.");
+        assertThat(copia.texto()).startsWith("Tela/Funcionalidade: Pedidos de Venda (VEN010)").contains("\n\nAbrir a tela Pedidos.\n\n").doesNotContain("1. ");
 
         SaidaView alteracao = gerenciarSaidas().detalhe(maria, id, redacao.estados(id).get(2).id());
         assertThat(alteracao.html()).startsWith("<p><strong>Solicitação de Melhoria</strong></p>\n<p><strong>Módulo e telas envolvidas</strong></p>")
                 .doesNotContain("Contexto e objetivo").doesNotContain("Causa")
-                .contains("<p><strong>Detalhamento do que criar ou mudar</strong></p>\n<ol>\n<li data-fontes=\"M1\">Campo Desconto máximo (%)")
-                .endsWith("<p><strong>Pontos a confirmar com o cliente</strong></p>\n<ol>\n<li data-fontes=\"M1\">O limite vale também para o gerente?</li>\n</ol>");
+                .contains("<p><strong>Detalhamento do que criar ou mudar</strong></p>\n<p data-fontes=\"M1\">Campo Desconto máximo (%)")
+                .endsWith("<p><strong>Pontos a confirmar com o cliente</strong></p>\n<p data-fontes=\"M1\">O limite vale também para o gerente?</p>");
         PedidoAoModelo pedidoDaAlteracao = modelo.geracoes().stream().map(ModeloDeMentira.Geracao::pedido)
                 .filter(p -> p.esquemaJson().contains("\"pontosAConfirmar\"")).findFirst().orElseThrow();
         assertThat(pedidoDaAlteracao.instrucao()).contains("\"pontosAConfirmar\"").contains("O detalhe do pedido costuma estar no vídeo");

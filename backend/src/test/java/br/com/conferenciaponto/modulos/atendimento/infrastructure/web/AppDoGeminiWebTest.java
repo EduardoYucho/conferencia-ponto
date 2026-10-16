@@ -45,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** As rotas do texto pelo Gem do Gemini: só com o gerador liberado, as instruções, o pacote e a resposta colada. */
+/** As rotas do texto pelo app do Gemini: só com o gerador liberado, a habilidade, o pacote e a resposta colada. */
 @WebMvcTest(controllers = AppDoGeminiController.class)
 @Import({SecurityConfig.class, RespostasSeguranca.class, AcessoUsuarios.class, SegurancaDoGerador.class, WebDoGerador.class})
 class AppDoGeminiWebTest {
@@ -84,7 +84,7 @@ class AppDoGeminiWebTest {
         when(acessos.liberado(maria)).thenReturn(false);
 
         mvc.perform(post(ROTA + "/pacote").with(como(maria))).andExpect(status().isForbidden());
-        mvc.perform(get("/api/v1/atendimentos/app-gemini/instrucoes-do-gem").with(como(maria))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/atendimentos/app-gemini/habilidade").with(como(maria))).andExpect(status().isForbidden());
         mvc.perform(get(ROTA + "/arquivos/Atendimento_1.pdf").with(como(maria))).andExpect(status().isForbidden());
         mvc.perform(post(ROTA + "/resumo/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"resposta\":\"{}\"}")).andExpect(status().isForbidden());
@@ -94,21 +94,23 @@ class AppDoGeminiWebTest {
     @Test
     void asInstrucoesOPacoteEAResposta() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
-        when(app.instrucoesDoGem()).thenReturn(new PeloAppDoGemini.InstrucoesDoGem(1, "Você escreve os textos..."));
+        when(app.habilidade()).thenReturn(new PeloAppDoGemini.Habilidade(2, "resumo-de-atendimento", "Você escreve os textos...",
+                "---\nname: resumo-de-atendimento\n---\n\nVocê escreve os textos..."));
         when(app.pacote(maria, ID)).thenReturn(new PeloAppDoGemini.PacoteView(
                 List.of(new PeloAppDoGemini.PacoteView.Arquivo("Atendimento_1.pdf", 2048, "a conversa (A1)")),
-                List.of("A3 não está no servidor."), 0, 0, 1));
+                List.of("A3 não está no servidor."), 0, 0, 2));
         when(processamento.progresso(maria, ID)).thenReturn(new ProgressoView(ID, "concluido", null, 100, List.of()));
 
-        mvc.perform(get("/api/v1/atendimentos/app-gemini/instrucoes-do-gem").with(como(maria)))
+        mvc.perform(get("/api/v1/atendimentos/app-gemini/habilidade").with(como(maria)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.versao").value(1))
-                .andExpect(jsonPath("$.dados.texto").value("Você escreve os textos..."));
+                .andExpect(jsonPath("$.dados.versao").value(2))
+                .andExpect(jsonPath("$.dados.nome").value("resumo-de-atendimento"))
+                .andExpect(jsonPath("$.dados.skillMd").value(org.hamcrest.Matchers.startsWith("---\nname: resumo-de-atendimento")));
         mvc.perform(post(ROTA + "/pacote").with(como(maria)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.arquivos[0].nome").value("Atendimento_1.pdf"))
                 .andExpect(jsonPath("$.dados.avisos[0]").value("A3 não está no servidor."))
-                .andExpect(jsonPath("$.dados.versaoDasInstrucoes").value(1));
+                .andExpect(jsonPath("$.dados.versaoDaHabilidade").value(2));
         mvc.perform(post(ROTA + "/soneto/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"resposta\":\"x\"}"))
                 .andExpect(status().isUnprocessableEntity())

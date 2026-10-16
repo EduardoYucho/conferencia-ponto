@@ -10,6 +10,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendiment
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoArquivo;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.Mascaramento;
+import br.com.conferenciaponto.modulos.atendimento.domain.conversa.TelaDeAcessoRemoto;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.ExecutorDeTarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.ResultadoDaTarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefa;
@@ -178,7 +179,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
         return conferir(tipo, contato, linha, imagens, bruto(resultado, ModeloDoTexto.de(tipo)));
     }
 
-    /** A mesma conferência para um texto já lido (o que veio do Gem do Gemini, por exemplo). */
+    /** A mesma conferência para um texto já lido (o que veio do app do Gemini, por exemplo). */
     ConferenciaDoTexto.Conferido conferir(TipoDeSaida tipo, String contato, LinhaDoTempo linha,
                                           List<ConferenciaDoTexto.ImagemDisponivel> imagens, ConferenciaDoTexto.Bruto bruto) {
         ConferenciaDoTexto conferencia = new ConferenciaDoTexto(linha.todos().map(ItemDaLinha::id).collect(Collectors.toSet()),
@@ -263,7 +264,9 @@ public class RedigirSaida implements ExecutorDeTarefa {
                         return;
                     }
                     if ("imagem".equals(i.categoria())) {
-                        if (noServidor(arquivo)) {
+                        if (telaDeAcessoRemoto(i)) {
+                            avisos.add(AVISO_DE_ACESSO_REMOTO.formatted(i.id()));
+                        } else if (noServidor(arquivo)) {
                             imagens.add(new ConferenciaDoTexto.ImagemDisponivel(i.id(), arquivo.id(), arquivo.caminho(),
                                     i.resumo() != null ? i.resumo() : arquivo.nome()));
                         }
@@ -272,6 +275,25 @@ public class RedigirSaida implements ExecutorDeTarefa {
                     }
                 });
         return new Catalogo(imagens, avisos);
+    }
+
+    static final String AVISO_DE_ACESSO_REMOTO = "A imagem %s é a tela do programa de acesso remoto (mostra o ID e a "
+            + "senha) e ficou fora do texto.";
+
+    /**
+     * A imagem é a foto ou o print da tela do programa de acesso remoto (pela descrição da análise): ela mostra o ID e
+     * a senha e não entra no texto, na base nem no pacote para o Gemini.
+     */
+    static boolean telaDeAcessoRemoto(ItemDaLinha item) {
+        if (!"imagem".equals(item.categoria())) {
+            return false;
+        }
+        if (TelaDeAcessoRemoto.mostra(item.resumo())) {
+            return true;
+        }
+        return item.texto() != null && item.texto().lines()
+                .filter(l -> l.startsWith("O que mostra:") || l.startsWith("Tela:"))
+                .anyMatch(TelaDeAcessoRemoto::mostra);
     }
 
     /** Os quadros do vídeo no catálogo (V1@02:15), tirando antes os que faltam. */

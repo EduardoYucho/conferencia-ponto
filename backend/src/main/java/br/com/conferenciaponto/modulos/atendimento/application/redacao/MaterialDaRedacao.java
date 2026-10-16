@@ -42,12 +42,12 @@ final class MaterialDaRedacao {
     }
 
     /**
-     * A mesma conversa para o Gem do Gemini (vai no PDF do pacote): no fim, as imagens que o texto pode mostrar com a
-     * marcação que o Gem escreve ([Imagem A3: legenda]) e, com vídeo, como mostrar um momento dele.
+     * A mesma conversa para o app do Gemini (vai no PDF do pacote): no fim, as imagens que o texto pode mostrar com a
+     * marcação da habilidade ([Imagem A3: legenda]) e, com vídeo, como mostrar um momento dele.
      *
      * @param video o identificador do primeiro vídeo do pacote, para o exemplo do momento (null sem vídeo)
      */
-    static String paraOGem(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
+    static String paraOAppDoGemini(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
                            List<ConferenciaDoTexto.ImagemDisponivel> imagens, String video, ZoneId fuso) {
         StringBuilder t = conversa(chamado, contato, inicio, fim, linha, fuso);
         t.append("\nImagens que o texto pode mostrar (escreva [Imagem <identificador>: o que ela mostra] numa linha "
