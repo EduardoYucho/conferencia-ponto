@@ -6,6 +6,7 @@ import { usePontoStore } from '@/stores/ponto'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import SinoNotificacoes from '@/components/SinoNotificacoes.vue'
 import AvisosGlobais from '@/components/AvisosGlobais.vue'
+import MenuLateral from '@/components/MenuLateral.vue'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 
 const auth = useAuthStore()
@@ -36,19 +37,9 @@ watch(
 )
 
 const mostrarBarra = computed(() => auth.autenticado && !route.meta.publica && !route.meta.semBarra)
-const menu = computed(() => [
-  { nome: 'painel', rotulo: 'Painel' },
-  { nome: 'auditoria', rotulo: 'Auditoria' },
-  { nome: 'conciliacao', rotulo: 'Conciliação RH' },
-  { nome: 'ausencias', rotulo: 'Folgas e feriados' },
-  { nome: 'equipe', rotulo: 'Equipe' },
-  // módulos de atendimentos e base de conhecimento: só para quem foi liberado
-  ...(modulos.gerador ? [{ nome: 'atendimentos', rotulo: 'Atendimentos' }] : []),
-  ...(modulos.pesquisar ? [{ nome: 'base-conhecimento', rotulo: 'Base de conhecimento' }] : []),
-  ...(auth.ehAdmin
-    ? [{ nome: 'usuarios', rotulo: 'Usuários' }, { nome: 'acessos-modulos', rotulo: 'Acessos' }, { nome: 'logs', rotulo: 'Logs' }]
-    : []),
-])
+/** No celular: a gaveta do menu lateral aberta. */
+const menuAberto = ref(false)
+const menuLateral = ref(null)
 const iniciais = computed(() =>
   (auth.usuario?.nome ?? '?').split(/\s+/).map((p) => p[0]).slice(0, 2).join('').toUpperCase(),
 )
@@ -103,66 +94,75 @@ function sair() {
 </script>
 
 <template>
-  <nav v-if="mostrarBarra" class="relative z-40 border-b border-linha bg-cartao/80 backdrop-blur-sm" aria-label="Navegação principal">
-    <div class="mx-auto flex max-w-7xl items-center justify-between gap-3 px-4 py-2 sm:px-6">
-      <div class="-mx-1 flex min-w-0 items-center gap-0.5 overflow-x-auto px-1 text-sm">
-        <RouterLink
-          v-for="item in menu"
-          :key="item.nome"
-          :to="{ name: item.nome }"
-          class="rounded-[3px] px-2.5 py-1.5 font-semibold whitespace-nowrap text-tinta-suave transition hover:bg-papel-escuro hover:text-tinta"
-          active-class="bg-tinta! text-cartao! hover:bg-tinta!"
-        >{{ item.rotulo }}</RouterLink>
-      </div>
-      <div class="flex shrink-0 items-center gap-3 text-sm">
-        <label v-if="auth.podeVerTodos && opcoesPessoa.length > 1" class="flex items-center gap-2">
-          <span class="rotulo hidden whitespace-nowrap xl:inline">Dados de</span>
-          <select
-            v-model="pessoaSelecionada"
-            class="campo max-w-[11rem] py-1! font-sans text-sm font-semibold"
-            aria-label="De quem são os dados em tela"
-          >
-            <option v-for="p in opcoesPessoa" :key="p.login" :value="p.login">{{ p.nome }}</option>
-          </select>
-        </label>
-        <span
-          v-if="auth.somenteLeitura"
-          class="hidden rounded-[2px] border border-carimbo/40 px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wider text-carimbo uppercase sm:inline"
-        >somente leitura</span>
-        <RouterLink
-          :to="{ name: 'conta' }"
-          class="flex items-center gap-3 rounded-[3px] px-1.5 py-1 transition hover:bg-papel-escuro"
-          title="Minha conta: senha, pasta dos comprovantes e horário"
+  <div v-if="mostrarBarra" class="flex min-h-screen">
+    <MenuLateral ref="menuLateral" v-model:aberto="menuAberto" />
+    <div class="min-w-0 flex-1">
+      <header class="sticky top-0 z-20 border-b border-linha bg-cartao/80 backdrop-blur-sm">
+        <div class="flex h-12 items-center justify-between gap-3 px-4 sm:px-6">
+          <div class="flex min-w-0 items-center gap-2 text-sm">
+            <button
+              type="button"
+              class="grid size-9 shrink-0 place-items-center rounded-[3px] border border-linha text-lg leading-none hover:bg-papel-escuro lg:hidden"
+              :aria-expanded="menuAberto"
+              aria-label="Abrir o menu"
+              @click.stop="menuAberto = true"
+            >☰</button>
+            <p v-if="menuLateral?.ondeEsta" class="min-w-0 truncate text-tinta-suave">
+              <span class="hidden sm:inline">{{ menuLateral.ondeEsta.grupo }} › </span><span class="font-semibold text-tinta">{{ menuLateral.ondeEsta.item }}</span>
+            </p>
+          </div>
+          <div class="flex shrink-0 items-center gap-3 text-sm">
+            <label v-if="auth.podeVerTodos && opcoesPessoa.length > 1" class="flex items-center gap-2">
+              <span class="rotulo hidden whitespace-nowrap xl:inline">Dados de</span>
+              <select
+                v-model="pessoaSelecionada"
+                class="campo max-w-[11rem] py-1! font-sans text-sm font-semibold"
+                aria-label="De quem são os dados em tela"
+              >
+                <option v-for="p in opcoesPessoa" :key="p.login" :value="p.login">{{ p.nome }}</option>
+              </select>
+            </label>
+            <span
+              v-if="auth.somenteLeitura"
+              class="hidden rounded-[2px] border border-carimbo/40 px-1.5 py-0.5 text-[0.65rem] font-bold tracking-wider text-carimbo uppercase sm:inline"
+            >somente leitura</span>
+            <RouterLink
+              :to="{ name: 'conta' }"
+              class="flex items-center gap-3 rounded-[3px] px-1.5 py-1 transition hover:bg-papel-escuro"
+              title="Minha conta: senha, pasta dos comprovantes e horário"
+            >
+              <span class="hidden text-right leading-tight sm:block">
+                <span class="block font-semibold">{{ auth.usuario?.nome }}</span>
+                <span class="block text-xs text-tinta-suave underline decoration-linha underline-offset-2">Minha conta</span>
+              </span>
+              <span class="grid size-8 place-items-center rounded-full bg-tinta text-xs font-bold text-cartao" aria-hidden="true">{{ iniciais }}</span>
+            </RouterLink>
+            <SinoNotificacoes v-if="auth.ehTitular" />
+            <button type="button" class="botao-secundario py-1.5! text-xs" @click="sair">Sair</button>
+          </div>
+        </div>
+        <div
+          v-if="auth.podeVerTodos && auth.erroTitulares"
+          class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm text-carimbo"
+          role="alert"
         >
-          <span class="hidden text-right leading-tight sm:block">
-            <span class="block font-semibold">{{ auth.usuario?.nome }}</span>
-            <span class="block text-xs text-tinta-suave underline decoration-linha underline-offset-2">Minha conta</span>
-          </span>
-          <span class="grid size-8 place-items-center rounded-full bg-tinta text-xs font-bold text-cartao" aria-hidden="true">{{ iniciais }}</span>
-        </RouterLink>
-        <SinoNotificacoes v-if="auth.ehTitular" />
-        <button type="button" class="botao-secundario py-1.5! text-xs" @click="sair">Sair</button>
-      </div>
+          Não foi possível carregar a lista de pessoas.
+          <button type="button" class="ml-2 font-semibold underline underline-offset-4" :disabled="recarregandoPessoas" @click="recarregarPessoas">
+            {{ recarregandoPessoas ? 'tentando…' : 'tentar de novo' }}
+          </button>
+        </div>
+        <div
+          v-if="!auth.vendoOsProprios && auth.ehTitular"
+          class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm"
+          role="status"
+        >
+          Consultando os dados de <b>{{ auth.pessoaEmTela?.nome }}</b> · somente leitura
+          <button type="button" class="ml-2 font-semibold text-carimbo underline underline-offset-4" @click="trocarPessoa(null)">voltar aos meus dados</button>
+        </div>
+      </header>
+      <RouterView :key="chaveTela" />
     </div>
-    <div
-      v-if="auth.podeVerTodos && auth.erroTitulares"
-      class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm text-carimbo"
-      role="alert"
-    >
-      Não foi possível carregar a lista de pessoas.
-      <button type="button" class="ml-2 font-semibold underline underline-offset-4" :disabled="recarregandoPessoas" @click="recarregarPessoas">
-        {{ recarregandoPessoas ? 'tentando…' : 'tentar de novo' }}
-      </button>
-    </div>
-    <div
-      v-if="!auth.vendoOsProprios && auth.ehTitular"
-      class="border-t border-carimbo/30 bg-carimbo/5 px-4 py-1.5 text-center text-sm"
-      role="status"
-    >
-      Consultando os dados de <b>{{ auth.pessoaEmTela?.nome }}</b> · somente leitura
-      <button type="button" class="ml-2 font-semibold text-carimbo underline underline-offset-4" @click="trocarPessoa(null)">voltar aos meus dados</button>
-    </div>
-  </nav>
-  <RouterView :key="chaveTela" />
+  </div>
+  <RouterView v-else :key="chaveTela" />
   <AvisosGlobais />
 </template>

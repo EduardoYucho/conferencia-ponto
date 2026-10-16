@@ -206,6 +206,16 @@ Remove-Item Env:PGPASSWORD
 corrigida (`ponto atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
 atrapalham o ponto e são reaproveitadas.
 
+## Menu lateral
+
+As telas ficam num **menu lateral**, agrupadas por área: **Ponto** (Painel, Auditoria, Conciliação RH, Folgas e
+feriados, Equipe), **Atendimentos** (Meus atendimentos, Novo atendimento, Minha chave do Gemini), **Base de
+conhecimento** (Pesquisar) e **Administração** (Usuários, Acessos, Logs; só para o administrador). Cada grupo abre
+e fecha, e o botão no pé do menu o **recolhe** para uma faixa só com os ícones (aí o grupo abre os itens ao lado,
+e *Esc* ou um clique fora fecha). O navegador lembra o menu recolhido e os grupos fechados. No alto fica uma barra
+fina com o caminho da tela (*Ponto › Painel*), o "Dados de", o nome (*Minha conta*), o sino e *Sair*. No celular o
+menu vira uma gaveta, aberta pelo botão ☰.
+
 ## Vários usuários
 
 Cada pessoa tem o próprio acesso e os próprios dados: batidas, horário, banco de horas (ciclo), ausências,
@@ -265,10 +275,10 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, a análise 
 passos e os quadros dos vídeos), a redação do resumo e dos chamados para o desenvolvimento e a base de conhecimento
 com a pesquisa exata:
 
-- **Acessos** (menu do administrador): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
+- **Acessos** (grupo Administração do menu): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
   ponto**: a coordenação pode ser liberada, e o administrador também precisa se liberar.
-- Os itens **Atendimentos** e **Base de conhecimento** só aparecem no menu de quem foi liberado. Toda rota dos
+- Os grupos **Atendimentos** e **Base de conhecimento** só aparecem no menu lateral de quem foi liberado. Toda rota dos
   módulos confere a liberação a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar o acesso vale na hora.
 - **Minha chave do Gemini** (botão na tela Atendimentos): cada pessoa cadastra a própria chave da API do Gemini
   (Google AI Studio, projeto com faturamento) e confirma que ela é do nível pago — no gratuito o Google pode usar
