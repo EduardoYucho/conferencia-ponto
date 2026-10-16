@@ -79,8 +79,12 @@ public class PeloAppDoGemini {
     static final long AUDIO_MAXIMO_MS = 10 * 60_000L;
     static final long VIDEO_MAXIMO_MS = 5 * 60_000L;
     static final long ARQUIVO_MAXIMO = 100L * 1024 * 1024;
-    /** As instruções do Gem: mudar o texto é criar a versão seguinte (a tela avisa quem tem a anterior). */
-    static final InstrucoesDoGem INSTRUCOES = new InstrucoesDoGem(1, ArquivosDePrompt.prompt("gem", 1));
+    /**
+     * As instruções do Gem: mudar o texto é criar a versão seguinte (a tela avisa quem tem a anterior). As quebras de
+     * linha ficam sempre como no Linux (o git do Windows grava o .txt com CRLF), para a cópia sair igual em qualquer PC.
+     */
+    static final InstrucoesDoGem INSTRUCOES = new InstrucoesDoGem(1,
+            ArquivosDePrompt.prompt("gem", 1).replace("\r\n", "\n"));
 
     private static final Set<String> IMAGENS_DO_PDF = Set.of("jpg", "jpeg", "png", "gif", "bmp");
     private static final DateTimeFormatter DIA_E_HORA = DateTimeFormatter.ofPattern("dd/MM 'às' HH:mm");
