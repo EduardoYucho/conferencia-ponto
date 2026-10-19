@@ -22,7 +22,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.saida.MontagemDoHtml;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SituacaoDaSaida;
-import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoDoGem;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoColadoDoGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoRedigido;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import br.com.conferenciaponto.modulos.atendimento.domain.video.ConversorDeMidia;
@@ -57,34 +57,42 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * O texto pelo Gem do Gemini (gemini.google.com), sem usar a cota da API. A pessoa cria uma vez um Gem com as
- * instruções do sistema; em cada atendimento, baixa o pacote — um PDF com a conversa (cada item com o identificador e
- * o lugar do conteúdo) e, depois dela, as imagens e os documentos, um MP3 com os áudios juntos e os vídeos à parte —,
- * arrasta no Gem e escreve "resumo", "erro" ou "alteração". O Gem responde em texto pronto para o chamado. Se a pessoa
- * colar a resposta de volta, ela passa pela mesma conferência da API (imagens numeradas, assunto, dados de acesso
- * remoto) e vira uma versão do texto, como as outras (edição, cópia, base de conhecimento).
+ * O texto pelo app do Gemini (gemini.google.com), sem usar a cota da API. A pessoa cria uma vez, no app, a habilidade
+ * do sistema (o SKILL.md com as instruções). Em cada atendimento, escolhe o texto e um clique baixa o pacote — um PDF
+ * com a conversa (cada item com o identificador e o lugar do conteúdo) e, depois dela, as imagens e os documentos, um
+ * MP3 com os áudios juntos e os vídeos à parte —, copia o comando e abre o Gemini: ela arrasta os arquivos e cola o
+ * comando. A resposta vem em texto pronto para o chamado. Se a pessoa colar a resposta de volta, ela passa pela mesma
+ * conferência da API (imagens numeradas, assunto, dados de acesso remoto) e vira uma versão do texto, como as outras
+ * (edição, cópia, base de conhecimento).
  */
 @Service
 public class PeloAppDoGemini {
 
     private static final Logger log = LoggerFactory.getLogger(PeloAppDoGemini.class);
 
-    /** O "modelo" gravado no texto que veio do Gem (texto) ou do app (JSON). */
-    public static final String MODELO_DO_GEM = "Gem do Gemini (colado)";
+    /** O "modelo" gravado no texto que veio da habilidade (texto) ou do app (JSON). */
+    public static final String MODELO_DA_HABILIDADE = "habilidade do Gemini (colado)";
     public static final String MODELO_DO_APP = "app do Gemini (colado)";
     static final String AUDIOS = "Audios";
     private static final String INDICE = "conteudo.json";
+    /** O lugar, na conversa do PDF, da foto da tela do programa de acesso remoto (que não vai no pacote). */
+    private static final String FORA_DO_PACOTE = "fora do pacote: é a tela do programa de acesso remoto, com o ID e a senha";
     /** Os limites do app do Gemini no plano sem assinatura (ajuda do Google, outubro de 2026). */
     static final int ARQUIVOS_POR_PEDIDO = 10;
     static final long AUDIO_MAXIMO_MS = 10 * 60_000L;
     static final long VIDEO_MAXIMO_MS = 5 * 60_000L;
     static final long ARQUIVO_MAXIMO = 100L * 1024 * 1024;
+    /** O nome da habilidade no app do Gemini (o comando copiado a chama por ele). */
+    static final String NOME_DA_HABILIDADE = "resumo-de-atendimento";
+    private static final String DESCRICAO_DA_HABILIDADE = "Use quando eu anexar o pacote de um atendimento de suporte "
+            + "baixado do sistema de conferência (Atendimento_<chamado>.pdf, Audios.mp3 e vídeos) e escrever resumo, erro, "
+            + "alteração ou base. Escreve o resumo do atendimento para o chamado, o chamado de erro ou de alteração para o "
+            + "desenvolvimento, ou os dados para a base de conhecimento, em texto corrido e no formato que o sistema lê.";
     /**
-     * As instruções do Gem: mudar o texto é criar a versão seguinte (a tela avisa quem tem a anterior). As quebras de
-     * linha ficam sempre como no Linux (o git do Windows grava o .txt com CRLF), para a cópia sair igual em qualquer PC.
+     * As instruções da habilidade: mudar o texto é criar a versão seguinte (a tela avisa quem tem a anterior). As
+     * quebras de linha ficam sempre como no Linux (o git do Windows grava o .txt com CRLF), para sair igual em qualquer PC.
      */
-    static final InstrucoesDoGem INSTRUCOES = new InstrucoesDoGem(1,
-            ArquivosDePrompt.prompt("gem", 1).replace("\r\n", "\n"));
+    static final Habilidade HABILIDADE = habilidade(2);
 
     private static final Set<String> IMAGENS_DO_PDF = Set.of("jpg", "jpeg", "png", "gif", "bmp");
     private static final DateTimeFormatter DIA_E_HORA = DateTimeFormatter.ofPattern("dd/MM 'às' HH:mm");
@@ -122,30 +130,40 @@ public class PeloAppDoGemini {
         this.clock = clock;
     }
 
-    /** O texto para colar nas instruções do Gem, com a versão (a tela avisa quando ela muda). */
-    public record InstrucoesDoGem(int versao, String texto) {
+    /**
+     * A habilidade para criar no app do Gemini: o nome, as instruções e o SKILL.md pronto para enviar, com a versão (a
+     * tela avisa quando ela muda).
+     */
+    public record Habilidade(int versao, String nome, String instrucoes, String skillMd) {
+    }
+
+    private static Habilidade habilidade(int versao) {
+        String instrucoes = ArquivosDePrompt.prompt("habilidade", versao).replace("\r\n", "\n");
+        String skillMd = "---\nname: " + NOME_DA_HABILIDADE + "\ndescription: " + DESCRICAO_DA_HABILIDADE + "\n---\n\n"
+                + instrucoes + "\n";
+        return new Habilidade(versao, NOME_DA_HABILIDADE, instrucoes, skillMd);
     }
 
     /** Um arquivo do pacote: o nome para anexar, onde está no servidor e o que tem dentro. */
     public record ArquivoDoPacote(String nome, Path local, long tamanho, String conteudo) {
     }
 
-    /** O que a tela mostra: os arquivos para baixar e anexar no Gem e o que conferir antes. */
+    /** O que a tela mostra: os arquivos para baixar e anexar no Gemini e o que conferir antes. */
     public record PacoteView(List<Arquivo> arquivos, List<String> avisos, long audioMs, long videoMs,
-                             int versaoDasInstrucoes) {
+                             int versaoDaHabilidade) {
 
         public record Arquivo(String nome, long tamanho, String conteudo) {
         }
     }
 
-    public InstrucoesDoGem instrucoesDoGem() {
-        return INSTRUCOES;
+    public Habilidade habilidade() {
+        return HABILIDADE;
     }
 
     // --------------------------------------------------------------------------------------------- o pacote
 
     /**
-     * Monta o pacote para o Gem: a linha do tempo de agora (guardada, para a resposta usar os mesmos identificadores)
+     * Monta o pacote para o Gemini: a linha do tempo de agora (guardada, para a resposta usar os mesmos identificadores)
      * e os arquivos, de novo a cada vez.
      */
     public PacoteView pacote(Usuario usuario, UUID atendimentoId) {
@@ -153,11 +171,11 @@ public class PeloAppDoGemini {
         LinhaDoTempo linha = linhaDoTempo.montar(atendimento);
         Pacote pacote = montarPacote(atendimento, linha);
         guardarIndice(atendimentoId, pacote);
-        log.info("Atendimento {}: pacote para o Gem do Gemini montado ({} arquivo(s), {} aviso(s))", atendimentoId,
+        log.info("Atendimento {}: pacote para o app do Gemini montado ({} arquivo(s), {} aviso(s))", atendimentoId,
                 pacote.arquivos().size(), pacote.avisos().size());
         return new PacoteView(pacote.arquivos().stream()
                 .map(a -> new PacoteView.Arquivo(a.nome(), a.tamanho(), a.conteudo())).toList(), pacote.avisos(),
-                pacote.audioMs(), pacote.videoMs(), INSTRUCOES.versao());
+                pacote.audioMs(), pacote.videoMs(), HABILIDADE.versao());
     }
 
     /** Um arquivo do último pacote montado. */
@@ -171,7 +189,8 @@ public class PeloAppDoGemini {
     // --------------------------------------------------------------------------------------------- a resposta
 
     /**
-     * A resposta colada vira o texto: o texto do Gem (o formato das instruções) ou, se vier, o JSON do esquema da API.
+     * A resposta colada vira o texto: o texto da habilidade (o formato das instruções) ou, se vier, o JSON do esquema
+     * da API.
      * Preenche a versão que estava esperando (o atendimento pausado pela cota, por exemplo) ou cria a seguinte.
      *
      * @return o id do texto
@@ -180,7 +199,7 @@ public class PeloAppDoGemini {
         AtendimentoGuardado atendimento = doDono(usuario, atendimentoId);
         PromptsDaRedacao.Prompt prompt = promptDo(tipo);
         LinhaDoTempo linha = atendimentos.linhaDoTempo(atendimentoId).orElseThrow(() -> new RegraNegocioException(
-                "PACOTE_NAO_MONTADO", "Baixe os arquivos do pacote primeiro: a resposta usa os identificadores dele "
+                "PACOTE_NAO_MONTADO", "Baixe os arquivos primeiro: a resposta usa os identificadores dele "
                 + "(M1, A3...)."));
         String colado = resposta == null ? "" : resposta.strip();
         if (colado.isEmpty()) {
@@ -197,9 +216,9 @@ public class PeloAppDoGemini {
                 throw foraDoFormato(falha.getMessage());
             }
         } else {
-            bruto = TextoDoGem.ler(colado, modelo);
+            bruto = TextoColadoDoGemini.ler(colado, modelo);
         }
-        boolean doGem = emJson.isEmpty();
+        boolean daHabilidade = emJson.isEmpty();
         String contato = atendimento.resumo().contato();
         List<ConferenciaDoTexto.ImagemDisponivel> imagens = new ArrayList<>(imagensDoPacote(atendimento, linha));
         imagens.addAll(quadrosCitados(atendimento, linha, bruto));
@@ -210,8 +229,8 @@ public class PeloAppDoGemini {
             throw foraDoFormato(falha.getMessage());
         }
         TextoRedigido texto = conferido.texto();
-        if (doGem) {
-            // o texto do Gem vai direto para o chamado e não traz as fontes de cada trecho: não é um aviso
+        if (daHabilidade) {
+            // o texto da habilidade vai direto para o chamado e não traz as fontes de cada trecho: não é um aviso
             texto = texto.comAssunto(texto.assunto(), texto.avisos().stream().filter(a -> !a.contains("sem fonte")).toList());
             if (bruto.assunto().isBlank()) {
                 texto = texto.comMaisAvisos(List.of("A resposta não tinha a linha \"Assunto:\": escreva o assunto acima."));
@@ -228,8 +247,8 @@ public class PeloAppDoGemini {
         String html = MontagemDoHtml.montar(texto.blocos(), modelo);
         String estrutura = EstruturaDaSaida.escrever(json, texto);
         TextoRedigido gravado = texto;
-        String modeloGravado = doGem ? MODELO_DO_GEM : MODELO_DO_APP;
-        int versaoDoPrompt = doGem ? INSTRUCOES.versao() : prompt.versao();
+        String modeloGravado = daHabilidade ? MODELO_DA_HABILIDADE : MODELO_DO_APP;
+        int versaoDoPrompt = daHabilidade ? HABILIDADE.versao() : prompt.versao();
         UUID saidaId = transacao.execute(status -> {
             UUID id = saidaParaPreencher(atendimentoId, tipo);
             if (!saidas.salvarRedacao(id, estrutura, html, gravado.assunto(), modeloGravado, versaoDoPrompt, 0, 0,
@@ -239,7 +258,7 @@ public class PeloAppDoGemini {
             return id;
         });
         log.info("Atendimento {}: {} vindo do {} gravado ({} trechos, {} imagens, {} avisos)", atendimentoId,
-                tipo.codigo(), doGem ? "Gem" : "app do Gemini", texto.blocos().size(), conferido.imagens().size(),
+                tipo.codigo(), daHabilidade ? "texto da habilidade" : "JSON do app do Gemini", texto.blocos().size(), conferido.imagens().size(),
                 texto.avisos().size());
         return saidaId;
     }
@@ -258,7 +277,7 @@ public class PeloAppDoGemini {
                 SituacaoDaSaida.CONFIRMADA), clock.instant()).orElseThrow(PeloAppDoGemini::mudouNoMeio);
     }
 
-    /** O JSON, se o que foi colado é JSON (num bloco de código ou inteiro); texto comum é o formato do Gem. */
+    /** O JSON, se o que foi colado é JSON (num bloco de código ou inteiro); texto comum é o formato da habilidade. */
     static Optional<String> jsonDaResposta(String colado) {
         String texto = colado == null ? "" : colado.strip();
         Matcher bloco = BLOCO_JSON.matcher(texto);
@@ -273,7 +292,7 @@ public class PeloAppDoGemini {
 
     private static RegraNegocioException foraDoFormato(String detalhe) {
         return new RegraNegocioException("RESPOSTA_FORA_DO_FORMATO", "A resposta colada veio em JSON, mas fora do "
-                + "formato (" + detalhe + "). No Gemini, peça o texto no formato das instruções do Gem e cole a nova "
+                + "formato (" + detalhe + "). No Gemini, use a habilidade " + NOME_DA_HABILIDADE + " e cole a nova "
                 + "resposta inteira.");
     }
 
@@ -325,7 +344,9 @@ public class PeloAppDoGemini {
         List<String> avisos = new ArrayList<>();
         linha.todos().filter(ItemDaLinha::arquivo).forEach(i -> {
             ArquivoDoAtendimento arquivo = i.arquivoId() == null ? null : arquivos.get(i.arquivoId());
-            if (arquivo == null || noServidor(arquivo) == null || !vaiNoPacote(i)) {
+            if (RedigirSaida.telaDeAcessoRemoto(i)) {
+                avisos.add(RedigirSaida.AVISO_DE_ACESSO_REMOTO.formatted(i.id()));
+            } else if (arquivo == null || noServidor(arquivo) == null || !vaiNoPacote(i)) {
                 avisos.add("Escrito sem o conteúdo " + RedigirSaida.doArquivo(i.categoria(), i.nome())
                         + " (não foi no pacote para o Gemini): confira se faltou alguma coisa.");
             }
@@ -367,6 +388,11 @@ public class PeloAppDoGemini {
             }
             if (!vaiNoPacote(item)) {
                 avisos.add(item.id() + " (" + nomeOuArquivo(item) + ") é de um tipo que o Gemini não lê e não vai no pacote.");
+                continue;
+            }
+            if (RedigirSaida.telaDeAcessoRemoto(item)) {
+                ondeEsta.put(item.id(), FORA_DO_PACOTE);
+                avisos.add(item.id() + " é a tela do programa de acesso remoto (mostra o ID e a senha) e não vai no pacote.");
                 continue;
             }
             switch (item.categoria()) {
@@ -429,7 +455,7 @@ public class PeloAppDoGemini {
                             local != null ? local : itensDoPdf.get(i).arquivo()));
                 }
             }
-            return cabecalho(atendimento, pdf) + "\n\n" + MaterialDaRedacao.paraOGem(atendimento.resumo().chamado(),
+            return cabecalho(atendimento, pdf) + "\n\n" + MaterialDaRedacao.paraOAppDoGemini(atendimento.resumo().chamado(),
                     atendimento.resumo().contato(), atendimento.resumo().inicio(), atendimento.resumo().fim(),
                     comOndeEsta(linha, comPaginas), imagensDoPacote(atendimento, linha), primeiroVideo(linha, comPaginas),
                     clock.getZone());
@@ -495,7 +521,7 @@ public class PeloAppDoGemini {
     private static String cabecalho(AtendimentoGuardado atendimento, String pdf) {
         String contato = atendimento.resumo().contato() == null || atendimento.resumo().contato().isBlank()
                 ? "contato não identificado" : atendimento.resumo().contato().strip();
-        return "PACOTE DO ATENDIMENTO PARA O GEM\n"
+        return "PACOTE DO ATENDIMENTO PARA O GEMINI\n"
                 + "Contato: " + contato + "\n"
                 + "Assunto: comece por \"" + ConferenciaDoTexto.prefixoDoAssunto(contato).strip()
                 + " \" e use no máximo " + ConferenciaDoTexto.LIMITE_DO_ASSUNTO + " caracteres na linha toda.\n"
@@ -609,7 +635,8 @@ public class PeloAppDoGemini {
         linha.get().todos().filter(ItemDaLinha::arquivo).forEach(item -> {
             ArquivoDoAtendimento arquivo = item.arquivoId() == null ? null : arquivos.get(item.arquivoId());
             Path local = arquivo == null ? null : noServidor(arquivo);
-            if (local != null && vaiNoPacote(item) && !indice.get().juntos().contains(item.id())) {
+            if (local != null && vaiNoPacote(item) && !RedigirSaida.telaDeAcessoRemoto(item)
+                    && !indice.get().juntos().contains(item.id())) {
                 lista.add(new ArquivoDoPacote(item.id() + "_" + nomeComExtensaoDoApp(item, local), local, tamanho(local), ""));
             }
         });
@@ -650,7 +677,7 @@ public class PeloAppDoGemini {
             Files.createDirectories(arquivo.getParent());
             Files.writeString(arquivo, json.writeValueAsString(indice));
         } catch (IOException e) {
-            log.warn("Atendimento {}: índice do pacote para o Gem não gravado ({})", id, e.getClass().getSimpleName());
+            log.warn("Atendimento {}: índice do pacote para o Gemini não gravado ({})", id, e.getClass().getSimpleName());
         }
     }
 
@@ -680,7 +707,8 @@ public class PeloAppDoGemini {
     private List<ConferenciaDoTexto.ImagemDisponivel> imagensDoPacote(AtendimentoGuardado atendimento, LinhaDoTempo linha) {
         Map<UUID, ArquivoDoAtendimento> arquivos = porId(atendimento);
         List<ConferenciaDoTexto.ImagemDisponivel> imagens = new ArrayList<>();
-        linha.todos().filter(i -> i.arquivo() && "imagem".equals(i.categoria()) && i.arquivoId() != null).forEach(i -> {
+        linha.todos().filter(i -> i.arquivo() && "imagem".equals(i.categoria()) && i.arquivoId() != null)
+                .filter(i -> !RedigirSaida.telaDeAcessoRemoto(i)).forEach(i -> {
             ArquivoDoAtendimento arquivo = arquivos.get(i.arquivoId());
             if (arquivo != null && noServidor(arquivo) != null) {
                 imagens.add(new ConferenciaDoTexto.ImagemDisponivel(i.id(), arquivo.id(), arquivo.caminho(),

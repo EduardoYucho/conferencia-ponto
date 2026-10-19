@@ -19,7 +19,7 @@ class PeloAppDoGeminiPartesTest {
     Path pasta;
 
     @Test
-    void separaOJsonDoTextoDoGem() {
+    void separaOJsonDoTextoColadoDoGemini() {
         assertThat(PeloAppDoGemini.jsonDaResposta("Claro! Aqui está:\n```json\n{\"a\":{\"b\":1}}\n```\nPosso ajudar?"))
                 .contains("{\"a\":{\"b\":1}}");
         assertThat(PeloAppDoGemini.jsonDaResposta("```\n{\"a\":1}\n```")).contains("{\"a\":1}");
@@ -29,8 +29,9 @@ class PeloAppDoGeminiPartesTest {
     }
 
     @Test
-    void asInstrucoesDoGemTrazemCadaParteDosChamadosComOTituloQueOSistemaLe() {
-        String instrucoes = PeloAppDoGemini.INSTRUCOES.texto();
+    void aHabilidadeTrazCadaParteDosChamadosComOTituloQueOSistemaLeEOSkillMd() {
+        PeloAppDoGemini.Habilidade habilidade = PeloAppDoGemini.HABILIDADE;
+        String instrucoes = habilidade.instrucoes();
         for (ModeloDoTexto modelo : List.of(ModeloDoTexto.DEV_ERRO, ModeloDoTexto.DEV_ALTERACAO)) {
             for (ModeloDoTexto.Secao secao : modelo.secoes()) {
                 assertThat(instrucoes).as(secao.chave()).contains("\n## " + secao.titulo() + "\n");
@@ -38,7 +39,14 @@ class PeloAppDoGeminiPartesTest {
         }
         assertThat(instrucoes).contains("[Imagem A3: ").contains("Assunto: Digisac:").contains("Tela/Funcionalidade:")
                 .contains("Solicitação de Melhoria").contains(ModeloDoTexto.CAUSA_NAO_IDENTIFICADA)
-                .contains("Código da tela:").doesNotContain("{{");
+                .contains("Código da tela:").contains("sem numerar nada").contains("tela do programa de acesso remoto")
+                .doesNotContain("lista numerada").doesNotContain("{{").doesNotContain("\r");
+        assertThat(habilidade.versao()).isEqualTo(2);
+        assertThat(habilidade.nome()).isEqualTo("resumo-de-atendimento");
+        assertThat(habilidade.skillMd()).startsWith("---\nname: resumo-de-atendimento\ndescription: Use quando ")
+                .contains("\n---\n\n" + instrucoes);
+        String descricao = habilidade.skillMd().lines().filter(l -> l.startsWith("description: ")).findFirst().orElseThrow();
+        assertThat(descricao.length() - "description: ".length()).as("o app aceita até 1.024").isLessThanOrEqualTo(1024);
         assertThat(PeloAppDoGemini.nomeDoPdf("20261013174527")).isEqualTo("Atendimento_20261013174527.pdf");
         assertThat(PeloAppDoGemini.nomeDoPdf(null)).isEqualTo("Atendimento.pdf");
         assertThat(PeloAppDoGemini.nomeDoPdf("../x")).isEqualTo("Atendimento_x.pdf");

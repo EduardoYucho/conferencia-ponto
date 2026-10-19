@@ -279,7 +279,7 @@ class PeloAppDoGeminiTest {
         assertThat(pacote.arquivos().get(0).conteudo()).startsWith("a conversa e, depois dela").contains("A1, A3");
         assertThat(pacote.arquivos().get(1).conteudo()).contains("A2 de 00:00 a 00:02");
         assertThat(pacote.avisos()).isEmpty();
-        assertThat(pacote.versaoDasInstrucoes()).isEqualTo(1);
+        assertThat(pacote.versaoDaHabilidade()).isEqualTo(2);
 
         List<String> paginas = paginas(app().arquivo(maria, id, PDF).local());
         String conversa = String.join("\n", paginas.subList(0, paginaCom(paginas, "A1 · imagem do cliente") - 1));
@@ -289,7 +289,7 @@ class PeloAppDoGeminiTest {
         assertThat(documento).isEqualTo(imagem + 1);
         assertThat(paginas).hasSize(documento + 1);
         assertThat(paginas.get(documento)).contains("Relatorio de vendas: total 1.234,56");
-        assertThat(conversa).contains("PACOTE DO ATENDIMENTO PARA O GEM").contains("Contato: Loja Exemplo - Maria")
+        assertThat(conversa).contains("PACOTE DO ATENDIMENTO PARA O GEMINI").contains("Contato: Loja Exemplo - Maria")
                 .contains("Digisac: Loja Exemplo - Maria :").contains("[A1]").contains("[M7]")
                 .contains("(o conteúdo está neste PDF, na página " + imagem + ")")
                 .contains("(o conteúdo está neste PDF, a partir da página " + documento + ")")
@@ -302,6 +302,29 @@ class PeloAppDoGeminiTest {
         assertThat(app().arquivo(maria, id, "Audios.wav").local()).isRegularFile();
         assertThat(app().arquivo(maria, id, "A4_gravacao-tela.mp4").local()).isRegularFile();
         assertThatThrownBy(() -> app().arquivo(maria, id, "../conversa.pdf")).isInstanceOf(RecursoNaoEncontradoException.class);
+    }
+
+    @Test
+    void aFotoDaTelaDoAcessoRemotoNaoVaiNoPacote() throws IOException {
+        chaves.salvar(new ChaveGemini(maria.id(), cofre.cifrar(CHAVE, maria.id()), "wxyz", false, SituacaoDaChave.VALIDA,
+                AGORA, AGORA));
+        modelo.padrao(p -> p.esquemaJson().contains("\"regioes\"") ? """
+                {"descricao":"Janela do AnyDesk com o endereço desta estação","tela":{"nome":"AnyDesk"},"campos":[],
+                 "mensagens":[],"textoLegivel":true,"regioes":[]}""" : ModeloDeMentira.respostaPadrao(p));
+        UUID id = criar();
+        iniciarFila();
+        processamento().processar(maria, id);
+        await().atMost(20, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
+                .allMatch(a -> a.situacao().equals("pronto")) && situacao(id) != SituacaoDoAtendimento.PROCESSANDO);
+
+        PeloAppDoGemini.PacoteView pacote = app().pacote(maria, id);
+
+        assertThat(pacote.avisos()).anyMatch(a -> a.startsWith("A1 é a tela do programa de acesso remoto"));
+        assertThat(pacote.arquivos()).extracting(PeloAppDoGemini.PacoteView.Arquivo::nome).doesNotContain("A1_1760011620000.jpeg");
+        assertThat(pacote.arquivos().get(0).conteudo()).doesNotContain("A1");
+        String pdf = String.join("\n", paginas(app().arquivo(maria, id, PDF).local()));
+        assertThat(pdf).contains("(o conteúdo está fora do pacote: é a tela do programa de acesso remoto")
+                .doesNotContain("A1 · imagem do cliente").doesNotContain("- A1: ");
     }
 
     @Test
@@ -321,7 +344,7 @@ class PeloAppDoGeminiTest {
     }
 
     @Test
-    void oTextoDoGemColadoViraOTextoComAsImagensEOMomentoDoVideo() {
+    void oTextoDoGeminiColadoViraOTextoComAsImagensEOMomentoDoVideo() {
         UUID id = baixadoSemAnalise();
         assertThatThrownBy(() -> app().usarResposta(maria, id, TipoDeSaida.RESUMO, "Assunto: x"))
                 .isInstanceOf(RegraNegocioException.class).hasFieldOrPropertyWithValue("codigo", "PACOTE_NAO_MONTADO");
@@ -346,11 +369,11 @@ class PeloAppDoGeminiTest {
 
         SaidaView view = gerenciarSaidas().detalhe(maria, id, saida);
         assertThat(view.situacao()).isEqualTo("pronta");
-        assertThat(view.modelo()).isEqualTo(PeloAppDoGemini.MODELO_DO_GEM);
+        assertThat(view.modelo()).isEqualTo(PeloAppDoGemini.MODELO_DA_HABILIDADE);
         assertThat(view.assunto()).isEqualTo("Digisac: Loja Exemplo - Maria : Erro ao emitir a nota fiscal");
         assertThat(view.html()).contains("aparecia um erro na tela de vendas.")
                 .contains("<strong>Imagem 1</strong>: tela de vendas com o erro")
-                .contains("<li").contains("Reproduzi o erro e gravei a tela.")
+                .doesNotContain("<li").doesNotContain("<ol").contains("<p data-fontes=\"A4\">Reproduzi o erro e gravei a tela.</p>")
                 .contains("<strong>Imagem 2</strong>: o erro na tela")
                 .contains("A nota foi emitida e o atendimento foi encerrado.")
                 .doesNotContain("[Imagem").doesNotContain("**");

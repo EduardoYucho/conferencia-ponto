@@ -7,7 +7,7 @@ import java.util.List;
 import static org.assertj.core.api.Assertions.assertThat;
 
 /** O texto que o Gem escreveu, colado de volta, lido em trechos, partes, imagens e dados para a base. */
-class TextoDoGemTest {
+class TextoColadoDoGeminiTest {
 
     private static List<String> textos(ConferenciaDoTexto.Bruto bruto) {
         return bruto.blocos().stream().map(ConferenciaDoTexto.BlocoBruto::texto).toList();
@@ -15,7 +15,7 @@ class TextoDoGemTest {
 
     @Test
     void resumoComAssuntoParagrafosPassosEImagens() {
-        ConferenciaDoTexto.Bruto bruto = TextoDoGem.ler("""
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("""
                 **Assunto:** Digisac: Ana - Transportadora Exemplo : Erro ao gerar o SINTEGRA
 
                 A cliente Ana relatou que o **SINTEGRA** não era gerado:
@@ -55,7 +55,7 @@ class TextoDoGemTest {
 
     @Test
     void chamadoDeErroPelasPartesComATelaEOsDadosParaABase() {
-        ConferenciaDoTexto.Bruto bruto = TextoDoGem.ler("""
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("""
                 ```
                 Assunto: Digisac: Loja - Maria : Erro ao emitir
                 **Tela/Funcionalidade:** Pedidos de Vendas (EQR76)
@@ -92,7 +92,7 @@ class TextoDoGemTest {
 
     @Test
     void chamadoDeAlteracaoSemAAberturaEComOsDadosDaBaseNoFim() {
-        ConferenciaDoTexto.Bruto bruto = TextoDoGem.ler("""
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("""
                 Assunto: Digisac: Bruna - Loja Exemplo : Novo relatório de vendas por vendedor
                 Tela/Funcionalidade: Relatórios de Vendas
 
@@ -124,7 +124,7 @@ class TextoDoGemTest {
 
     @Test
     void textoSemAssuntoNemPartesEntraInteiroNaParteDoRelato() {
-        ConferenciaDoTexto.Bruto bruto = TextoDoGem.ler("O cliente relatou um erro.\nTela: Pedidos\n\nNada mais.",
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("O cliente relatou um erro.\nTela: Pedidos\n\nNada mais.",
                 ModeloDoTexto.DEV_ERRO);
 
         assertThat(bruto.assunto()).isEmpty();
@@ -136,12 +136,31 @@ class TextoDoGemTest {
 
     @Test
     void imagemAntesDeQualquerTextoFicaNoPrimeiroTrecho() {
-        ConferenciaDoTexto.Bruto bruto = TextoDoGem.ler("[Imagem P1: a tela]\n\nO relatório saiu em branco.",
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("[Imagem P1: a tela]\n\nO relatório saiu em branco.",
                 ModeloDoTexto.RESUMO);
 
         assertThat(bruto.blocos()).singleElement().satisfies(b -> {
             assertThat(b.texto()).isEqualTo("O relatório saiu em branco.");
             assertThat(b.imagens()).extracting(ConferenciaDoTexto.ImagemBruta::id).containsExactly("P1");
         });
+    }
+
+    @Test
+    void nasPartesDePassosCadaLinhaEUmPassoSemNumero() {
+        ConferenciaDoTexto.Bruto bruto = TextoColadoDoGemini.ler("""
+                ## Passos para reproduzir
+                Abrir a tela Pedidos de Vendas (EQR76).
+                Clicar em Emitir.
+                [Imagem A2: o erro]
+
+                ## Relato do problema
+                Ao emitir, o sistema trava
+                e mostra uma mensagem.
+                """, ModeloDoTexto.DEV_ERRO);
+
+        assertThat(textos(bruto)).containsExactly("Ao emitir, o sistema trava e mostra uma mensagem.",
+                "Abrir a tela Pedidos de Vendas (EQR76).", "Clicar em Emitir.");
+        assertThat(bruto.blocos().get(2).imagens()).extracting(ConferenciaDoTexto.ImagemBruta::id).containsExactly("A2");
+        assertThat(bruto.blocos()).filteredOn(b -> "passos".equals(b.secao())).allMatch(b -> b.tipo().equals("passo"));
     }
 }

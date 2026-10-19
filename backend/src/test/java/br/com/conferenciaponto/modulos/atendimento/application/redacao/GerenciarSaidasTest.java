@@ -165,7 +165,7 @@ class GerenciarSaidasTest {
         assertThat(com.avisos()).isEmpty();
         CopiaView so = gerenciar.copia(maria, atendimento, saida, ModoDeCopia.SO_TEXTO);
         assertThat(so.html()).doesNotContain("<img").contains("<strong>Imagem 1</strong>: tela de pedidos");
-        assertThat(so.texto()).startsWith("O cliente relatou o erro.\n\nImagem 1: tela de pedidos\n\n1. Alterei o desconto");
+        assertThat(so.texto()).startsWith("O cliente relatou o erro.\n\nImagem 1: tela de pedidos\n\nAlterei o desconto");
         assertThat(gerenciar.copia(maria, atendimento, saida, ModoDeCopia.CODIGO_FONTE).html()).isEqualTo(so.html());
 
         List<GerenciarSaidas.ArquivoDaImagem> zip = gerenciar.imagensParaOZip(maria, atendimento, saida);

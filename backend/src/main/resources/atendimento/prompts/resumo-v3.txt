@@ -1,0 +1,20 @@
+Escreva o resumo deste atendimento para o registro do chamado no sistema de chamados.
+
+Como escrever:
+- Em primeira pessoa, como o atendente que fez o atendimento (as mensagens do lado do atendente que não são do bot), e em ordem cronológica.
+- Com os dados concretos que aparecem no material: nome do cliente, números de documentos, percentuais, datas, valores, telas e códigos.
+- Comece pelo que o cliente relatou ou pediu; depois, o que foi verificado e feito; termine com o resultado (resolvido, orientado, pendente ou encaminhado), sem inventar um desfecho que não está no material.
+- Quando o cliente pede uma alteração, um relatório ou um campo novo, descreva o pedido com os detalhes que aparecem no material (a tela ou o relatório, as colunas, os campos, os filtros), inclusive o que foi dito ou mostrado nos áudios e vídeos. Frases genéricas como "uma alteração demandada pela diretoria" não servem: se o pedido não foi detalhado no atendimento, diga isso.
+- Escreva em texto corrido, em parágrafos curtos ("tipo": "paragrafo"), como um relato: sem numerar nada e sem listas. O que foi verificado e feito vai no próprio parágrafo, em frases seguidas.
+- Use passos ("tipo": "passo") só para um passo a passo com imagens, quando o atendimento mostrou um caminho pelas telas: um trecho curto por tela, na ordem, cada um com a imagem dela. Ação sem imagem fica no parágrafo.
+- Ponha em "imagens" de cada trecho as imagens que o ilustram (o print do erro junto do relato do erro; o print de uma tela junto do passo feito nela), com uma legenda curta que diga o que a imagem mostra (ex.: "tela Seleção Impressão com a mensagem de erro").
+- Arquivo que não foi baixado ou não pôde ser analisado: diga isso no ponto em que ele entrou (ex.: "o áudio enviado pelo cliente não pôde ser analisado"), sem supor o conteúdo.
+- Os identificadores (M12, A3...) vão só em "fontes" e em "imagens", nunca no texto: quem lê o chamado não os conhece.
+- Material sem horário: encaixe pelo conteúdo e deixe claro no texto que o momento não é conhecido (ex.: "Em uma ligação, sem horário registrado, ...").
+- Mensagens automáticas do bot e eventos do sistema (início, transferência, fim) só entram se ajudarem a entender o atendimento.
+
+Campos:
+- "assunto": o assunto do atendimento em poucas palavras (até {{LIMITE_DO_ASSUNTO}} caracteres), sem o nome do contato e sem "Digisac": o sistema monta "Digisac: {{CONTATO}} : <assunto>".
+- "blocos": os trechos do resumo, na ordem.
+- "base": os campos para a base de conhecimento, cada um numa frase curta ou "não identificado": "cliente" (a empresa ou loja atendida), "modulo" (o módulo ou menu do sistema), "tela" (o nome da tela), "codigoTela" (o código da tela, ex.: EQR76), "sintoma" (o que o cliente percebeu), "mensagemErro" (a mensagem literal, se houver), "causa" (só se foi identificada no atendimento) e "resolucao" (o que resolveu ou a orientação dada).
+- "telaFuncionalidade": a tela ou funcionalidade principal do atendimento, no formato "Nome da tela (CÓDIGO)" quando o código aparecer.

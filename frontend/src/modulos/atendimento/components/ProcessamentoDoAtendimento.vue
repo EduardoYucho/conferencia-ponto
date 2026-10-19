@@ -130,7 +130,7 @@ async function renovar([arquivo]) {
       {{ explicacao }}
     </p>
     <p v-if="pausado && /Gemini/.test(atendimento.motivoPausa ?? '')" class="mt-1 text-sm text-tinta-suave">
-      Para não esperar: em Textos gerados, use <span class="font-semibold">Gerar pelo Gem do Gemini</span>, que não usa a cota da API.
+      Para não esperar: em Textos gerados, use <span class="font-semibold">Gerar pelo app do Gemini</span>, que não usa a cota da API.
     </p>
     <div v-if="atendimento.semChaveGemini" role="alert" class="mt-3 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
       Para os arquivos serem analisados, cadastre a sua chave do Gemini em

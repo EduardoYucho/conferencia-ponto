@@ -12,14 +12,14 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * O texto que o Gem do Gemini escreveu, colado de volta pela pessoa, lido para a mesma conferência da API. É texto
- * para ir direto ao chamado (o formato está nas instruções do Gem): a linha "Assunto:", nos chamados a linha
- * "Tela/Funcionalidade:", as partes com "## Título", parágrafos separados por linha em branco, listas numeradas e as
- * marcações de imagem {@code [Imagem A3: legenda]} (ou {@code [Imagem A4@01:15: legenda]}, um momento do vídeo).
- * Os dados para a base ("Cliente:", "Módulo:"...) entram se vierem colados junto. O Markdown que o app costuma pôr
- * (negrito, títulos, marcadores) é tirado.
+ * O texto que o app do Gemini escreveu com a habilidade do sistema, colado de volta pela pessoa, lido para a mesma
+ * conferência da API. É texto para ir direto ao chamado (o formato está nas instruções da habilidade): a linha
+ * "Assunto:", nos chamados a linha "Tela/Funcionalidade:", as partes com "## Título", parágrafos separados por linha
+ * em branco e as marcações de imagem {@code [Imagem A3: legenda]} (ou {@code [Imagem A4@01:15: legenda]}, um momento
+ * do vídeo). Nas partes de passos, cada linha é um passo. Os dados para a base ("Cliente:", "Módulo:"...) entram se
+ * vierem colados junto. O Markdown que o app costuma pôr (negrito, títulos, marcadores, números) é tirado.
  */
-public final class TextoDoGem {
+public final class TextoColadoDoGemini {
 
     private static final int CI = Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE;
     private static final Pattern ASSUNTO = Pattern.compile("^assunto\\s*:\\s*(.*)$", CI);
@@ -33,7 +33,7 @@ public final class TextoDoGem {
     private static final Pattern SEPARADOR = Pattern.compile("^(?:-{3,}|\\*{3,}|_{3,})$");
     private static final Pattern CERCA = Pattern.compile("^```.*$");
     private static final Pattern ROTULO = Pattern.compile("^([^:]{2,30}):\\s*(.*)$");
-    /** "(M12, A3)" no fim de um trecho: o Gem não devia escrever, mas, se escrever, viram as fontes do trecho. */
+    /** "(M12, A3)" no fim de um trecho: o Gemini não devia escrever, mas, se escrever, viram as fontes do trecho. */
     private static final Pattern FONTES = Pattern.compile("\\s*[(\\[]\\s*((?:[MALPV]\\d{1,5}\\s*[,;e]?\\s*)+)[)\\]]");
     private static final Pattern ID = Pattern.compile("[MALPV]\\d{1,5}");
     private static final Map<String, String> CAMPOS_DA_BASE = Map.of(
@@ -43,7 +43,7 @@ public final class TextoDoGem {
             "resumo", "chamado de erro", "chamado de alteracao", "chamado de erro para o desenvolvimento",
             "chamado de alteracao para o desenvolvimento", "texto");
 
-    private TextoDoGem() {
+    private TextoColadoDoGemini() {
     }
 
     /** Lê o texto colado (o que não for reconhecido vira parágrafo; nada se perde). */
@@ -61,7 +61,9 @@ public final class TextoDoGem {
         String padrao = modelo.secao("relato").or(() -> modelo.secao("descricao"))
                 .map(ModeloDoTexto.Secao::chave).orElse(modelo.secoes().isEmpty() ? null : modelo.secoes().get(0).chave());
 
-        Leitura leitura = new Leitura(modelo.comSecoes() ? padrao : null);
+        Set<String> dePassos = new HashSet<>();
+        modelo.secoes().stream().filter(ModeloDoTexto.Secao::passos).forEach(sec -> dePassos.add(sec.chave()));
+        Leitura leitura = new Leitura(modelo.comSecoes() ? padrao : null, dePassos);
         String assunto = null;
         String tela = null;
         Map<String, String> base = new LinkedHashMap<>();
@@ -190,14 +192,16 @@ public final class TextoDoGem {
     private static final class Leitura {
 
         final Map<String, List<ConferenciaDoTexto.BlocoBruto>> porSecao = new LinkedHashMap<>();
+        private final Set<String> dePassos;
         private String secao;
         private String tipo;
         private StringBuilder texto;
         private final List<ConferenciaDoTexto.ImagemBruta> imagens = new ArrayList<>();
         private final List<ConferenciaDoTexto.ImagemBruta> semTrecho = new ArrayList<>();
 
-        Leitura(String secao) {
+        Leitura(String secao, Set<String> dePassos) {
             this.secao = secao;
+            this.dePassos = dePassos;
         }
 
         void secao(String chave) {
@@ -232,7 +236,7 @@ public final class TextoDoGem {
                 abrir("passo", numerado.group(2));
             } else if (marcador.matches()) {
                 abrir("paragrafo", marcador.group(1));
-            } else if (texto != null) {
+            } else if (texto != null && !dePassos.contains(secao)) {
                 texto.append(' ').append(sobra);
             } else {
                 abrir("paragrafo", sobra);

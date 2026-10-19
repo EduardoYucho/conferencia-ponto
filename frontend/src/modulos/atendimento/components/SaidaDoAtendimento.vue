@@ -86,8 +86,8 @@ const tiradas = computed(() => (saida.value?.imagens ?? []).filter((i) => !i.inc
 const itensDaLinha = computed(() => Object.fromEntries((linha.value?.itens ?? []).map((i) => [i.id, i])))
 const direta = copiaDiretaDisponivel()
 const chamado = computed(() => paraODesenvolvimento(saida.value?.tipo))
-/** Texto do Gem do Gemini: vem sem as fontes de cada trecho (é texto para o chamado), então nada fica destacado. */
-const doGem = computed(() => saida.value?.modelo === 'Gem do Gemini (colado)')
+/** Texto da habilidade do app do Gemini: vem sem as fontes de cada trecho (é texto para o chamado), então nada fica destacado. */
+const doGemini = computed(() => ['habilidade do Gemini (colado)', 'Gem do Gemini (colado)'].includes(saida.value?.modelo))
 const telaMudou = computed(() => saida.value && tela.value.trim().replace(/\s+/g, ' ') !== (saida.value.telaFuncionalidade ?? ''))
 const telaLonga = computed(() => tela.value.trim().length > LIMITE_DA_TELA)
 const variantes = computed(() => (saida.value?.variantes ?? []).map((v) => VARIANTES[v] ?? v))
@@ -518,7 +518,7 @@ function copiarAgora() {
         </div>
         <p class="mt-1 text-xs text-tinta-suave">
           <template v-if="editando">Mexa só no texto: o parágrafo de cada imagem ("Imagem N: legenda") pode ser movido ou apagado, e o servidor renumera ao salvar.<template v-if="chamado"> O cabeçalho e o rodapé saem dos dados do chamado.</template></template>
-          <template v-else-if="doGem">Texto escrito pelo Gem do Gemini: confira com a conversa antes de usar.</template>
+          <template v-else-if="doGemini">Texto escrito no app do Gemini: confira com a conversa antes de usar.</template>
           <template v-else>Clique num trecho para ver de onde ele veio. Trechos destacados vieram sem fonte: confira.</template>
         </p>
         <div
@@ -541,7 +541,7 @@ function copiarAgora() {
           v-else
           ref="previa"
           class="previa rounded-[3px] border border-linha bg-white/80 px-4 py-3 text-sm"
-          :class="[chamado && saida.cabecalho ? 'rounded-none' : 'mt-2', { 'sem-fontes': doGem }]"
+          :class="[chamado && saida.cabecalho ? 'rounded-none' : 'mt-2', { 'sem-fontes': doGemini }]"
           aria-label="Prévia do texto"
           @click="aoClicarNaPrevia"
           v-html="saida.html"
@@ -560,7 +560,7 @@ function copiarAgora() {
           <p class="rotulo">De onde veio este trecho</p>
           <button type="button" class="text-xs underline underline-offset-4" @click="fontes = null">Fechar</button>
         </div>
-        <p v-if="fontes.semFonte && doGem" class="mt-1 text-tinta-suave">O Gem não indica a fonte de cada trecho: confira com a conversa.</p>
+        <p v-if="fontes.semFonte && doGemini" class="mt-1 text-tinta-suave">O app do Gemini não indica a fonte de cada trecho: confira com a conversa.</p>
         <p v-else-if="fontes.semFonte" class="mt-1 text-carimbo">O Gemini não indicou a fonte deste trecho: confira com a conversa antes de usar.</p>
         <p v-else-if="erroDaLinha" class="mt-1 text-carimbo">{{ erroDaLinha }}</p>
         <ul v-else class="mt-1 grid gap-2">

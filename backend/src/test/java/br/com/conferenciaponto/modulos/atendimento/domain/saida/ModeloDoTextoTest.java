@@ -62,10 +62,9 @@ class ModeloDoTextoTest {
                 <p><strong>Caminho da tela</strong></p>
                 <p data-fontes="A1">Vendas -&gt; Pedidos (VEN010)</p>
                 <p><strong>Passos para reproduzir</strong></p>
-                <ol>
-                <li data-fontes="A1">Abrir a tela Pedidos.</li>
-                <li data-fontes="A1">Clicar em Gravar.<p data-imagem="11111111-1111-1111-1111-111111111111"><strong>Imagem 1</strong>: o erro</p></li>
-                </ol>
+                <p data-fontes="A1">Abrir a tela Pedidos.</p>
+                <p data-fontes="A1">Clicar em Gravar.</p>
+                <p data-imagem="11111111-1111-1111-1111-111111111111"><strong>Imagem 1</strong>: o erro</p>
                 <p><strong>Resultado obtido</strong></p>
                 <p data-fontes="A1">Aparece &quot;Erro ao gravar&quot;.</p>
                 <p><strong>Causa</strong></p>

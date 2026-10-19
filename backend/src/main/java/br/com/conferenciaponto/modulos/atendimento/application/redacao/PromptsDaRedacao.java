@@ -27,9 +27,9 @@ final class PromptsDaRedacao {
     }
 
     /** As regras comuns da redação. */
-    static final String SISTEMA = ArquivosDePrompt.prompt("sistema-redacao", 2);
+    static final String SISTEMA = ArquivosDePrompt.prompt("sistema-redacao", 3);
 
-    static final Prompt RESUMO = carregar("resumo", 2);
+    static final Prompt RESUMO = carregar("resumo", 3);
     static final Prompt DEV_ERRO = carregar("dev-erro", 1);
     static final Prompt DEV_ALTERACAO = carregar("dev-alteracao", 2);
     /** Um assunto mais curto, quando o primeiro passou do limite. */

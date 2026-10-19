@@ -13,7 +13,7 @@ class MontagemDoHtmlTest {
     private static final UUID IMAGEM_2 = UUID.fromString("22222222-2222-2222-2222-222222222222");
 
     @Test
-    void paragrafosPassosNumeradosEImagemLogoDepoisDoTrechoQueIlustra() {
+    void textoCorridoSemNumeracaoEImagemLogoDepoisDoTrechoQueIlustra() {
         List<BlocoDoTexto> blocos = List.of(
                 new BlocoDoTexto(BlocoDoTexto.Tipo.PARAGRAFO, "O cliente relatou o erro \"Falha <ao> gravar\" & pediu ajuda.",
                         List.of("M1", "A1"), List.of(new BlocoDoTexto.ImagemCitada("A1", IMAGEM_1, 1, "tela Pedidos com o erro"))),
@@ -25,10 +25,9 @@ class MontagemDoHtmlTest {
         assertThat(MontagemDoHtml.montar(blocos)).isEqualTo("""
                 <p data-fontes="M1 A1">O cliente relatou o erro &quot;Falha &lt;ao&gt; gravar&quot; &amp; pediu ajuda.</p>
                 <p data-imagem="11111111-1111-1111-1111-111111111111"><strong>Imagem 1</strong>: tela Pedidos com o erro</p>
-                <ol>
-                <li data-fontes="M4">Alterei o desconto de 10% para 5%.</li>
-                <li data-fontes="M5 P1">Gravei o pedido.<br>A nota saiu.<p data-imagem="22222222-2222-2222-2222-222222222222"><strong>Imagem 2</strong></p></li>
-                </ol>
+                <p data-fontes="M4">Alterei o desconto de 10% para 5%.</p>
+                <p data-fontes="M5 P1">Gravei o pedido.<br>A nota saiu.</p>
+                <p data-imagem="22222222-2222-2222-2222-222222222222"><strong>Imagem 2</strong></p>
                 <p data-fontes="">Resolvido.</p>""");
     }
 

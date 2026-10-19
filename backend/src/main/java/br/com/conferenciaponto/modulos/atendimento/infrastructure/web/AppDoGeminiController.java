@@ -23,13 +23,13 @@ import org.springframework.web.bind.annotation.RestController;
 import java.util.UUID;
 
 /**
- * O texto pelo Gem do Gemini (sem a cota da API).
+ * O texto pelo app do Gemini, com a habilidade do sistema (sem a cota da API).
  *
  * <pre>
- * GET  /api/v1/atendimentos/app-gemini/instrucoes-do-gem       {versao, texto}: as instruções para criar o Gem
+ * GET  /api/v1/atendimentos/app-gemini/habilidade              {versao, nome, instrucoes, skillMd}: para criar a habilidade
  * POST /api/v1/atendimentos/{id}/app-gemini/pacote             monta o pacote: {arquivos[], avisos[], ...}
  * GET  /api/v1/atendimentos/{id}/app-gemini/arquivos/{nome}    um arquivo do pacote
- * POST /api/v1/atendimentos/{id}/app-gemini/{tipo}/resposta    {resposta}: o que o Gem respondeu vira o texto
+ * POST /api/v1/atendimentos/{id}/app-gemini/{tipo}/resposta    {resposta}: o que o Gemini respondeu vira o texto
  * </pre>
  */
 @RestController
@@ -50,9 +50,9 @@ public class AppDoGeminiController {
     public record PedidoDeResposta(String resposta) {
     }
 
-    @GetMapping("/app-gemini/instrucoes-do-gem")
-    public ApiResponse<PeloAppDoGemini.InstrucoesDoGem> instrucoes() {
-        return ApiResponse.ok(app.instrucoesDoGem());
+    @GetMapping("/app-gemini/habilidade")
+    public ApiResponse<PeloAppDoGemini.Habilidade> habilidade() {
+        return ApiResponse.ok(app.habilidade());
     }
 
     @PostMapping("/{id}/app-gemini/pacote")
