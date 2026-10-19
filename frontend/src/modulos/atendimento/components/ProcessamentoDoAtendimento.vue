@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
+import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { mensagemDe } from '@/utils/erros'
 import { FALHAS_DA_CHAVE, SITUACOES, tokens, validadeDosLinks } from '@/modulos/atendimento/formato'
 import SoltarArquivos from './SoltarArquivos.vue'
@@ -10,6 +11,7 @@ import SoltarArquivos from './SoltarArquivos.vue'
  * a redação do resumo), com a barra ao vivo e as ações: processar, cancelar, retomar e renovar os links com um PDF
  * novo do mesmo chamado.
  */
+const modulos = useAcessoModulosStore()
 const props = defineProps({
   atendimento: { type: Object, required: true },
 })
@@ -47,7 +49,7 @@ const explicacao = computed(() => {
   switch (props.atendimento.situacao) {
     case 'processando':
       return props.atendimento.percentual >= 100 && escrevendo.value
-        ? 'Arquivos prontos. Escrevendo o resumo com o Gemini; a tela pode ser fechada.'
+        ? 'Arquivos prontos. Escrevendo o resumo; a tela pode ser fechada.'
         : `Baixando e analisando os arquivos${escrevendo.value ? '; o resumo é escrito no fim' : ''}. A tela pode ser fechada: o processamento continua no servidor.`
     case 'pausado':
       return props.atendimento.motivoPausa ?? 'O processamento está pausado.'
@@ -129,10 +131,10 @@ async function renovar([arquivo]) {
     <p class="mt-2 text-sm" :class="pausado ? 'font-semibold text-carimbo' : 'text-tinta-suave'" :role="pausado ? 'alert' : undefined">
       {{ explicacao }}
     </p>
-    <p v-if="pausado && /Gemini/.test(atendimento.motivoPausa ?? '')" class="mt-1 text-sm text-tinta-suave">
+    <p v-if="pausado && !modulos.iaLocal && /Gemini/.test(atendimento.motivoPausa ?? '')" class="mt-1 text-sm text-tinta-suave">
       Para não esperar: em Textos gerados, use <span class="font-semibold">Gerar pelo app do Gemini</span>, que não usa a cota da API.
     </p>
-    <div v-if="atendimento.semChaveGemini" role="alert" class="mt-3 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
+    <div v-if="atendimento.semChaveGemini && !modulos.iaLocal" role="alert" class="mt-3 rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
       Para os arquivos serem analisados, cadastre a sua chave do Gemini em
       <RouterLink :to="{ name: 'chave-gemini' }" class="font-semibold underline underline-offset-4">Minha chave do Gemini</RouterLink>
       e clique em Processar de novo.
@@ -144,7 +146,7 @@ async function renovar([arquivo]) {
       </div>
       <p class="mt-1 flex flex-wrap justify-between gap-x-4 text-xs text-tinta-suave">
         <span>{{ atendimento.percentual }}% concluído (downloads e análises)</span>
-        <span v-if="atendimento.tokensEntrada || atendimento.tokensSaida">
+        <span v-if="!modulos.iaLocal && (atendimento.tokensEntrada || atendimento.tokensSaida)">
           Gemini: {{ tokens(atendimento.tokensEntrada) }} tokens de entrada · {{ tokens(atendimento.tokensSaida) }} de saída
         </span>
       </p>

@@ -216,8 +216,10 @@ function descricaoDaMudanca(m) {
         <span class="text-xs text-tinta-suave">por {{ registro.autor.nome }} em {{ dataHora(registro.criadoEm) }}<template v-if="registro.atualizadoEm && registro.atualizadoEm !== registro.criadoEm"> · alterado em {{ dataHora(registro.atualizadoEm) }}</template></span>
       </div>
       <p v-if="registro && !registro.naPesquisaPorSignificado" class="mt-1 text-xs text-tinta-suave" aria-label="Pesquisa por significado">
-        Ainda fora da pesquisa por significado: o cálculo é feito em segundo plano, com a chave do Gemini do autor (sem a
-        chave, o registro aparece só na pesquisa exata).
+        <template v-if="modulos.iaLocal">Ainda fora da pesquisa por significado: o cálculo é feito em segundo plano, pela IA
+          local (enquanto isso, o registro aparece só na pesquisa exata).</template>
+        <template v-else>Ainda fora da pesquisa por significado: o cálculo é feito em segundo plano, com a chave do Gemini do
+          autor (sem a chave, o registro aparece só na pesquisa exata).</template>
       </p>
     </header>
 

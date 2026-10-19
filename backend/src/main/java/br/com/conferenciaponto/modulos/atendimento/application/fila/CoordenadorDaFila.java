@@ -219,6 +219,13 @@ public class CoordenadorDaFila {
             log.info("Tarefa {} ({}) falhou: {}", tarefa.id(), tarefa.tipo().codigo(), f.codigo());
             return f;
         }
+        if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t && t.semGastarTentativa()) {
+            Duration espera = t.esperar() != null ? t.esperar() : esperaInicial;
+            tarefas.aguardar(tarefa.id(), agora.plus(espera), t.codigo(), t.mensagem(), agora);
+            log.info("Tarefa {} ({}) aguarda {} s ({}), sem gastar tentativa", tarefa.id(), tarefa.tipo().codigo(),
+                    espera.toSeconds(), t.codigo());
+            return t;
+        }
         if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t) {
             if (tarefa.ultimaTentativa() && t.aoEsgotar() != null) {
                 // o que não pode ficar para trás sem a pessoa saber: pausa (o Retomar recomeça as tentativas)

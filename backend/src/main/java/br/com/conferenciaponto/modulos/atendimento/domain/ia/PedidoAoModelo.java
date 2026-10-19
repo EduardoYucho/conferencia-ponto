@@ -16,6 +16,9 @@ import java.util.Objects;
 public record PedidoAoModelo(String modelo, String instrucaoDoSistema, String instrucao, String esquemaJson, Midia midia,
                              boolean altaResolucao, Double temperatura, String raciocinio, int maxTokensSaida) {
 
+    /** Num pedido sem esquema, a resposta é texto livre (só a IA local; a redação em texto corrido). */
+    public static final String SEM_ESQUEMA = "";
+
     public PedidoAoModelo {
         Objects.requireNonNull(modelo, "modelo");
         Objects.requireNonNull(instrucao, "instrucao");
@@ -46,6 +49,11 @@ public record PedidoAoModelo(String modelo, String instrucaoDoSistema, String in
 
         public static Midia enviada(ArquivoRemoto arquivo) {
             return new Midia(arquivo.tipoDeMidia(), null, arquivo.uri());
+        }
+
+        /** Um arquivo deste computador, para a IA local (que lê do disco, sem envio). */
+        public static Midia doDisco(String tipoDeMidia, java.nio.file.Path arquivo) {
+            return new Midia(tipoDeMidia, null, arquivo.toAbsolutePath().toUri().toString());
         }
 
         /** Um vídeo já enviado, com a taxa de quadros que o modelo deve olhar. */

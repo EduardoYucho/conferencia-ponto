@@ -84,7 +84,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
                     ConfiguracaoDaAnalise configuracao, ObjectMapper json, Clock clock, Duration esperaArquivo,
                     Duration intervaloConsulta, Espera espera, QuadrosDoVideo quadros) {
         this.analises = analises;
-        this.gemini = new ChamadasAoGemini(chaves, cofre, json, clock);
+        this.gemini = new ChamadasAoGemini(chaves, cofre, json, clock, modelo.local());
         this.modelo = modelo;
         this.pasta = pasta;
         this.configuracao = configuracao;
@@ -99,6 +99,12 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
     @Override
     public TipoDeTarefa tipo() {
         return TipoDeTarefa.ANALISAR;
+    }
+
+    /** A IA local usa a placa de vídeo deste computador: um de cada vez (vários juntos dividiriam a memória dela). */
+    @Override
+    public int limiteSimultaneo() {
+        return modelo.local() ? 1 : 0;
     }
 
     @Override
@@ -126,7 +132,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
             return ResultadoDaTarefa.concluida();
         }
         boolean video = arquivo.categoria() == CategoriaDoArquivo.VIDEO;
-        if (video && arquivo.tamanho() != null && arquivo.tamanho() > configuracao.videoMaximo()) {
+        if (video && !modelo.local() && arquivo.tamanho() != null && arquivo.tamanho() > configuracao.videoMaximo()) {
             return ResultadoDaTarefa.definitiva("VIDEO_GRANDE_DEMAIS", "O vídeo tem " + tamanhoLegivel(arquivo.tamanho())
                     + "; o Gemini aceita até " + tamanhoLegivel(configuracao.videoMaximo()) + ". Corte o vídeo (só o trecho "
                     + "do problema) ou grave de novo com uma resolução menor e envie.");
@@ -144,7 +150,9 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
         long inicio = System.nanoTime();
         try {
             PedidoAoModelo.Midia midia;
-            if (arquivo.categoria() == CategoriaDoArquivo.IMAGEM && tamanho(arquivo, local) <= configuracao.inlineMaximo()) {
+            if (modelo.local()) {
+                midia = PedidoAoModelo.Midia.doDisco(tipoDeMidia(arquivo), local); // a IA local lê do disco
+            } else if (arquivo.categoria() == CategoriaDoArquivo.IMAGEM && tamanho(arquivo, local) <= configuracao.inlineMaximo()) {
                 midia = PedidoAoModelo.Midia.noPedido(tipoDeMidia(arquivo), Files.readAllBytes(local));
             } else {
                 remoto = remotoPronto(chave, arquivo, local);
@@ -252,7 +260,7 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
                 if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
                     throw falha;
                 }
-                log.info("Resposta do Gemini fora do formato ({}): tentando de novo", falha.getMessage());
+                log.info("Resposta do modelo fora do formato ({}): tentando de novo", falha.getMessage());
             }
         }
     }

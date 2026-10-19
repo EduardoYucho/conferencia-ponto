@@ -14,6 +14,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -48,6 +49,7 @@ import java.util.regex.Pattern;
  * conteúdo, nada vai para o log; do Google, só o código HTTP, o motivo e os tokens.
  */
 @Component
+@ConditionalOnProperty(name = "atendimento.ia.motor", havingValue = "gemini")
 public class ModeloGemini implements ModeloDeIA {
 
     private static final Logger log = LoggerFactory.getLogger(ModeloGemini.class);

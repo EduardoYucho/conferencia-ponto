@@ -73,7 +73,8 @@ const grupos = computed(() =>
       itens: [
         { nome: 'atendimentos', rotulo: 'Meus atendimentos', tambem: ['atendimento'] },
         { nome: 'atendimento-novo', rotulo: 'Novo atendimento' },
-        { nome: 'chave-gemini', rotulo: 'Minha chave do Gemini' },
+        // com a IA local não há chave: a tela sai do menu
+        ...(modulos.iaLocal ? [] : [{ nome: 'chave-gemini', rotulo: 'Minha chave do Gemini' }]),
       ],
     },
     modulos.pesquisar && {

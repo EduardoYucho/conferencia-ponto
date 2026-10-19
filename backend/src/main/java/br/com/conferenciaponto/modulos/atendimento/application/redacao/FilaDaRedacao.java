@@ -148,7 +148,7 @@ public class FilaDaRedacao implements EtapaDeRedacao {
         if (resultado instanceof ResultadoDaTarefa.FalhaDefinitiva f) {
             saidas.mudarSituacaoSe(tarefa.saidaId(), ESPERANDO, SituacaoDaSaida.FALHOU, f.mensagem());
         } else if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t) {
-            String mensagem = "GEMINI_LIMITE".equals(t.codigo()) ? t.mensagem()
+            String mensagem = "GEMINI_LIMITE".equals(t.codigo()) || t.semGastarTentativa() ? t.mensagem()
                     : "Tentativa " + tarefa.tentativa() + " de " + tarefa.maxTentativas() + " não deu certo: " + t.mensagem()
                     + " Tentando de novo.";
             saidas.mudarSituacaoSe(tarefa.saidaId(), ESPERANDO, SituacaoDaSaida.PENDENTE, mensagem);

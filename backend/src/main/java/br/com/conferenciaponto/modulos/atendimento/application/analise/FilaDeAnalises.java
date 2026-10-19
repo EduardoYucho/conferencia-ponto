@@ -32,7 +32,8 @@ public class FilaDeAnalises implements EtapaDeAnalise {
      * "Processar", "Retomar" e "Gerar de novo" tentam outra vez, e o texto espera.
      */
     static final Set<String> FALHAS_QUE_VOLTAM = Set.of("SEM_CHAVE_GEMINI", "CHAVE_GEMINI_ILEGIVEL", "CHAVE_GEMINI_RECUSADA",
-            "GEMINI_INDISPONIVEL", "GEMINI_LIMITE", "ERRO_INTERNO");
+            "GEMINI_INDISPONIVEL", "GEMINI_LIMITE", "ERRO_INTERNO", "IA_LOCAL_PARADA", "IA_LOCAL_INDISPONIVEL",
+            "IA_LOCAL_SEM_MODELO", "PLACA_OCUPADA");
     private static final Set<String> AINDA_VAI_SER_BAIXADO = Set.of("aguardando", "baixando");
 
     private final Analises analises;
@@ -57,8 +58,7 @@ public class FilaDeAnalises implements EtapaDeAnalise {
                 continue;
             }
             TarefaDeAnalise ultima = ultimas.get(arquivo.id());
-            if (ultima != null && (ultima.ativa()
-                    || ("falhou".equals(ultima.situacao()) && !FALHAS_QUE_VOLTAM.contains(ultima.erroCodigo())))) {
+            if (ultima != null && (ultima.ativa() || ("falhou".equals(ultima.situacao()) && !volta(ultima.erroCodigo())))) {
                 continue;
             }
             if (tarefas.criar(TipoDeTarefa.ANALISAR, atendimentoId, arquivo.id(), null, configuracao.tentativas(), agora)) {
@@ -66,6 +66,15 @@ public class FilaDeAnalises implements EtapaDeAnalise {
             }
         }
         return pedidas;
+    }
+
+    /**
+     * A falha se resolve fora do arquivo (e o Processar, o Retomar e o Gerar de novo tentam outra vez). A falha do
+     * Gemini com a IA local ligada também volta: foi o outro modelo que falhou.
+     */
+    boolean volta(String codigo) {
+        return FALHAS_QUE_VOLTAM.contains(codigo)
+                || codigo != null && codigo.startsWith("GEMINI_") && !configuracao.usaGemini();
     }
 
     @Override
@@ -131,7 +140,8 @@ public class FilaDeAnalises implements EtapaDeAnalise {
                 saida += r.tokensSaida() == null ? 0 : r.tokensSaida();
             }
         }
-        boolean semChave = (faltaChave || esperadas > resolvidas) && chaves.buscar(arquivos.get(0).usuarioId()).isEmpty();
+        boolean semChave = configuracao.usaGemini() && (faltaChave || esperadas > resolvidas)
+                && chaves.buscar(arquivos.get(0).usuarioId()).isEmpty();
         return new PanoramaDasAnalises(estados, esperadas, resolvidas, comFalha, entrada, saida, semChave);
     }
 
@@ -157,7 +167,7 @@ public class FilaDeAnalises implements EtapaDeAnalise {
         if (tarefa.erroMensagem() == null) {
             return null;
         }
-        if ("GEMINI_LIMITE".equals(tarefa.erroCodigo())) {
+        if ("GEMINI_LIMITE".equals(tarefa.erroCodigo()) || "PLACA_OCUPADA".equals(tarefa.erroCodigo())) {
             return tarefa.erroMensagem();
         }
         return "Tentativa " + tarefa.tentativas() + " de " + tarefa.maxTentativas() + " não deu certo: "

@@ -11,6 +11,6 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @Configuration
 @EnableScheduling
 @EnableConfigurationProperties({GeminiProperties.class, ChaveMestraProperties.class, DownloadProperties.class,
-        DigisacProperties.class})
+        DigisacProperties.class, IaLocalProperties.class})
 public class ConfiguracaoDoGerador {
 }

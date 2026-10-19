@@ -81,6 +81,7 @@ export const SITUACOES_DA_ANALISE = {
  * sistema (o "Processar" tenta de novo, e os textos esperam).
  */
 export const FALHAS_DA_CHAVE = ['SEM_CHAVE_GEMINI', 'CHAVE_GEMINI_ILEGIVEL', 'CHAVE_GEMINI_RECUSADA', 'GEMINI_INDISPONIVEL',
+  'IA_LOCAL_PARADA', 'IA_LOCAL_INDISPONIVEL', 'IA_LOCAL_SEM_MODELO', 'PLACA_OCUPADA',
   'GEMINI_LIMITE', 'ERRO_INTERNO']
 
 /** "1.234" ou "12,3 mil" tokens. */

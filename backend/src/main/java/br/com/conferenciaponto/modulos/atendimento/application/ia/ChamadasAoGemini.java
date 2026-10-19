@@ -7,20 +7,25 @@ import br.com.conferenciaponto.modulos.atendimento.domain.chave.CofreException;
 import br.com.conferenciaponto.modulos.atendimento.domain.chave.SituacaoDaChave;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.ResultadoDaTarefa;
 import br.com.conferenciaponto.modulos.atendimento.domain.ia.FalhaDoModelo;
+import br.com.conferenciaponto.modulos.atendimento.domain.ia.ModeloDeIA;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.time.Clock;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
 /**
- * O que as tarefas que usam o Gemini têm em comum: a chave do dono do atendimento, a leitura do JSON da resposta e
- * o que fazer com cada falha (tabela 6.4 da arquitetura).
+ * O que as tarefas que usam o modelo têm em comum: a chave do dono do atendimento, a leitura do JSON da resposta e
+ * o que fazer com cada falha (tabela 6.4 da arquitetura). Com a IA local (o modelo roda neste computador), não há
+ * chave nem cota: a "chave" é só um marcador, e as falhas são as da IA local (o Ollama parado, a placa de vídeo
+ * ocupada por um jogo).
  */
 @Component
 public class ChamadasAoGemini {
@@ -31,16 +36,38 @@ public class ChamadasAoGemini {
             + "4h–5h (meia-noite no horário do Pacífico); depois disso, clique em Retomar e o processamento continua de "
             + "onde parou.";
 
+    /** O que vai no lugar da chave com a IA local (o modelo não usa chave). */
+    public static final String CHAVE_LOCAL = "ia-local";
+    /** Quanto esperar para conferir de novo se a placa de vídeo ficou livre, quando a IA local não disse. */
+    static final Duration ESPERA_DA_PLACA = Duration.ofMinutes(2);
+
     private final ChavesGemini chaves;
     private final Cofre cofre;
     private final ObjectMapper json;
     private final Clock clock;
+    private final boolean local;
 
+    @Autowired
+    public ChamadasAoGemini(ChavesGemini chaves, Cofre cofre, ObjectMapper json, Clock clock, ModeloDeIA modelo) {
+        this(chaves, cofre, json, clock, modelo.local());
+    }
+
+    /** Com o Gemini (a API, com a chave de cada pessoa). */
     public ChamadasAoGemini(ChavesGemini chaves, Cofre cofre, ObjectMapper json, Clock clock) {
+        this(chaves, cofre, json, clock, false);
+    }
+
+    public ChamadasAoGemini(ChavesGemini chaves, Cofre cofre, ObjectMapper json, Clock clock, boolean local) {
         this.chaves = chaves;
         this.cofre = cofre;
         this.json = json;
         this.clock = clock;
+        this.local = local;
+    }
+
+    /** O modelo roda neste computador (sem chave nem cota). */
+    public boolean local() {
+        return local;
     }
 
     /**
@@ -61,6 +88,9 @@ public class ChamadasAoGemini {
     }
 
     public ChaveDoDono chaveDo(UUID usuario) {
+        if (local) {
+            return new ChaveDoDono(CHAVE_LOCAL, SituacaoDaChave.VALIDA, null);
+        }
         Optional<ChaveGemini> guardada = chaves.buscar(usuario);
         if (guardada.isEmpty()) {
             return new ChaveDoDono(null, null, ResultadoDaTarefa.definitiva("SEM_CHAVE_GEMINI", SEM_CHAVE));
@@ -124,6 +154,9 @@ public class ChamadasAoGemini {
      * @param oQue o que a tarefa fazia, para a mensagem de bloqueio (ex.: "analisar este arquivo")
      */
     public ResultadoDaTarefa traduzir(FalhaDoModelo falha, UUID usuario, String nomeDoModelo, String oQue) {
+        if (local) {
+            return traduzirLocal(falha, nomeDoModelo, oQue);
+        }
         Instant agora = clock.instant();
         return switch (falha.tipo()) {
             case CHAVE_RECUSADA -> {
@@ -158,6 +191,36 @@ public class ChamadasAoGemini {
             case PEDIDO_RECUSADO -> ResultadoDaTarefa.definitiva("GEMINI_PEDIDO_RECUSADO", falha.getMessage());
             case ARQUIVO_FALHOU -> ResultadoDaTarefa.definitiva("GEMINI_ARQUIVO_FALHOU", "O Gemini não conseguiu processar "
                     + "este arquivo. Confira se ele abre no computador; se abrir, tente de novo ou envie em outro formato.");
+            case IA_LOCAL_PARADA, PLACA_OCUPADA -> ResultadoDaTarefa.temporaria("GEMINI_INDISPONIVEL", falha.getMessage());
+        };
+    }
+
+    /** As falhas da IA local: nada de chave nem de cota; a placa ocupada espera, sem gastar tentativa. */
+    private ResultadoDaTarefa traduzirLocal(FalhaDoModelo falha, String nomeDoModelo, String oQue) {
+        return switch (falha.tipo()) {
+            case PLACA_OCUPADA -> ResultadoDaTarefa.aguardar("PLACA_OCUPADA", "Aguardando a placa de vídeo ficar livre "
+                    + "(um jogo ou outro programa está usando a memória dela); continua sozinho.",
+                    falha.esperar() != null ? falha.esperar() : ESPERA_DA_PLACA);
+            case IA_LOCAL_PARADA -> ResultadoDaTarefa.temporariaQuePausa("IA_LOCAL_PARADA",
+                    "A IA local (Ollama) não respondeu; tentando de novo.", null, "A IA local (o Ollama, neste "
+                            + "computador) não respondeu em nenhuma tentativa e o processamento parou aqui, sem "
+                            + semIsso(oQue) + ". Confira se o Ollama está aberto (o ícone da lhama perto do relógio do "
+                            + "Windows) e clique em Retomar.");
+            case INDISPONIVEL, SEM_INTERNET, LIMITE -> ResultadoDaTarefa.temporariaQuePausa("IA_LOCAL_INDISPONIVEL",
+                    "A IA local não terminou de responder; tentando de novo.", falha.esperar(), "A IA local não conseguiu "
+                            + "responder em nenhuma tentativa (" + falha.getMessage() + ") e o processamento parou aqui, "
+                            + "sem " + semIsso(oQue) + ". Clique em Retomar.");
+            case MODELO_INEXISTENTE -> ResultadoDaTarefa.pausar("IA_LOCAL_SEM_MODELO", "O modelo " + nomeDoModelo
+                    + " não está instalado na IA local (Ollama). Avise o administrador (configuração "
+                    + "atendimento.ia.local.modelo) e clique em Retomar depois de instalar.");
+            case RESPOSTA_INVALIDA -> ResultadoDaTarefa.definitiva("IA_LOCAL_RESPOSTA_INVALIDA", "A IA local respondeu "
+                    + "fora do formato duas vezes seguidas. Clique em Tentar de novo.");
+            case ARQUIVO_FALHOU -> ResultadoDaTarefa.definitiva("IA_LOCAL_ARQUIVO_FALHOU", "A IA local não conseguiu "
+                    + "ler este arquivo (" + falha.getMessage() + "). Confira se ele abre no computador; se abrir, tente "
+                    + "de novo ou envie em outro formato.");
+            case PEDIDO_RECUSADO, BLOQUEOU -> ResultadoDaTarefa.definitiva("IA_LOCAL_RECUSOU", falha.getMessage());
+            case CHAVE_RECUSADA, COTA_DIARIA, SEM_CREDITO -> ResultadoDaTarefa.definitiva("IA_LOCAL_RECUSOU",
+                    falha.getMessage());
         };
     }
 }

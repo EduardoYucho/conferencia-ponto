@@ -209,7 +209,8 @@ atrapalham o ponto e são reaproveitadas.
 ## Menu lateral
 
 As telas ficam num **menu lateral**, agrupadas por área: **Ponto** (Painel, Auditoria, Conciliação RH, Folgas e
-feriados, Equipe), **Atendimentos** (Meus atendimentos, Novo atendimento, Minha chave do Gemini), **Base de
+feriados, Equipe), **Atendimentos** (Meus atendimentos, Novo atendimento; Minha chave do Gemini só com o motor
+`gemini`), **Base de
 conhecimento** (Pesquisar) e **Administração** (Usuários, Acessos, Logs; só para o administrador). Cada grupo abre
 e fecha, e o botão no pé do menu o **recolhe** para uma faixa só com os ícones (aí o grupo abre os itens ao lado,
 e *Esc* ou um clique fora fecha). O navegador lembra o menu recolhido e os grupos fechados. No alto fica uma barra
@@ -267,7 +268,7 @@ aparece online assim que o comprovante da entrada chega ao sistema.
 ## Atendimentos e base de conhecimento (em construção)
 
 Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador de textos de atendimento** (lê o
-PDF da conversa do Digisac, analisa os anexos com o Gemini e redige o resumo ou o chamado para o
+PDF da conversa do Digisac, analisa os anexos com a IA e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
 deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
@@ -275,12 +276,36 @@ download dos anexos, o envio das ligações, do vídeo e dos prints, a análise 
 passos e os quadros dos vídeos), a redação do resumo e dos chamados para o desenvolvimento e a base de conhecimento
 com a pesquisa exata:
 
+- **IA local (o padrão, `atendimento.ia.motor: local`)**: o modelo roda **neste computador**, sem chave, sem cota,
+  sem custo e sem nada sair daqui. O **Ollama** (`http://localhost:11434`) roda o `gemma4:12b`, que lê as imagens,
+  os documentos e os quadros dos vídeos e escreve os textos, e o `embeddinggemma` (vetores da pesquisa por
+  significado); o **Whisper** (whisper.cpp, `whisper-cli.exe` com o modelo `ggml-large-v3-turbo.bin` em
+  `%USERPROFILE%\.conferencia-ponto\ia-local\`) transcreve os áudios e a fala dos vídeos. O que o modelo não lê
+  sozinho chega pronto: o vídeo vira 16 quadros espalhados do começo ao fim (pelo ffmpeg, que passa a ser necessário
+  para os vídeos), o PDF vai em texto e nas 4 primeiras páginas como imagem (PDFBox), WebP e HEIC viram PNG. As
+  análises saem no mesmo esquema JSON (o Ollama obriga o formato), e os textos em **texto corrido, com as regras da
+  habilidade** (as mesmas do app do Gemini), lidos pelo `TextoColadoDoGemini` e conferidos como o texto colado (o
+  modelo grava "gemma4:12b (IA local)", sem destaque de trecho sem fonte). Uma tarefa de IA de cada vez (a placa é
+  uma só). **Placa de vídeo ocupada** (um jogo aberto): pelo `nvidia-smi`, quando sobra menos que
+  `atendimento.ia.local.placa.memoria-necessaria` (8 GB) para a IA, a tarefa nem começa: espera
+  (`PLACA_OCUPADA`, "Aguardando a placa de vídeo ficar livre"), sem gastar tentativa, e confere de novo a cada 2
+  min; o modelo sai da placa na hora e, depois do último uso, em 2 min (`manter-carregado`). Ollama parado:
+  `IA_LOCAL_PARADA` (novas tentativas; esgotadas, pausa com o que fazer). Modelo não instalado: pausa
+  (`IA_LOCAL_SEM_MODELO`). Com a IA local, a tela não mostra a chave do Gemini, o painel do app nem os tokens
+  (`/meu-acesso` informa `iaLocal`). As análises e os textos feitos pelo Gemini antes continuam; uma falha do
+  Gemini volta a ser tentada pela IA local no Processar ou no Retomar. O `ponto` mostra a situação ("IA local:
+  Ollama com gemma4:12b e embeddinggemma"; "Áudios: Whisper"). **Instalação** (uma vez, ~10 GB): `winget install
+  Ollama.Ollama`; `ollama pull gemma4:12b` e `ollama pull embeddinggemma` (numa rede em que o download do Ollama
+  trava no IPv6, os mesmos arquivos podem ser baixados pelo IPv4 com o `curl -4` e conferidos pelo SHA-256 do
+  manifesto); o whisper.cpp para Windows com CUDA (`whisper-cublas-12.4.0-bin-x64.zip`, das versões do
+  ggml-org/whisper.cpp) em `ia-local\whisper\` e o `ggml-large-v3-turbo.bin` (huggingface.co/ggerganov/whisper.cpp)
+  em `ia-local\modelos\`. Para voltar à API do Gemini: `atendimento.ia.motor: gemini` no `config/application.yml`.
 - **Acessos** (grupo Administração do menu): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
   qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
   ponto**: a coordenação pode ser liberada, e o administrador também precisa se liberar.
 - Os grupos **Atendimentos** e **Base de conhecimento** só aparecem no menu lateral de quem foi liberado. Toda rota dos
   módulos confere a liberação a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar o acesso vale na hora.
-- **Minha chave do Gemini** (botão na tela Atendimentos): cada pessoa cadastra a própria chave da API do Gemini
+- **Minha chave do Gemini** (só com `atendimento.ia.motor: gemini`; botão na tela Atendimentos): cada pessoa cadastra a própria chave da API do Gemini
   (Google AI Studio, projeto com faturamento) e confirma que ela é do nível pago — no gratuito o Google pode usar
   o conteúdo enviado. O servidor testa a chave com o Google antes de guardar (listando um modelo, sem gastar cota),
   guarda cifrada (AES-256-GCM) e nunca a devolve: a tela mostra só os 4 últimos caracteres. A chave vai ao Google
@@ -398,7 +423,7 @@ com a pesquisa exata:
   Tela/Funcionalidade vem do Gemini ou, se ele não informar, é sugerida pelo código de tela lido nas imagens
   (`tela Nome (COD)` na linha do tempo); dá para corrigir na tela. Limites: versão 40, backup 300, chamado
   relacionado e Tela/Funcionalidade 200 caracteres (`CAMPO_LONGO`, `TELA_LONGA`).
-- **Gerar pelo app do Gemini** (sem usar a cota da API; em Textos gerados, abaixo do texto): quando a cota da chave
+- **Gerar pelo app do Gemini** (só com o motor `gemini`; sem usar a cota da API; em Textos gerados, abaixo do texto): quando a cota da chave
   acaba ou o Gemini da API fica sobrecarregado, o texto sai pelo app (gemini.google.com), que tem limites próprios.
   **Uma vez só**, a pessoa cria no app a **habilidade** `resumo-de-atendimento` (Configurações → Habilidades → enviar
   o `SKILL.md`, baixado no rodapé do painel; as instruções ficam em `atendimento/prompts/habilidade-v<N>.txt`: os

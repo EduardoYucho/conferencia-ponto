@@ -203,6 +203,23 @@ class TarefasJdbc implements Tarefas {
     }
 
     @Override
+    public void aguardar(long id, Instant executarApos, String codigo, String mensagem, Instant agora) {
+        jdbc.sql("""
+                        UPDATE atendimento.tarefa
+                           SET situacao = 'pendente', em_execucao_ate = NULL, executar_apos = :apos,
+                               tentativas = greatest(tentativas - 1, 0),
+                               erro_codigo = :codigo, erro_mensagem = :mensagem, atualizada_em = :agora
+                         WHERE id = :id AND situacao = 'executando'
+                        """)
+                .param("id", id)
+                .param("apos", utc(executarApos))
+                .param("codigo", cortar(codigo, 40))
+                .param("mensagem", cortar(mensagem, 500))
+                .param("agora", utc(agora))
+                .update();
+    }
+
+    @Override
     public void falhar(long id, String codigo, String mensagem, Instant agora) {
         terminar(id, "falhou", codigo, mensagem, agora);
     }

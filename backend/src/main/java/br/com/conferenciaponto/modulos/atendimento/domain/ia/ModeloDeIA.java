@@ -28,4 +28,12 @@ public interface ModeloDeIA {
      * produto escalar.
      */
     float[] vetor(String chave, String modelo, int dimensao, String texto);
+
+    /**
+     * O modelo roda neste computador (a IA local): não precisa de chave, não tem cota e lê os arquivos direto do disco
+     * (o pedido leva o endereço {@code file:} do arquivo, sem {@link #enviar}).
+     */
+    default boolean local() {
+        return false;
+    }
 }

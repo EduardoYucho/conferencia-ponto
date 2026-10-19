@@ -28,6 +28,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.saida.MontagemDoHtml;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SaidaGuardada;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.Saidas;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.SituacaoDaSaida;
+import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoColadoDoGemini;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TextoRedigido;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -100,6 +101,12 @@ public class RedigirSaida implements ExecutorDeTarefa {
         return TipoDeTarefa.REDIGIR;
     }
 
+    /** A IA local usa a placa de vídeo deste computador: um de cada vez (vários juntos dividiriam a memória dela). */
+    @Override
+    public int limiteSimultaneo() {
+        return modelo.local() ? 1 : 0;
+    }
+
     @Override
     public ResultadoDaTarefa executar(Tarefa tarefa) {
         Optional<SaidaGuardada> talvez = tarefa.saidaId() == null ? Optional.empty() : saidas.buscar(tarefa.saidaId());
@@ -126,6 +133,9 @@ public class RedigirSaida implements ExecutorDeTarefa {
         String contato = atendimento.get().resumo().contato();
         Catalogo catalogo = catalogo(atendimento.get(), linha.get());
         List<ConferenciaDoTexto.ImagemDisponivel> imagens = catalogo.imagens();
+        if (modelo.local()) {
+            return redigirNaIaLocal(tarefa, saida, prompt.get(), atendimento.get(), linha.get(), catalogo, dono.chave());
+        }
         String material = MaterialDaRedacao.texto(atendimento.get().resumo().chamado(), contato,
                 atendimento.get().resumo().inicio(), atendimento.get().resumo().fim(), linha.get(), imagens, clock.getZone());
         String instrucao = prompt.get().instrucao(Map.of(
@@ -165,6 +175,96 @@ public class RedigirSaida implements ExecutorDeTarefa {
                     falha.getMessage());
             return gemini.traduzir(falha, tarefa.usuarioId(), configuracao.modelo(), "redigir este texto");
         }
+    }
+
+    /** Como a saída escrita pela IA local fica gravada (o modelo, para a tela saber que o texto vem sem fontes). */
+    static String modeloLocal(String modelo) {
+        return modelo + " (IA local)";
+    }
+
+    /**
+     * A IA local escreve em texto corrido, com as regras da habilidade (o mesmo formato do texto colado do app do
+     * Gemini), e o texto passa pela mesma conferência: imagens que existem, dados de acesso mascarados, as partes na
+     * ordem do modelo. O texto não traz a fonte de cada trecho, então isso não vira aviso. Fora do formato (um chamado
+     * sem as partes), pede mais uma vez; na segunda, a falha segue.
+     */
+    private ResultadoDaTarefa redigirNaIaLocal(Tarefa tarefa, SaidaGuardada saida, PromptsDaRedacao.Prompt prompt,
+                                               AtendimentoGuardado atendimento, LinhaDoTempo linha, Catalogo catalogo,
+                                               String chave) {
+        String contato = atendimento.resumo().contato();
+        List<ConferenciaDoTexto.ImagemDisponivel> imagens = catalogo.imagens();
+        String material = MaterialDaRedacao.paraOAppDoGemini(atendimento.resumo().chamado(), contato,
+                atendimento.resumo().inicio(), atendimento.resumo().fim(), linha, imagens, null, clock.getZone());
+        String instrucao = material + "\n\n---\n\n" + PromptsDaRedacao.lembreteLocal(saida.tipo(), contato, atendente(linha));
+        PedidoAoModelo pedido = new PedidoAoModelo(configuracao.modelo(), PromptsDaRedacao.SISTEMA_LOCAL, instrucao,
+                PedidoAoModelo.SEM_ESQUEMA, null, false, null, null, configuracao.maxTokensSaida());
+        ModeloDoTexto modeloDoTexto = ModeloDoTexto.de(saida.tipo());
+        long inicio = System.nanoTime();
+        int entrada = 0;
+        int saidaDeTokens = 0;
+        try {
+            ConferenciaDoTexto.Bruto bruto = null;
+            ConferenciaDoTexto.Conferido conferido = null;
+            for (int vez = 1; conferido == null; vez++) {
+                RespostaDoModelo resposta = modelo.gerar(chave, pedido);
+                entrada += resposta.tokensEntrada();
+                saidaDeTokens += resposta.tokensSaida();
+                try {
+                    bruto = TextoColadoDoGemini.ler(resposta.texto(), modeloDoTexto);
+                    conferido = conferir(saida.tipo(), contato, linha, imagens, bruto);
+                    if (conferido.texto().blocos().stream().allMatch(b -> b.texto().isBlank())) {
+                        throw new FalhaDoModelo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA, "a resposta não tem texto");
+                    }
+                } catch (FalhaDoModelo falha) {
+                    if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
+                        throw falha;
+                    }
+                    conferido = null;
+                    log.info("Saída {}: o texto da IA local veio fora do formato ({}); pedindo de novo", saida.id(),
+                            falha.getMessage());
+                }
+            }
+            TextoRedigido texto = conferido.texto();
+            // o texto corrido não traz a fonte de cada trecho: não é um aviso
+            texto = texto.comAssunto(texto.assunto(), texto.avisos().stream().filter(a -> !a.contains("sem fonte")).toList());
+            if (bruto.assunto().isBlank()) {
+                texto = texto.comMaisAvisos(List.of("A IA local não escreveu a linha \"Assunto:\": escreva o assunto acima."));
+            }
+            texto = texto.comMaisAvisos(catalogo.avisos());
+            SemConteudo sem = semConteudo(linha);
+            texto = texto.comMaisAvisos(sem.avisos()).comSemAnalise(sem.arquivos());
+            if (conferido.assuntoLongo()) {
+                Encurtado curto = encurtar(chave, conferido.assuntoDoModelo(), contato);
+                entrada += curto.tokensEntrada();
+                saidaDeTokens += curto.tokensSaida();
+                texto = ConferenciaDoTexto.comAssunto(texto, contato, curto.assunto());
+            }
+            String html = MontagemDoHtml.montar(texto.blocos(), modeloDoTexto);
+            String gravado = modeloLocal(configuracao.modelo());
+            boolean salva = saidas.salvarRedacao(saida.id(), EstruturaDaSaida.escrever(json, texto), html, texto.assunto(),
+                    gravado, prompt.versao(), entrada, saidaDeTokens, conferido.imagens());
+            log.info("Saída {} ({} v{}) redigida pela IA local ({}): {} trechos, {} imagens, {} avisos, {} + {} tokens, "
+                            + "{} ms{}", saida.id(), saida.tipo().codigo(), saida.versao(), configuracao.modelo(),
+                    texto.blocos().size(), conferido.imagens().size(), texto.avisos().size(), entrada, saidaDeTokens,
+                    (System.nanoTime() - inicio) / 1_000_000, salva ? "" : " (a saída mudou no meio: nada gravado)");
+            return ResultadoDaTarefa.concluida();
+        } catch (FalhaDoModelo falha) {
+            log.info("Saída {} ({}): a IA local não redigiu ({}: {})", saida.id(), saida.tipo().codigo(), falha.tipo(),
+                    falha.getMessage());
+            return gemini.traduzir(falha, tarefa.usuarioId(), configuracao.modelo(), "redigir este texto");
+        }
+    }
+
+    /** Quem atendeu: o último atendente que escreveu na conversa, fora o bot. */
+    static String atendente(LinhaDoTempo linha) {
+        String ultimo = null;
+        for (ItemDaLinha item : linha.itens()) {
+            if (item.tipo() == ItemDaLinha.TipoDoItem.MENSAGEM && "atendente".equals(item.lado()) && item.remetente() != null
+                    && !item.remetente().isBlank() && !item.remetente().strip().equalsIgnoreCase("bot")) {
+                ultimo = item.remetente().strip();
+            }
+        }
+        return ultimo;
     }
 
     /**
@@ -359,7 +459,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
                 if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
                     throw falha;
                 }
-                log.info("Resposta do Gemini fora do formato ({}): tentando de novo", falha.getMessage());
+                log.info("Resposta do modelo fora do formato ({}): tentando de novo", falha.getMessage());
             }
         }
     }

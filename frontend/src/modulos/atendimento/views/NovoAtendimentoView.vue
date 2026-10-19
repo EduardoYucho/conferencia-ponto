@@ -245,7 +245,7 @@ function recomecar() {
             <fieldset v-if="resultado.criado || resultado.linksRenovados" class="mt-5 rounded-[3px] border border-linha px-4 py-3">
               <legend class="rotulo px-1">Textos a gerar no fim</legend>
               <p class="text-xs text-tinta-suave">
-                Escritos pelo Gemini quando os anexos estiverem baixados e analisados (dá para gerar depois, no atendimento).
+                Escritos pela IA quando os anexos estiverem baixados e analisados (dá para gerar depois, no atendimento).
               </p>
               <label v-for="tipo in TIPOS_DE_SAIDA" :key="tipo.codigo" class="mt-2 flex items-start gap-2 text-sm"
                      :class="tipo.disponivel ? '' : 'text-tinta-apagada'">
