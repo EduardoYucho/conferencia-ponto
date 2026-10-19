@@ -18,11 +18,18 @@ public sealed interface ResultadoDaTarefa {
      * @param aoEsgotar com as tentativas esgotadas, em vez de falhar de vez a tarefa pausa o atendimento com esta
      *                  mensagem (null: falha de vez). Serve para o que não pode ser deixado para trás sem a pessoa
      *                  saber, como a análise de um arquivo quando o Gemini está sobrecarregado.
+     * @param semGastarTentativa a tarefa nem chegou a tentar (a placa de vídeo está ocupada por um jogo): espera e
+     *                  volta, sem contar tentativa, quantas vezes for preciso
      */
-    record FalhaTemporaria(String codigo, String mensagem, Duration esperar, String aoEsgotar) implements ResultadoDaTarefa {
+    record FalhaTemporaria(String codigo, String mensagem, Duration esperar, String aoEsgotar,
+                           boolean semGastarTentativa) implements ResultadoDaTarefa {
+
+        public FalhaTemporaria(String codigo, String mensagem, Duration esperar, String aoEsgotar) {
+            this(codigo, mensagem, esperar, aoEsgotar, false);
+        }
 
         public FalhaTemporaria(String codigo, String mensagem, Duration esperar) {
-            this(codigo, mensagem, esperar, null);
+            this(codigo, mensagem, esperar, null, false);
         }
     }
 
@@ -50,6 +57,14 @@ public sealed interface ResultadoDaTarefa {
     /** Passageira; se as tentativas acabarem, pausa o atendimento com {@code aoEsgotar} (em vez de falhar de vez). */
     static ResultadoDaTarefa temporariaQuePausa(String codigo, String mensagem, Duration esperar, String aoEsgotar) {
         return new FalhaTemporaria(codigo, mensagem, esperar, aoEsgotar);
+    }
+
+    /**
+     * A tarefa não pôde nem começar por algo que passa sozinho (a placa de vídeo ocupada): volta depois de
+     * {@code esperar}, sem gastar tentativa, até dar.
+     */
+    static ResultadoDaTarefa aguardar(String codigo, String mensagem, Duration esperar) {
+        return new FalhaTemporaria(codigo, mensagem, esperar, null, true);
     }
 
     static ResultadoDaTarefa definitiva(String codigo, String mensagem) {

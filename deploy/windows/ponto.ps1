@@ -836,6 +836,7 @@ function Cmd-Instalar([switch] $Atualizacao) {
     Info "Logs:           $ArquivoLog"
     Info "Logs por pessoa: $PastaLogsUsuarios  (um arquivo por usuário e por hora)"
     Mostrar-Ffmpeg
+    Mostrar-IaLocal
     if (-not $Atualizacao) {
         Write-Host ''
         Info 'Abra um terminal NOVO e use:  ponto  |  ponto abrir  |  ponto logs  |  ponto parar  |  ponto atualizar'
@@ -889,6 +890,43 @@ function Mostrar-Ffmpeg {
     }
 }
 
+# A IA local (o padrão de atendimento.ia.motor): o Ollama roda o modelo neste computador e o Whisper transcreve os
+# áudios. Sem eles, os atendimentos ficam esperando, com o motivo na tela. Só mostra; não instala nada.
+function Mostrar-IaLocal {
+    $motor = Configuracao-Servico 'atendimento.ia.motor' 'local'
+    if ($motor -and $motor.Trim('"') -ne 'local') {
+        Info "IA:             $($motor.Trim('"')) (atendimento.ia.motor)"
+        return
+    }
+    $url = (Configuracao-Servico 'atendimento.ia.local.url' 'http://localhost:11434').Trim('"').TrimEnd('/')
+    $modelo = (Configuracao-Servico 'atendimento.ia.local.modelo' 'gemma4:12b').Trim('"')
+    $vetor = (Configuracao-Servico 'atendimento.ia.local.modelo-vetor' 'embeddinggemma').Trim('"')
+    $pasta = Join-Path $env:USERPROFILE '.conferencia-ponto\ia-local'
+    $whisper = (Configuracao-Servico 'atendimento.ia.local.whisper.executavel' '').Trim('"')
+    if (-not $whisper) { $whisper = Join-Path $pasta 'whisper\Release\whisper-cli.exe' }
+    $modeloWhisper = (Configuracao-Servico 'atendimento.ia.local.whisper.modelo' '').Trim('"')
+    if (-not $modeloWhisper) { $modeloWhisper = Join-Path $pasta 'modelos\ggml-large-v3-turbo.bin' }
+    $instalados = $null
+    try {
+        $instalados = @((Invoke-RestMethod -Uri "$url/api/tags" -TimeoutSec 5).models | ForEach-Object { $_.name })
+    } catch { }
+    if ($null -eq $instalados) {
+        Aviso "IA local:       o Ollama não respondeu em $url. Abra o Ollama (menu Iniciar); os atendimentos esperam por ele."
+    } else {
+        $faltam = @($modelo, $vetor | Where-Object { $nome = $_; -not ($instalados | Where-Object { $_ -eq $nome -or $_ -eq "$($nome):latest" }) })
+        if ($faltam.Count -eq 0) {
+            Info "IA local:       Ollama com $modelo e $vetor"
+        } else {
+            Aviso "IA local:       falta(m) no Ollama: $($faltam -join ', ')  (ollama pull <modelo>)"
+        }
+    }
+    if ((Test-Path -LiteralPath $whisper -PathType Leaf) -and (Test-Path -LiteralPath $modeloWhisper -PathType Leaf)) {
+        Info "Áudios:         Whisper ($whisper)"
+    } else {
+        Aviso "Áudios:         Whisper não encontrado ($whisper e $modeloWhisper): os áudios e a fala dos vídeos ficam sem transcrição."
+    }
+}
+
 function Cmd-Status {
     Titulo 'Conferência de Ponto'
     $tarefa = Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue
@@ -920,6 +958,7 @@ function Cmd-Status {
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
     Mostrar-Ffmpeg
+    Mostrar-IaLocal
     Write-Host ''
     Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | backup [lista] | console | desinstalar'
 }

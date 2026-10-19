@@ -1,6 +1,7 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
+import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { mensagemDe } from '@/utils/erros'
 import {
   camposDaTela,
@@ -19,6 +20,7 @@ import SaidaDoAtendimento from './SaidaDoAtendimento.vue'
  * texto é escrito, a aba mostra a situação ao vivo; pronto, abre o texto com o assunto, a prévia, as imagens e a
  * cópia. Os tipos que faltam podem ser pedidos aqui; os chamados pedem antes os dados que não estão em nenhuma fonte.
  */
+const modulos = useAcessoModulosStore()
 const props = defineProps({
   atendimento: { type: Object, required: true },
 })
@@ -56,7 +58,7 @@ const espera = computed(() => {
   if (!s) return ''
   if (props.atendimento.situacao === 'pausado') return props.atendimento.motivoPausa ?? 'O processamento está pausado.'
   if (props.atendimento.situacao === 'cancelado') return 'O processamento foi cancelado. Clique em Processar para continuar.'
-  if (s.situacao === 'redigindo') return 'Escrevendo o texto com o Gemini…'
+  if (s.situacao === 'redigindo') return 'Escrevendo o texto…'
   return s.erro ?? 'O texto é escrito quando os downloads e as análises terminarem.'
 })
 
@@ -122,7 +124,7 @@ async function gerarDeNovo(tipo) {
 
     <div v-if="!saidas.length" class="mt-2 grid gap-3">
       <p class="text-sm text-tinta-suave">
-        Nenhum texto pedido ainda. Cada texto é escrito pelo Gemini a partir da conversa e da análise de cada arquivo<span
+        Nenhum texto pedido ainda. Cada texto é escrito pela IA a partir da conversa e da análise de cada arquivo<span
           v-if="faltaBaixar">; os anexos que faltam são baixados e analisados antes</span>.
       </p>
       <div v-if="!processando && !pedindo" class="flex flex-wrap gap-2">
@@ -202,6 +204,7 @@ async function gerarDeNovo(tipo) {
     <p v-if="mensagem" role="alert" class="mt-3 text-sm text-carimbo">{{ mensagem }}</p>
 
     <PeloAppDoGemini
+      v-if="!modulos.iaLocal"
       :atendimento="atendimento"
       :tipo-atual="atual?.tipo ?? null"
       @progresso="emit('progresso', $event)"

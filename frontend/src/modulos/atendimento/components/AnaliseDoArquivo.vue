@@ -3,6 +3,7 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import { mensagemDe } from '@/utils/erros'
 import { dataHora, tokens } from '@/modulos/atendimento/formato'
+import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 
 /**
  * A análise de um arquivo pelo Gemini, aberta na tela: a tela, os campos e as mensagens de um print; a transcrição
@@ -10,6 +11,7 @@ import { dataHora, tokens } from '@/modulos/atendimento/formato'
  * instante, a tela, as ações, as mensagens e o quadro de cada um (tirado pelo ffmpeg do servidor). Já vem mascarada
  * do servidor.
  */
+const modulos = useAcessoModulosStore()
 const props = defineProps({
   atendimentoId: { type: String, required: true },
   arquivoId: { type: String, required: true },
@@ -216,8 +218,8 @@ async function copiarTranscricao() {
 
       <p class="mt-3 text-[0.7rem] text-tinta-apagada">
         {{ analise.modelo }} · prompt v{{ analise.versaoPrompt }} · {{ dataHora(analise.criadaEm) }}
-        <template v-if="analise.tokensEntrada != null"> · {{ tokens(analise.tokensEntrada) }} + {{ tokens(analise.tokensSaida) }} tokens</template>
-        <template v-else> · reaproveitada de um arquivo igual</template>
+        <template v-if="analise.tokensEntrada == null"> · reaproveitada de um arquivo igual</template>
+        <template v-else-if="!modulos.iaLocal"> · {{ tokens(analise.tokensEntrada) }} + {{ tokens(analise.tokensSaida) }} tokens</template>
         <span v-if="!analise.atual" class="text-carimbo"> · de outra versão (processe de novo para atualizar)</span>
       </p>
     </template>

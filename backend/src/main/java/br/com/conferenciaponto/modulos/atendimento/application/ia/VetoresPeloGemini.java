@@ -13,7 +13,8 @@ import java.time.Clock;
 import java.util.UUID;
 
 /**
- * Os vetores da base de conhecimento pelo Gemini, com a chave da pessoa (aberta só aqui, no gerador). Um uso que deu
+ * Os vetores da base de conhecimento pelo modelo (a IA local, sem chave, ou o Gemini, com a chave da pessoa, aberta
+ * só aqui, no gerador). Um uso que deu
  * certo deixa a chave como válida; a chave recusada e a cota do dia ficam marcadas na chave, como nas análises.
  */
 @Component
@@ -52,6 +53,17 @@ public class VetoresPeloGemini implements VetoresDeTexto {
     }
 
     private FalhaNoVetor traduzir(FalhaDoModelo falha, UUID usuarioId, String nomeDoModelo) {
+        if (chamadas.local()) {
+            return switch (falha.tipo()) {
+                case MODELO_INEXISTENTE -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, "O modelo de vetores "
+                        + nomeDoModelo + " não está instalado na IA local (Ollama). Avise o administrador "
+                        + "(atendimento.ia.local.modelo-vetor).");
+                case IA_LOCAL_PARADA, PLACA_OCUPADA, INDISPONIVEL, SEM_INTERNET, LIMITE ->
+                        new FalhaNoVetor(FalhaNoVetor.Motivo.INDISPONIVEL, "A IA local não respondeu agora ("
+                                + falha.getMessage() + ").");
+                default -> new FalhaNoVetor(FalhaNoVetor.Motivo.RECUSADO, falha.getMessage());
+            };
+        }
         return switch (falha.tipo()) {
             case CHAVE_RECUSADA -> {
                 chaves.atualizarSituacao(usuarioId, SituacaoDaChave.RECUSADA, clock.instant());

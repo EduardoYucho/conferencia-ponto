@@ -43,6 +43,9 @@ public interface Tarefas {
     /** Falha temporária: volta a pendente para depois de {@code executarApos}. */
     void adiar(long id, Instant executarApos, String codigo, String mensagem, Instant agora);
 
+    /** Como {@link #adiar}, devolvendo a tentativa que o pegar contou (a tarefa nem chegou a tentar). */
+    void aguardar(long id, Instant executarApos, String codigo, String mensagem, Instant agora);
+
     void falhar(long id, String codigo, String mensagem, Instant agora);
 
     /** A tarefa em execução fica pausada (volta quando o atendimento for retomado, sem gastar tentativa). */

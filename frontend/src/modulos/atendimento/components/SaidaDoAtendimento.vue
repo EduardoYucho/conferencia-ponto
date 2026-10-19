@@ -88,6 +88,9 @@ const direta = copiaDiretaDisponivel()
 const chamado = computed(() => paraODesenvolvimento(saida.value?.tipo))
 /** Texto da habilidade do app do Gemini: vem sem as fontes de cada trecho (é texto para o chamado), então nada fica destacado. */
 const doGemini = computed(() => ['habilidade do Gemini (colado)', 'Gem do Gemini (colado)'].includes(saida.value?.modelo))
+/** Texto escrito pela IA local: também em texto corrido, sem as fontes de cada trecho. */
+const daIaLocal = computed(() => /\(IA local\)$/.test(saida.value?.modelo ?? ''))
+const semFontes = computed(() => doGemini.value || daIaLocal.value)
 const telaMudou = computed(() => saida.value && tela.value.trim().replace(/\s+/g, ' ') !== (saida.value.telaFuncionalidade ?? ''))
 const telaLonga = computed(() => tela.value.trim().length > LIMITE_DA_TELA)
 const variantes = computed(() => (saida.value?.variantes ?? []).map((v) => VARIANTES[v] ?? v))
@@ -414,11 +417,11 @@ function copiarAgora() {
           </div>
           <p class="mt-1 text-xs" :class="telaLonga ? 'font-semibold text-carimbo' : 'text-tinta-suave'">
             <template v-if="telaLonga">{{ tela.trim().length }}/{{ LIMITE_DA_TELA }} caracteres: encurte para salvar.</template>
-            <template v-else>Escrita pelo Gemini ou sugerida pelo código de tela lido nas imagens: confira. Vazia, sai "não informado".</template>
+            <template v-else>Escrita pela IA ou sugerida pelo código de tela lido nas imagens: confira. Vazia, sai "não informado".</template>
           </p>
         </div>
         <div v-if="variantes.length" class="flex flex-wrap items-center gap-2 text-xs">
-          <span class="rotulo">O Gemini identificou</span>
+          <span class="rotulo">A IA identificou</span>
           <span v-for="v in variantes" :key="v" class="rounded-[2px] border border-tinta/40 px-2 py-0.5 font-semibold">{{ v }}</span>
         </div>
         <div>
@@ -518,6 +521,7 @@ function copiarAgora() {
         </div>
         <p class="mt-1 text-xs text-tinta-suave">
           <template v-if="editando">Mexa só no texto: o parágrafo de cada imagem ("Imagem N: legenda") pode ser movido ou apagado, e o servidor renumera ao salvar.<template v-if="chamado"> O cabeçalho e o rodapé saem dos dados do chamado.</template></template>
+          <template v-else-if="daIaLocal">Texto escrito pela IA local: confira com a conversa antes de usar.</template>
           <template v-else-if="doGemini">Texto escrito no app do Gemini: confira com a conversa antes de usar.</template>
           <template v-else>Clique num trecho para ver de onde ele veio. Trechos destacados vieram sem fonte: confira.</template>
         </p>
@@ -541,7 +545,7 @@ function copiarAgora() {
           v-else
           ref="previa"
           class="previa rounded-[3px] border border-linha bg-white/80 px-4 py-3 text-sm"
-          :class="[chamado && saida.cabecalho ? 'rounded-none' : 'mt-2', { 'sem-fontes': doGemini }]"
+          :class="[chamado && saida.cabecalho ? 'rounded-none' : 'mt-2', { 'sem-fontes': semFontes }]"
           aria-label="Prévia do texto"
           @click="aoClicarNaPrevia"
           v-html="saida.html"
@@ -560,8 +564,8 @@ function copiarAgora() {
           <p class="rotulo">De onde veio este trecho</p>
           <button type="button" class="text-xs underline underline-offset-4" @click="fontes = null">Fechar</button>
         </div>
-        <p v-if="fontes.semFonte && doGemini" class="mt-1 text-tinta-suave">O app do Gemini não indica a fonte de cada trecho: confira com a conversa.</p>
-        <p v-else-if="fontes.semFonte" class="mt-1 text-carimbo">O Gemini não indicou a fonte deste trecho: confira com a conversa antes de usar.</p>
+        <p v-if="fontes.semFonte && semFontes" class="mt-1 text-tinta-suave">{{ daIaLocal ? 'A IA local' : 'O app do Gemini' }} não indica a fonte de cada trecho: confira com a conversa.</p>
+        <p v-else-if="fontes.semFonte" class="mt-1 text-carimbo">A IA não indicou a fonte deste trecho: confira com a conversa antes de usar.</p>
         <p v-else-if="erroDaLinha" class="mt-1 text-carimbo">{{ erroDaLinha }}</p>
         <ul v-else class="mt-1 grid gap-2">
           <li v-for="id in fontes.ids" :key="id" class="grid grid-cols-[3rem_minmax(0,1fr)] gap-2">
@@ -654,7 +658,7 @@ function copiarAgora() {
         <div v-else role="region" aria-label="Revisar o registro">
           <p class="font-semibold">Revise o registro antes de enviar</p>
           <p class="mt-0.5 mb-3 text-xs text-tinta-suave">
-            Preenchido com o que o Gemini preparou para a base ("não identificado" ficou em branco). É o que entra na
+            Preenchido com o que a IA preparou para a base ("não identificado" ficou em branco). É o que entra na
             pesquisa; o texto como está acima e as imagens vão junto. Depois de enviado, o texto não muda mais aqui.
           </p>
           <FormularioDoRegistro v-model="registro" :prefixo="`registro-${saida.id}`" :desligado="!!acao" com-situacao />
@@ -671,7 +675,7 @@ function copiarAgora() {
       <div class="flex flex-wrap items-center justify-between gap-2 border-t border-linha pt-3">
         <p class="text-[0.7rem] text-tinta-apagada">
           Versão {{ saida.versao }} · {{ saida.modelo }} · prompt v{{ saida.versaoPrompt }} · {{ dataHora(saida.criadaEm) }}
-          <template v-if="saida.tokensEntrada"> · {{ tokens(saida.tokensEntrada) }} + {{ tokens(saida.tokensSaida) }} tokens</template>
+          <template v-if="saida.tokensEntrada && !modulos.iaLocal"> · {{ tokens(saida.tokensEntrada) }} + {{ tokens(saida.tokensSaida) }} tokens</template>
           <template v-if="saida.editado"> · editado</template>
         </p>
         <div v-if="!confirmandoGerar">

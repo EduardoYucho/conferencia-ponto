@@ -130,9 +130,62 @@ public final class ModeloDeMentira implements ModeloDeIA {
              "narracao":[{"inicio":"00:01","falante":"Falante 1","texto":"a diretoria quer ver por vendedor, igual a planilha"}],
              "textoLegivel":true}""";
 
+    /** O resumo em texto corrido, como a IA local escreve (as regras da habilidade): sem fontes, com um dado de acesso. */
+    public static final String RESUMO_EM_TEXTO = """
+            Assunto: Digisac: Loja Exemplo - Maria : Erro ao emitir a nota fiscal na tela de vendas
+
+            A cliente relatou que não conseguia emitir a nota fiscal e enviou o print do erro.
+            [Imagem A1: tela Pedidos com o erro]
+
+            Acessei o computador pelo AnyDesk 123 456 789 e emiti a nota de novo.
+            [Imagem A9: tela inventada]
+
+            A nota foi emitida.""";
+
+    /** O chamado de erro em texto, com as partes da habilidade. */
+    public static final String DEV_ERRO_EM_TEXTO = """
+            Assunto: Digisac: Loja Exemplo - Maria : Erro ao gravar pedido de venda com desconto
+            Tela/Funcionalidade: Pedidos (VEN010)
+
+            ## Caminho da tela
+            Vendas -> Pedidos (VEN010)
+
+            ## Relato do problema
+            Ao gravar o pedido, aparece uma mensagem de erro.
+            [Imagem A1: tela Pedidos com o erro]
+
+            ## Passos para reproduzir
+            Abrir a tela Pedidos.
+            Clicar em Gravar.
+
+            ## Resultado obtido
+            Aparece "Erro ao gravar o pedido".
+
+            ## Causa
+            Causa não identificada.
+
+            ## Pedido ao desenvolvimento
+            Verificar e corrigir a gravação do pedido.""";
+
+    private volatile boolean local;
+
+    /** Faz as vezes da IA local (sem chave; os arquivos vão pelo endereço no disco). */
+    public ModeloDeMentira local(boolean local) {
+        this.local = local;
+        return this;
+    }
+
+    @Override
+    public boolean local() {
+        return local;
+    }
+
     /** As respostas válidas de cada esquema (imagem, áudio, documento, vídeo, resumo, chamados, assunto mais curto). */
     public static String respostaPadrao(PedidoAoModelo pedido) {
         String esquema = pedido.esquemaJson();
+        if (esquema.isBlank()) { // a redação da IA local, em texto
+            return pedido.instrucao().contains("chamado de \"erro\"") ? DEV_ERRO_EM_TEXTO : RESUMO_EM_TEXTO;
+        }
         if (esquema.contains("\"instanteDoQuadro\"")) {
             return VIDEO;
         }

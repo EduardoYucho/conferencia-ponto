@@ -53,7 +53,7 @@ function situacao(linha) {
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Atendimentos</h1>
       </div>
       <div v-if="modulos.gerador" class="flex flex-wrap gap-2">
-        <RouterLink :to="{ name: 'chave-gemini' }" class="botao-secundario">Minha chave do Gemini</RouterLink>
+        <RouterLink v-if="!modulos.iaLocal" :to="{ name: 'chave-gemini' }" class="botao-secundario">Minha chave do Gemini</RouterLink>
         <RouterLink :to="{ name: 'atendimento-novo' }" class="botao-primario">Novo atendimento</RouterLink>
       </div>
     </header>

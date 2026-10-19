@@ -28,7 +28,9 @@ public record ConfiguracaoDaAnalise(String modeloDeAnalise, String modeloDeAudio
     public static final long VIDEO_MAXIMO_PADRAO = DataSize.ofGigabytes(2).toBytes();
 
     @Autowired
-    public ConfiguracaoDaAnalise(@Value("${atendimento.gemini.modelos.analise:gemini-3.8-flash}") String modeloDeAnalise,
+    public ConfiguracaoDaAnalise(@Value("${atendimento.ia.motor:local}") String motor,
+                                 @Value("${atendimento.ia.local.modelo:gemma4:12b}") String modeloLocal,
+                                 @Value("${atendimento.gemini.modelos.analise:gemini-3.8-flash}") String modeloDeAnalise,
                                  @Value("${atendimento.gemini.modelos.audio:gemini-3.8-flash}") String modeloDeAudio,
                                  @Value("${atendimento.gemini.tentativas:5}") int tentativas,
                                  @Value("${atendimento.gemini.inline-maximo:15MB}") DataSize inlineMaximo,
@@ -38,11 +40,19 @@ public record ConfiguracaoDaAnalise(String modeloDeAnalise, String modeloDeAudio
                                  @Value("${atendimento.gemini.video.quadros-por-segundo:1}") double quadrosPorSegundo,
                                  @Value("${atendimento.gemini.video.tamanho-maximo:2GB}") DataSize videoMaximo,
                                  @Value("${atendimento.gemini.video.espera:15m}") Duration esperaVideo) {
-        this(modeloDeAnalise.strip(), modeloDeAudio.strip(), Math.max(1, tentativas), inlineMaximo.toBytes(),
-                maxTokensSaida, temperatura == null || temperatura.isBlank() ? null : Double.valueOf(temperatura.strip()),
-                raciocinio == null || raciocinio.isBlank() ? null : raciocinio.strip(),
-                quadrosPorSegundo > 0 ? Math.min(quadrosPorSegundo, 24) : QUADROS_POR_SEGUNDO_PADRAO,
+        this(local(motor) ? modeloLocal.strip() : modeloDeAnalise.strip(),
+                local(motor) ? modeloLocal.strip() + " + whisper" : modeloDeAudio.strip(), Math.max(1, tentativas),
+                inlineMaximo.toBytes(), maxTokensSaida,
+                local(motor) || temperatura == null || temperatura.isBlank() ? null : Double.valueOf(temperatura.strip()),
+                local(motor) || raciocinio == null || raciocinio.isBlank() ? null : raciocinio.strip(),
+                local(motor) ? QUADROS_POR_SEGUNDO_PADRAO
+                        : quadrosPorSegundo > 0 ? Math.min(quadrosPorSegundo, 24) : QUADROS_POR_SEGUNDO_PADRAO,
                 videoMaximo.toBytes(), esperaVideo);
+    }
+
+    /** A IA local ({@code atendimento.ia.motor: local}, o padrão): o modelo roda neste computador. */
+    public static boolean local(String motor) {
+        return motor == null || motor.isBlank() || "local".equalsIgnoreCase(motor.strip());
     }
 
     /** Sem os campos do vídeo (os padrões: 1 quadro por segundo, até 2 GB, 15 min de espera). */
@@ -50,6 +60,11 @@ public record ConfiguracaoDaAnalise(String modeloDeAnalise, String modeloDeAudio
                                  int maxTokensSaida, Double temperatura, String raciocinio) {
         this(modeloDeAnalise, modeloDeAudio, tentativas, inlineMaximo, maxTokensSaida, temperatura, raciocinio,
                 QUADROS_POR_SEGUNDO_PADRAO, VIDEO_MAXIMO_PADRAO, Duration.ofMinutes(15));
+    }
+
+    /** As análises vão ao Gemini (a API, com a chave de cada pessoa); senão, à IA local. */
+    public boolean usaGemini() {
+        return modeloDeAnalise != null && modeloDeAnalise.toLowerCase(java.util.Locale.ROOT).startsWith("gemini");
     }
 
     /** O modelo que vai na chamada de cada tipo de arquivo (o áudio pode usar um modelo de transcrição). */

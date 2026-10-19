@@ -12,6 +12,8 @@ export const useAcessoModulosStore = defineStore('acessoModulos', () => {
   const gerador = ref(false)
   const pesquisar = ref(false)
   const curar = ref(false)
+  /** Os textos são feitos pela IA local deste computador (sem chave do Gemini, sem cota). */
+  const iaLocal = ref(true)
   /** Já perguntou ao servidor ao menos uma vez nesta sessão. */
   const carregado = ref(false)
   const erro = ref(null)
@@ -22,6 +24,7 @@ export const useAcessoModulosStore = defineStore('acessoModulos', () => {
     erro.value = null
     if (doGerador.status === 'fulfilled') {
       gerador.value = !!doGerador.value?.gerador
+      iaLocal.value = doGerador.value?.iaLocal !== false
     } else {
       erro.value = doGerador.reason
     }
@@ -42,5 +45,5 @@ export const useAcessoModulosStore = defineStore('acessoModulos', () => {
     erro.value = null
   }
 
-  return { gerador, pesquisar, curar, carregado, erro, carregar, limpar }
+  return { gerador, pesquisar, curar, iaLocal, carregado, erro, carregar, limpar }
 })

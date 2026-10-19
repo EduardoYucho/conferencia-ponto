@@ -31,7 +31,11 @@ public class FalhaDoModelo extends RuntimeException {
         /** O Google não aceitou o pedido (arquivo, tipo ou parâmetro). */
         PEDIDO_RECUSADO,
         /** O Google não conseguiu processar o arquivo enviado. */
-        ARQUIVO_FALHOU
+        ARQUIVO_FALHOU,
+        /** IA local: o programa que roda o modelo neste computador (o Ollama) não respondeu. */
+        IA_LOCAL_PARADA,
+        /** IA local: a placa de vídeo está ocupada (um jogo aberto) e não sobra memória para o modelo. */
+        PLACA_OCUPADA
     }
 
     private final Tipo tipo;

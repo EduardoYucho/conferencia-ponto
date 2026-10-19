@@ -40,6 +40,34 @@ atendimento:
     espera-inicial: 10s                      # depois de uma falha passageira; dobra a cada tentativa
     espera-maxima: 10m
     ativa: true                              # false desliga o processamento em segundo plano
+  ia:
+    # local: o modelo roda neste computador (Ollama e Whisper), sem chave, sem cota e sem nada sair daqui (o padrão);
+    # gemini: a API do Gemini, com a chave de cada pessoa (Atendimentos → Minha chave do Gemini)
+    motor: local
+    local:
+      url: http://localhost:11434            # o Ollama
+      modelo: gemma4:12b                     # lê imagens, documentos e quadros dos vídeos e escreve os textos
+      modelo-vetor: embeddinggemma           # pesquisa por significado da base (trocar = recalcular todos)
+      dimensao-vetor: 768
+      contexto: 24576                        # tokens que o modelo lê de uma vez (o material de um atendimento longo)
+      tempo-conexao: 10s
+      tempo-limite: 10m                      # uma resposta (a primeira do dia também carrega o modelo na placa)
+      manter-carregado: 2m                   # depois do último uso, o modelo sai da placa de vídeo
+      whisper:                               # transcrição dos áudios e da fala dos vídeos
+        executavel:                          # vazio = ~/.conferencia-ponto/ia-local/whisper/Release/whisper-cli.exe
+        modelo:                              # vazio = ~/.conferencia-ponto/ia-local/modelos/ggml-large-v3-turbo.bin
+        idioma: pt
+        tempo-limite: 10m
+      video:
+        quadros: 16                          # quadros que o modelo olha, espalhados do começo ao fim do vídeo
+      pdf:
+        paginas: 4                           # páginas do documento que o modelo olha como imagem (o texto vai inteiro)
+        caracteres: 40000                    # o máximo do texto do documento
+      placa:
+        esperar-livre: true                  # placa de vídeo ocupada (um jogo aberto): o atendimento espera ela ficar livre
+        memoria-necessaria: 8GB              # livre na placa para a IA (sem contar o que ela mesma usa)
+        intervalo: 2m                        # de quanto em quanto tempo confere de novo
+        nvidia-smi: nvidia-smi               # vem com o driver da NVIDIA; sem ele, a IA não espera
   gemini:
     url-base: https://generativelanguage.googleapis.com
     exigir-nivel-pago: true                  # o usuário confirma que a chave é de projeto com faturamento (E3)
@@ -73,8 +101,9 @@ atendimento:
     marcacoes: true                          # oferece as marcações em vermelho (experimental, E12); cada imagem começa sem
 
 conhecimento:
-  vetor:                                     # pesquisa por significado (E11), com a chave do Gemini de cada pessoa
-    modelo: gemini-embedding-2               # trocar o modelo ou o tamanho = recalcular todos (em segundo plano)
+  vetor:                                     # pesquisa por significado (E11); com a IA local, o modelo e o tamanho
+                                             # vêm de atendimento.ia.local (modelo-vetor e dimensao-vetor)
+    modelo: gemini-embedding-2               # (Gemini) trocar o modelo ou o tamanho = recalcular todos (em segundo plano)
     dimensao: 768
     similaridade-minima: 0.6                 # cosseno mínimo para entrar na pesquisa só pelo significado
     maximo-na-pesquisa: 30                   # quantos parecidos entram na fusão com a pesquisa exata
