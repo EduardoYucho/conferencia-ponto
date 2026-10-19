@@ -267,7 +267,19 @@ public class AnalisarArquivo implements ExecutorDeTarefa {
         if (falha.tipo() == FalhaDoModelo.Tipo.ARQUIVO_FALHOU) {
             analises.esquecerArquivoRemoto(arquivo.id());
         }
-        return gemini.traduzir(falha, arquivo.usuarioId(), nomeDoModelo, "analisar este arquivo");
+        return gemini.traduzir(falha, arquivo.usuarioId(), nomeDoModelo, "analisar " + qual(arquivo));
+    }
+
+    /** "o vídeo gravacao.mp4", "a imagem print.png" (para as mensagens da tela). */
+    static String qual(ArquivoParaAnalisar arquivo) {
+        String tipo = arquivo.categoria() == null ? "o arquivo" : switch (arquivo.categoria()) {
+            case IMAGEM -> "a imagem";
+            case AUDIO -> "o áudio";
+            case VIDEO -> "o vídeo";
+            case DOCUMENTO -> "o documento";
+            default -> "o arquivo";
+        };
+        return arquivo.nome() == null || arquivo.nome().isBlank() ? tipo : tipo + " " + arquivo.nome();
     }
 
     // ---------------------------------------------------------------------------------------------- apoio

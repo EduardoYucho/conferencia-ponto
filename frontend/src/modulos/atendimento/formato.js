@@ -76,8 +76,12 @@ export const SITUACOES_DA_ANALISE = {
   falhou: { rotulo: 'análise falhou', classe: 'font-semibold text-carimbo' },
 }
 
-/** Falhas da análise que se resolvem cadastrando a chave (o "Processar" tenta de novo). */
-export const FALHAS_DA_CHAVE = ['SEM_CHAVE_GEMINI', 'CHAVE_GEMINI_ILEGIVEL', 'CHAVE_GEMINI_RECUSADA']
+/**
+ * Falhas da análise que se resolvem fora do arquivo: a chave, o Gemini sobrecarregado ou fora do ar, um erro do
+ * sistema (o "Processar" tenta de novo, e os textos esperam).
+ */
+export const FALHAS_DA_CHAVE = ['SEM_CHAVE_GEMINI', 'CHAVE_GEMINI_ILEGIVEL', 'CHAVE_GEMINI_RECUSADA', 'GEMINI_INDISPONIVEL',
+  'GEMINI_LIMITE', 'ERRO_INTERNO']
 
 /** "1.234" ou "12,3 mil" tokens. */
 export function tokens(n) {

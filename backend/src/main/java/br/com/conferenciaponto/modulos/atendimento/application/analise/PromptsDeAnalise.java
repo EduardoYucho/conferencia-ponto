@@ -34,7 +34,7 @@ public final class PromptsDeAnalise {
     private static final Prompt IMAGEM = carregar("imagem", 1, true);
     private static final Prompt AUDIO = carregar("audio", 1, false);
     private static final Prompt DOCUMENTO = carregar("documento", 1, false);
-    private static final Prompt VIDEO = carregar("video", 1, false);
+    private static final Prompt VIDEO = carregar("video", 2, false);
 
     /** O prompt e o esquema dos arquivos; os obrigatórios e as listas vêm do esquema. */
     private static Prompt carregar(String tipo, int versao, boolean altaResolucao) {

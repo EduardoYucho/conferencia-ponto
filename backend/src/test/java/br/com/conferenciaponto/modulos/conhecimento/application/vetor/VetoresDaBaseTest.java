@@ -12,8 +12,10 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 
 /**
  * Os vetores da base no banco de verdade: os pendentes gerados com a chave do autor (em segundo plano, com espera
@@ -108,8 +110,11 @@ class VetoresDaBaseTest {
         assertThat(vetores.tem(registro)).as("mesmo texto: o vetor fica").isTrue();
 
         vetores.textoMudou(registro, "Erro ao gravar o pedido", "Não grava.", null, null, null);
-        assertThat(vetores.tem(registro)).isFalse();
-        assertThat(vetoresNoBanco(registro, base.modelo)).isZero();
+        // o vetor guardado sai na hora e um novo é pedido logo depois, em segundo plano (sem esperar a rodada); o teste
+        // espera o novo em vez de olhar o meio do caminho, que depende da velocidade da máquina
+        await().atMost(10, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(20))
+                .until(() -> vetores.tem(registro) && gerador.pedidosDe(autor).size() == 2);
+        assertThat(vetoresNoBanco(registro, base.modelo)).as("um só, o refeito").isEqualTo(1);
     }
 
     @Test

@@ -57,7 +57,7 @@ public interface Tarefas {
     /** Só as pendentes destes tipos viram pausadas (a cota do Gemini acabou, mas os downloads seguem). */
     int pausarDoAtendimento(UUID atendimentoId, java.util.Set<TipoDeTarefa> tipos, Instant agora);
 
-    /** Pausadas do atendimento voltam a pendentes, para já. */
+    /** Pausadas do atendimento voltam a pendentes, para já, com as tentativas do começo (a pessoa pediu para retomar). */
     int retomarDoAtendimento(UUID atendimentoId, Instant agora);
 
     /** Pendentes e pausadas de um arquivo viram canceladas (o arquivo foi enviado à mão ou tirado). */

@@ -87,7 +87,9 @@ public final class ModeloDeMentira implements ModeloDeIA {
                "contexto":[],
                "comportamentoAtual":[{"tipo":"paragrafo","texto":"Hoje qualquer desconto é aceito.","fontes":["M1"],"imagens":[]}],
                "comportamentoEsperado":[{"tipo":"paragrafo","texto":"Desconto acima do limite pede senha do gerente.","fontes":["M1"],"imagens":[]}],
-               "regras":[],"observacaoComercial":[]},
+               "detalhamento":[{"tipo":"paragrafo","texto":"Campo Desconto máximo (%) no cadastro do vendedor.","fontes":["M1"],"imagens":[]}],
+               "regras":[],"observacaoComercial":[],
+               "pontosAConfirmar":[{"tipo":"paragrafo","texto":"O limite vale também para o gerente?","fontes":["M1"],"imagens":[]}]},
              "base":{"cliente":"Loja Exemplo","modulo":"Vendas","tela":"Pedidos","codigoTela":"VEN010",
                      "sintoma":"precisa limitar o desconto","mensagemErro":"não identificado","causa":"não identificado",
                      "resolucao":"enviado ao desenvolvimento"},
@@ -98,17 +100,34 @@ public final class ModeloDeMentira implements ModeloDeIA {
      * instante de quadro, que fica no começo do passo), a narração com um dado de acesso remoto para a máscara tirar.
      */
     public static final String VIDEO = """
-            {"descricao":"Gravação da tela emitindo a nota fiscal com desconto","duracao":"00:40",
+            {"tipoDoVideo":"problema","descricao":"Gravação da tela emitindo a nota fiscal com desconto","duracao":"00:40",
+             "pedido":{"resumo":"não identificado","itens":[],"exemplos":[]},
              "passos":[
                {"instante":"00:02","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":"Vendas > Pedidos"},
-                "acoes":["clique em Novo"],"mensagens":[],"descricao":"Abre um pedido novo.","instanteDoQuadro":"00:03"},
+                "acoes":["clique em Novo"],"mensagens":[],"conteudoNaTela":[],"descricao":"Abre um pedido novo.","instanteDoQuadro":"00:03"},
                {"instante":"00:10","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":"Vendas > Pedidos"},
                 "acoes":["digitação de 10 no campo Desconto","clique no botão Gravar"],
-                "mensagens":[{"texto":"Erro ao gravar o pedido","tipo":"erro"}],"descricao":"Grava e aparece o erro.",
+                "mensagens":[{"texto":"Erro ao gravar o pedido","tipo":"erro"}],"conteudoNaTela":["Desconto: 10"],
+                "descricao":"Grava e aparece o erro.",
                 "instanteDoQuadro":"00:12"},
                {"instante":"00:30","tela":{"nome":"Pedidos","codigo":"VEN010","caminhoMenu":""},
-                "acoes":["clique em OK"],"mensagens":[],"descricao":"Fecha a mensagem.","instanteDoQuadro":"não identificado"}],
+                "acoes":["clique em OK"],"mensagens":[],"conteudoNaTela":[],"descricao":"Fecha a mensagem.",
+                "instanteDoQuadro":"não identificado"}],
              "narracao":[{"inicio":"00:01","falante":"Falante 1","texto":"vou mostrar o erro, o anydesk é 123 456 789"}],
+             "textoLegivel":true}""";
+
+    /** Um vídeo em que o cliente explica um pedido (um relatório novo), com o modelo numa planilha. */
+    public static final String VIDEO_DE_PEDIDO = """
+            {"tipoDoVideo":"pedido","descricao":"A cliente mostra a planilha que a diretoria usa e o relatório atual",
+             "duracao":"01:10",
+             "pedido":{"resumo":"Criar um relatório de vendas por vendedor igual à planilha da diretoria",
+                       "itens":["coluna Vendedor","coluna Total vendido no mês","filtro por período"],
+                       "exemplos":["planilha com as colunas Vendedor, Meta, Total vendido"]},
+             "passos":[
+               {"instante":"00:05","tela":{"nome":"Vendas por Período","codigo":"VEN050","caminhoMenu":"Relatórios > Vendas"},
+                "acoes":["clique em Visualizar"],"mensagens":[],"conteudoNaTela":["colunas: Data, Cliente, Valor"],
+                "descricao":"Mostra o relatório atual.","instanteDoQuadro":"00:08"}],
+             "narracao":[{"inicio":"00:01","falante":"Falante 1","texto":"a diretoria quer ver por vendedor, igual a planilha"}],
              "textoLegivel":true}""";
 
     /** As respostas válidas de cada esquema (imagem, áudio, documento, vídeo, resumo, chamados, assunto mais curto). */

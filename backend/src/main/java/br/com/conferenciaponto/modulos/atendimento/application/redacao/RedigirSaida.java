@@ -142,6 +142,8 @@ public class RedigirSaida implements ExecutorDeTarefa {
             ConferenciaDoTexto.Conferido conferido = conferencia.conferir(bruto(lida.resultado(), modeloDoTexto), contato);
             TextoRedigido texto = conferido.texto().comBlocos(modeloDoTexto.completar(conferido.texto().blocos()));
             texto = texto.comMaisAvisos(catalogo.avisos());
+            SemConteudo sem = semConteudo(linha.get());
+            texto = texto.comMaisAvisos(sem.avisos()).comSemAnalise(sem.arquivos());
             if (semValor(texto.telaFuncionalidade())) {
                 // a sugestão pelos códigos lidos nas imagens
                 texto = texto.comTela(SugestaoDaTela.de(linha.get()).orElse(texto.telaFuncionalidade()));
@@ -168,6 +170,55 @@ public class RedigirSaida implements ExecutorDeTarefa {
                     falha.getMessage());
             return gemini.traduzir(falha, tarefa.usuarioId(), configuracao.modelo(), "redigir este texto");
         }
+    }
+
+    /** Os arquivos cujo conteúdo não entrou no texto e o aviso de cada um, para a pessoa ver antes de usar. */
+    record SemConteudo(List<UUID> arquivos, List<String> avisos) {
+    }
+
+    private static final Set<String> SEM_CONTEUDO = Set.of("falhou", "sem_analise", "nao_baixado", "nao_suportado");
+
+    /**
+     * Os arquivos da linha do tempo que entraram sem conteúdo (a análise falhou de vez, não foi feita, ou o arquivo não
+     * foi baixado ou não é suportado): o texto foi escrito sem eles, e isso aparece em "Confira antes de usar". Quando a
+     * análise de um deles chegar depois, o texto é gerado de novo (menos o não suportado, que não vai mudar).
+     */
+    static SemConteudo semConteudo(LinhaDoTempo linha) {
+        List<UUID> arquivos = new ArrayList<>();
+        List<String> avisos = new ArrayList<>();
+        linha.todos()
+                .filter(ItemDaLinha::arquivo)
+                .filter(i -> SEM_CONTEUDO.contains(i.situacao()))
+                .forEach(i -> {
+                    String porque = switch (i.situacao()) {
+                        case "falhou" -> "a análise falhou";
+                        case "nao_baixado" -> "o arquivo não foi baixado";
+                        case "nao_suportado" -> "formato que não é analisado";
+                        default -> "ainda sem análise";
+                    };
+                    String aviso = "Escrito sem o conteúdo " + doArquivo(i.categoria(), i.nome()) + " (" + porque + ")"
+                            + (i.situacao().equals("nao_suportado") ? ": confira se faltou alguma coisa."
+                            : ": confira se faltou alguma coisa; quando ele for analisado, o texto é gerado de novo sozinho.");
+                    if (!avisos.contains(aviso)) {
+                        avisos.add(aviso);
+                    }
+                    if (i.arquivoId() != null && !i.situacao().equals("nao_suportado") && !arquivos.contains(i.arquivoId())) {
+                        arquivos.add(i.arquivoId());
+                    }
+                });
+        return new SemConteudo(arquivos, avisos);
+    }
+
+    /** "do vídeo gravacao.mp4", "da imagem print.png". */
+    static String doArquivo(String categoria, String nome) {
+        String tipo = switch (categoria == null ? "" : categoria) {
+            case "imagem" -> "da imagem";
+            case "audio" -> "do áudio";
+            case "video" -> "do vídeo";
+            case "documento" -> "do documento";
+            default -> "do arquivo";
+        };
+        return nome == null || nome.isBlank() ? tipo : tipo + " " + nome;
     }
 
     /** As imagens que o texto pode usar e o que avisar sobre elas (os passos de vídeo que ficaram sem quadro). */

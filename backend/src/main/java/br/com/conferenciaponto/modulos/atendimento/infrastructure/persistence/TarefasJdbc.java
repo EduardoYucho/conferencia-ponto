@@ -262,7 +262,8 @@ class TarefasJdbc implements Tarefas {
     @Override
     public int retomarDoAtendimento(UUID atendimentoId, Instant agora) {
         return jdbc.sql("""
-                        UPDATE atendimento.tarefa SET situacao = 'pendente', executar_apos = :agora, atualizada_em = :agora
+                        UPDATE atendimento.tarefa SET situacao = 'pendente', executar_apos = :agora, atualizada_em = :agora,
+                               tentativas = 0
                          WHERE atendimento_id = :atendimento AND situacao = 'pausada'
                         """)
                 .param("atendimento", atendimentoId)

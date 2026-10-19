@@ -1,0 +1,45 @@
+{
+  "type": "object",
+  "properties": {
+    "assunto": {"type": "string", "description": "O assunto, sem o prefixo Digisac e sem o contato."},
+    "blocos": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tipo": {"type": "string", "enum": ["paragrafo", "passo"]},
+          "texto": {"type": "string"},
+          "fontes": {"type": "array", "items": {"type": "string"}, "description": "Identificadores do material (ex.: M12, A3, L1)."},
+          "imagens": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {"type": "string", "description": "Identificador de uma das imagens disponíveis."},
+                "legenda": {"type": "string", "description": "O que a imagem mostra, em poucas palavras."}
+              },
+              "required": ["id", "legenda"]
+            }
+          }
+        },
+        "required": ["tipo", "texto", "fontes", "imagens"]
+      }
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "cliente": {"type": "string"},
+        "modulo": {"type": "string"},
+        "tela": {"type": "string"},
+        "codigoTela": {"type": "string"},
+        "sintoma": {"type": "string"},
+        "mensagemErro": {"type": "string"},
+        "causa": {"type": "string"},
+        "resolucao": {"type": "string"}
+      },
+      "required": ["cliente", "modulo", "tela", "codigoTela", "sintoma", "mensagemErro", "causa", "resolucao"]
+    },
+    "telaFuncionalidade": {"type": "string"}
+  },
+  "required": ["assunto", "blocos", "base", "telaFuncionalidade"]
+}

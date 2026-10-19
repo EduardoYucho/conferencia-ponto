@@ -1,0 +1,594 @@
+{
+  "type": "object",
+  "properties": {
+    "assunto": {
+      "type": "string",
+      "description": "O assunto, sem o prefixo Digisac e sem o contato."
+    },
+    "secoes": {
+      "type": "object",
+      "properties": {
+        "modulo": {
+          "type": "array",
+          "description": "O módulo (caminho de menu) e as telas envolvidas, com o código (ex.: Painel de Gestão de Ordens de Serviço (Eq265_vw)); as imagens do caminho e da tela entram aqui.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "tipoDeSolicitacao": {
+          "type": "array",
+          "description": "O tipo de solicitação (ex.: nova funcionalidade, mudança de comportamento, novo campo, novo relatório).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "descricao": {
+          "type": "array",
+          "description": "O que deve ser criado ou mudado, em 1 a 3 frases concretas; se o material não disser, que o pedido não foi detalhado.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "contexto": {
+          "type": "array",
+          "description": "O contexto e o objetivo do cliente.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "comportamentoAtual": {
+          "type": "array",
+          "description": "Como o sistema funciona hoje; num relatório, como ele sai hoje (colunas, filtros).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "comportamentoEsperado": {
+          "type": "array",
+          "description": "Como deveria funcionar, um trecho por cenário.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "detalhamento": {
+          "type": "array",
+          "description": "A especificação, um trecho por item: no relatório, se é novo ou qual muda, cada coluna ou campo, filtros, agrupamentos, totais, ordem e formato; na tela, cada campo a criar ou mudar e cada ação; no processo, o passo que muda.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "regras": {
+          "type": "array",
+          "description": "As regras de negócio sugeridas pelo cliente ou pelo atendente, se houver.",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "observacaoComercial": {
+          "type": "array",
+          "description": "Observação comercial, só se aparecer no material (ex.: cliente ciente de que pode haver cobrança).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        },
+        "pontosAConfirmar": {
+          "type": "array",
+          "description": "O que o desenvolvimento precisa saber e o material não diz, um trecho por ponto, como pergunta direta ao cliente (até 6).",
+          "items": {
+            "type": "object",
+            "properties": {
+              "tipo": {
+                "type": "string",
+                "enum": [
+                  "paragrafo",
+                  "passo"
+                ]
+              },
+              "texto": {
+                "type": "string"
+              },
+              "fontes": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "Identificadores do material (ex.: M12, A3, L1)."
+              },
+              "imagens": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string",
+                      "description": "Identificador de uma das imagens disponíveis."
+                    },
+                    "legenda": {
+                      "type": "string",
+                      "description": "O que a imagem mostra, em poucas palavras."
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "legenda"
+                  ]
+                }
+              }
+            },
+            "required": [
+              "tipo",
+              "texto",
+              "fontes",
+              "imagens"
+            ]
+          }
+        }
+      },
+      "required": [
+        "modulo",
+        "tipoDeSolicitacao",
+        "descricao",
+        "contexto",
+        "comportamentoAtual",
+        "comportamentoEsperado",
+        "detalhamento",
+        "regras",
+        "observacaoComercial",
+        "pontosAConfirmar"
+      ]
+    },
+    "base": {
+      "type": "object",
+      "properties": {
+        "cliente": {
+          "type": "string"
+        },
+        "modulo": {
+          "type": "string"
+        },
+        "tela": {
+          "type": "string"
+        },
+        "codigoTela": {
+          "type": "string"
+        },
+        "sintoma": {
+          "type": "string"
+        },
+        "mensagemErro": {
+          "type": "string"
+        },
+        "causa": {
+          "type": "string"
+        },
+        "resolucao": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "cliente",
+        "modulo",
+        "tela",
+        "codigoTela",
+        "sintoma",
+        "mensagemErro",
+        "causa",
+        "resolucao"
+      ]
+    },
+    "telaFuncionalidade": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "assunto",
+    "secoes",
+    "base",
+    "telaFuncionalidade"
+  ]
+}

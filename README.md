@@ -323,14 +323,24 @@ com a pesquisa exata:
   processamento mostra os tokens gastos. Erros: sem chave (`SEM_CHAVE_GEMINI`, com o caminho para cadastrar), chave
   recusada (`CHAVE_GEMINI_RECUSADA`, pausa as análises), limite por minuto (`GEMINI_LIMITE`, espera o tempo pedido),
   cota do dia (`GEMINI_COTA_DIARIA`, pausa as análises — os downloads seguem — até a pessoa clicar em Retomar),
-  `GEMINI_INDISPONIVEL` (novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os outros seguem),
-  `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
+  `GEMINI_INDISPONIVEL` (Gemini sobrecarregado ou fora: novas tentativas), `GEMINI_BLOQUEOU` (o item falha, os
+  outros seguem), `GEMINI_RESPOSTA_INVALIDA` (uma nova tentativa na hora; depois, falha do item) e `GEMINI_MODELO`.
+  **Nenhum texto é escrito sem as análises por uma falha passageira**: se o Gemini continua sobrecarregado (ou o
+  limite por minuto não libera, ou cai a internet) depois das tentativas, o atendimento **pausa** com o motivo e o
+  arquivo que faltou, os textos esperam, e o **Retomar** recomeça as tentativas. "Processar", "Retomar" e "Gerar de
+  novo" pedem antes as análises que falharam por motivo passageiro (e as de prompt anterior) e só depois escrevem; o
+  Retomar também pede de novo os textos que falharam. Texto escrito sem o conteúdo de um arquivo (análise que falhou
+  de vez, arquivo não baixado ou não suportado) diz isso em "Confira antes de usar", e, quando a análise desse arquivo
+  chega depois (Tentar de novo, Retomar), **o texto é gerado de novo sozinho** — menos o editado à mão e o confirmado.
 - **Vídeo** (o vídeo de reprodução enviado pela pessoa ou um vídeo da conversa): vai pela Files API (até
   `atendimento.gemini.video.tamanho-maximo`, 2 GB; maior: `VIDEO_GRANDE_DEMAIS`), e o Gemini olha
   `atendimento.gemini.video.quadros-por-segundo` quadros por segundo (1, o padrão; 2 ou 3 não perdem ações rápidas,
-  mas custam mais; mudar a taxa faz o vídeo ser analisado de novo no próximo "Processar"). A resposta traz os
-  **passos** com o instante (MM:SS), a tela, as ações (cliques, atalhos, o que foi digitado), as mensagens literais, o
-  que acontece e o melhor instante para a imagem do passo, e a narração transcrita. Logo depois, o **ffmpeg** tira o
+  mas custam mais; mudar a taxa faz o vídeo ser analisado de novo no próximo "Processar"). A resposta diz se o vídeo
+  reproduz um problema ou explica um **pedido** (com o resumo do pedido, cada item pedido — colunas, campos, filtros,
+  totais, formato — e o modelo mostrado, como uma planilha) e traz os **passos** com o instante (MM:SS), a tela, as
+  ações (cliques, atalhos, o que foi digitado), as mensagens literais, o que aparece na tela e importa (colunas,
+  campos e valores, título do relatório), o que acontece e o melhor instante para a imagem do passo, e a narração
+  transcrita. Logo depois, o **ffmpeg** tira o
   quadro de cada passo naquele instante (PNG na resolução original, em `atendimentos\<id>\arquivos\quadros\`); os
   que faltarem são tirados de novo antes de cada redação. Os quadros entram nas imagens que o texto pode usar
   (`V1@02:15`, ou `A4@02:15` no vídeo da conversa) e, citados, viram "Imagem N" como os prints. O ffmpeg é opcional
@@ -365,9 +375,11 @@ com a pesquisa exata:
   dados do registro afetado, desde quando ocorre, o que já foi tentado, causa e pedido ao desenvolvimento; a causa
   sem fonte sai como "Causa não identificada." e o Gemini marca as variantes que reconheceu (erro por comparação,
   sem causa identificada, após atualização), mostradas na tela. O de **alteração** abre com "Solicitação de
-  Melhoria": módulo e telas, tipo de solicitação, descrição, contexto e objetivo, comportamento atual e esperado,
-  regras de negócio sugeridas e observação comercial. Parte sem nada nas fontes fica de fora (o servidor descarta
-  parte que não é do modelo). O **cabeçalho** (Tela/Funcionalidade, Versão do cliente, Testado na última versão
+  Melhoria": módulo e telas, tipo de solicitação, descrição (o que criar ou mudar, concreto), contexto e objetivo,
+  comportamento atual e esperado, **detalhamento** (no relatório: novo ou qual muda, cada coluna, filtros, totais,
+  ordem e formato; na tela: cada campo e ação), regras de negócio sugeridas, observação comercial e **pontos a
+  confirmar com o cliente** (o que o desenvolvimento precisa e o atendimento não disse, como pergunta). Parte sem
+  nada nas fontes fica de fora (o servidor descarta parte que não é do modelo). O **cabeçalho** (Tela/Funcionalidade, Versão do cliente, Testado na última versão
   disponível e, se houver, Chamado relacionado) e o **rodapé** (no de erro, a data de atualização do sistema; nos
   dois, o caminho do backup) são montados pelo servidor na hora de mostrar e de copiar, com os **dados que a pessoa
   informa** (no Novo atendimento, ao marcar um chamado, ou depois, na tela do resultado; valem para os dois
