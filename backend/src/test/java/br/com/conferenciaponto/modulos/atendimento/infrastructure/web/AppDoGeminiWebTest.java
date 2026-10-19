@@ -26,18 +26,13 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.test.web.servlet.request.RequestPostProcessor;
 
-import java.io.ByteArrayInputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.zip.ZipEntry;
-import java.util.zip.ZipInputStream;
 
-import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -50,7 +45,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-/** As rotas do texto pelo app do Gemini: só com o gerador liberado, os arquivos para anexar e a resposta colada. */
+/** As rotas do texto pelo Gem do Gemini: só com o gerador liberado, as instruções, o pacote e a resposta colada. */
 @WebMvcTest(controllers = AppDoGeminiController.class)
 @Import({SecurityConfig.class, RespostasSeguranca.class, AcessoUsuarios.class, SegurancaDoGerador.class, WebDoGerador.class})
 class AppDoGeminiWebTest {
@@ -88,89 +83,70 @@ class AppDoGeminiWebTest {
     void semOGeradorLiberadoNadaPassa() throws Exception {
         when(acessos.liberado(maria)).thenReturn(false);
 
-        mvc.perform(post(ROTA + "/resumo/pedido").with(como(maria))).andExpect(status().isForbidden());
-        mvc.perform(get(ROTA + "/arquivos.zip").with(como(maria))).andExpect(status().isForbidden());
+        mvc.perform(post(ROTA + "/pacote").with(como(maria))).andExpect(status().isForbidden());
+        mvc.perform(get("/api/v1/atendimentos/app-gemini/instrucoes-do-gem").with(como(maria))).andExpect(status().isForbidden());
+        mvc.perform(get(ROTA + "/arquivos/Atendimento_1.pdf").with(como(maria))).andExpect(status().isForbidden());
         mvc.perform(post(ROTA + "/resumo/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
                 .content("{\"resposta\":\"{}\"}")).andExpect(status().isForbidden());
         verify(app, never()).usarResposta(any(), any(), any(), any());
     }
 
     @Test
-    void montaOPedidoEUsaAResposta() throws Exception {
+    void asInstrucoesOPacoteEAResposta() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
-        when(app.pedido(maria, ID, TipoDeSaida.DEV_ERRO)).thenReturn(new PeloAppDoGemini.PedidoView("dev_erro", "Escreva...",
-                List.of(new PeloAppDoGemini.PedidoView.Arquivo("Anexos.pdf", 2048, "as imagens (A1)")),
-                List.of("A3 não está no servidor."), 0, 0));
+        when(app.instrucoesDoGem()).thenReturn(new PeloAppDoGemini.InstrucoesDoGem(1, "Você escreve os textos..."));
+        when(app.pacote(maria, ID)).thenReturn(new PeloAppDoGemini.PacoteView(
+                List.of(new PeloAppDoGemini.PacoteView.Arquivo("Atendimento_1.pdf", 2048, "a conversa (A1)")),
+                List.of("A3 não está no servidor."), 0, 0, 1));
         when(processamento.progresso(maria, ID)).thenReturn(new ProgressoView(ID, "concluido", null, 100, List.of()));
 
-        mvc.perform(post(ROTA + "/dev_erro/pedido").with(como(maria)))
+        mvc.perform(get("/api/v1/atendimentos/app-gemini/instrucoes-do-gem").with(como(maria)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.pedido").value("Escreva..."))
-                .andExpect(jsonPath("$.dados.arquivos[0].nome").value("Anexos.pdf"))
-                .andExpect(jsonPath("$.dados.avisos[0]").value("A3 não está no servidor."));
-        mvc.perform(post(ROTA + "/soneto/pedido").with(como(maria)))
+                .andExpect(jsonPath("$.dados.versao").value(1))
+                .andExpect(jsonPath("$.dados.texto").value("Você escreve os textos..."));
+        mvc.perform(post(ROTA + "/pacote").with(como(maria)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.arquivos[0].nome").value("Atendimento_1.pdf"))
+                .andExpect(jsonPath("$.dados.avisos[0]").value("A3 não está no servidor."))
+                .andExpect(jsonPath("$.dados.versaoDasInstrucoes").value(1));
+        mvc.perform(post(ROTA + "/soneto/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"resposta\":\"x\"}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.erros[0].codigo").value("SAIDA_DESCONHECIDA"));
         mvc.perform(post(ROTA + "/dev_erro/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
-                        .content("{\"resposta\":\"```json\\n{}\\n```\"}"))
+                        .content("{\"resposta\":\"Assunto: x\\n\\nTexto.\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.situacao").value("concluido"));
-        verify(app).usarResposta(maria, ID, TipoDeSaida.DEV_ERRO, "```json\n{}\n```");
+        verify(app).usarResposta(maria, ID, TipoDeSaida.DEV_ERRO, "Assunto: x\n\nTexto.");
     }
 
     @Test
     void respostaQueNaoServeVoltaComAMensagem() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
         when(app.usarResposta(maria, ID, TipoDeSaida.RESUMO, "oi")).thenThrow(new RegraNegocioException(
-                "RESPOSTA_FORA_DO_FORMATO", "A resposta não tem o bloco JSON."));
+                "RESPOSTA_SEM_TEXTO", "A resposta não tem nenhum trecho de texto."));
 
         mvc.perform(post(ROTA + "/resumo/resposta").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"resposta\":\"oi\"}"))
                 .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.erros[0].codigo").value("RESPOSTA_FORA_DO_FORMATO"));
+                .andExpect(jsonPath("$.erros[0].codigo").value("RESPOSTA_SEM_TEXTO"));
     }
 
     @Test
-    void osArquivosUmAUmEOZip() throws Exception {
+    void osArquivosDoPacote() throws Exception {
         when(acessos.liberado(maria)).thenReturn(true);
-        Path pdf = Files.write(pasta.resolve("Anexos.pdf"), new byte[]{'%', 'P', 'D', 'F', 1, 2});
-        Path mp3 = Files.write(pasta.resolve("Audios.mp3"), new byte[]{'I', 'D', '3'});
-        when(app.arquivo(maria, ID, "Anexos.pdf")).thenReturn(new PeloAppDoGemini.ArquivoDoPedido("Anexos.pdf", pdf, 6, ""));
-        when(app.arquivo(maria, ID, "nada.txt")).thenThrow(new RecursoNaoEncontradoException("ARQUIVO_NAO_ENCONTRADO",
-                "Arquivo não encontrado: monte o pedido de novo."));
-        when(app.arquivos(maria, ID)).thenReturn(List.of(new PeloAppDoGemini.ArquivoDoPedido("Anexos.pdf", pdf, 6, ""),
-                new PeloAppDoGemini.ArquivoDoPedido("Audios.mp3", mp3, 3, "")));
+        Path pdf = Files.write(pasta.resolve("Atendimento_1.pdf"), new byte[]{'%', 'P', 'D', 'F', 1, 2});
+        when(app.arquivo(maria, ID, "Atendimento_1.pdf")).thenReturn(new PeloAppDoGemini.ArquivoDoPacote("Atendimento_1.pdf", pdf, 6, ""));
+        when(app.arquivo(maria, ID, "nada.txt")).thenThrow(new RecursoNaoEncontradoException("ARQUIVO_DO_PACOTE_NAO_ENCONTRADO",
+                "Este arquivo não está no pacote."));
 
-        mvc.perform(get(ROTA + "/arquivos/Anexos.pdf").with(como(maria)))
+        mvc.perform(get(ROTA + "/arquivos/Atendimento_1.pdf").with(como(maria)))
                 .andExpect(status().isOk())
                 .andExpect(header().string("Content-Type", "application/pdf"))
-                .andExpect(header().string("Content-Disposition", "attachment; filename=\"Anexos.pdf\""))
+                .andExpect(header().string("Content-Disposition", "attachment; filename=\"Atendimento_1.pdf\""))
                 .andExpect(content().bytes(Files.readAllBytes(pdf)));
         mvc.perform(get(ROTA + "/arquivos/nada.txt").with(como(maria)))
-                .andExpect(status().isNotFound());
-
-        byte[] zip = mvc.perform(get(ROTA + "/arquivos.zip").with(como(maria)))
-                .andExpect(status().isOk())
-                .andExpect(header().string("Content-Type", "application/zip"))
-                .andExpect(header().string("Content-Disposition", "attachment; filename=\"arquivos-para-o-gemini.zip\""))
-                .andReturn().getResponse().getContentAsByteArray();
-        List<String> nomes = new ArrayList<>();
-        try (ZipInputStream entrada = new ZipInputStream(new ByteArrayInputStream(zip))) {
-            for (ZipEntry e = entrada.getNextEntry(); e != null; e = entrada.getNextEntry()) {
-                nomes.add(e.getName() + ":" + entrada.readAllBytes().length);
-            }
-        }
-        assertThat(nomes).containsExactly("Anexos.pdf:6", "Audios.mp3:3");
-    }
-
-    @Test
-    void zipDeAtendimentoSemPedidoAvisa() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
-        when(app.arquivos(maria, ID)).thenThrow(new RegraNegocioException("PEDIDO_SEM_ARQUIVOS",
-                "Este pedido não tem arquivos para anexar."));
-
-        mvc.perform(get(ROTA + "/arquivos.zip").with(como(maria)))
-                .andExpect(status().isUnprocessableEntity())
-                .andExpect(jsonPath("$.erros[0].codigo").value("PEDIDO_SEM_ARQUIVOS"));
+                .andExpect(status().isNotFound())
+                .andExpect(jsonPath("$.erros[0].codigo").value("ARQUIVO_DO_PACOTE_NAO_ENCONTRADO"));
     }
 }

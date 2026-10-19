@@ -25,6 +25,50 @@ final class MaterialDaRedacao {
 
     static String texto(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
                         List<ConferenciaDoTexto.ImagemDisponivel> imagens, ZoneId fuso) {
+        StringBuilder t = conversa(chamado, contato, inicio, fim, linha, fuso);
+        t.append("\nImagens disponíveis para o texto (em \"imagens\", use só estes identificadores");
+        if (imagens.stream().anyMatch(i -> i.instanteMs() != null)) {
+            t.append("; os quadros dos vídeos, como V1@02:15, mostram a tela no instante do passo e ilustram esse passo");
+        }
+        t.append("):\n");
+        if (imagens.isEmpty()) {
+            t.append("Nenhuma: deixe \"imagens\" vazio em todos os trechos.\n");
+        }
+        for (ConferenciaDoTexto.ImagemDisponivel imagem : imagens) {
+            t.append("- ").append(imagem.id()).append(": ").append(imagem.legendaPadrao() == null ? "imagem" : imagem.legendaPadrao())
+                    .append('\n');
+        }
+        return t.toString().stripTrailing();
+    }
+
+    /**
+     * A mesma conversa para o Gem do Gemini (vai no PDF do pacote): no fim, as imagens que o texto pode mostrar com a
+     * marcação que o Gem escreve ([Imagem A3: legenda]) e, com vídeo, como mostrar um momento dele.
+     *
+     * @param video o identificador do primeiro vídeo do pacote, para o exemplo do momento (null sem vídeo)
+     */
+    static String paraOGem(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
+                           List<ConferenciaDoTexto.ImagemDisponivel> imagens, String video, ZoneId fuso) {
+        StringBuilder t = conversa(chamado, contato, inicio, fim, linha, fuso);
+        t.append("\nImagens que o texto pode mostrar (escreva [Imagem <identificador>: o que ela mostra] numa linha "
+                + "sozinha, logo depois do trecho que ela ilustra):\n");
+        if (imagens.isEmpty()) {
+            t.append("Nenhuma imagem: não marque imagens no texto.\n");
+        }
+        for (ConferenciaDoTexto.ImagemDisponivel imagem : imagens) {
+            t.append("- ").append(imagem.id()).append(": ").append(imagem.legendaPadrao() == null ? "imagem" : imagem.legendaPadrao())
+                    .append('\n');
+        }
+        if (video != null) {
+            t.append("Momentos dos vídeos: para mostrar a tela de um vídeo num instante, use o identificador do vídeo "
+                    + "com os minutos e segundos, como [Imagem ").append(video).append("@00:15: o que a tela mostra].\n");
+        }
+        return t.toString().stripTrailing();
+    }
+
+    /** O cabeçalho e os itens da linha do tempo, em ordem, e o material sem horário. */
+    private static StringBuilder conversa(String chamado, String contato, Instant inicio, Instant fim, LinhaDoTempo linha,
+                                          ZoneId fuso) {
         StringBuilder t = new StringBuilder();
         t.append("Atendimento do chamado ").append(chamado == null ? "não identificado" : chamado)
                 .append(" no Digisac, com o contato \"").append(contato == null || contato.isBlank() ? "não identificado" : contato)
@@ -48,19 +92,7 @@ final class MaterialDaRedacao {
                 t.append('\n').append(item(item, fuso)).append('\n');
             }
         }
-        t.append("\nImagens disponíveis para o texto (em \"imagens\", use só estes identificadores");
-        if (imagens.stream().anyMatch(i -> i.instanteMs() != null)) {
-            t.append("; os quadros dos vídeos, como V1@02:15, mostram a tela no instante do passo e ilustram esse passo");
-        }
-        t.append("):\n");
-        if (imagens.isEmpty()) {
-            t.append("Nenhuma: deixe \"imagens\" vazio em todos os trechos.\n");
-        }
-        for (ConferenciaDoTexto.ImagemDisponivel imagem : imagens) {
-            t.append("- ").append(imagem.id()).append(": ").append(imagem.legendaPadrao() == null ? "imagem" : imagem.legendaPadrao())
-                    .append('\n');
-        }
-        return t.toString().stripTrailing();
+        return t;
     }
 
     private static String item(ItemDaLinha item, ZoneId fuso) {
