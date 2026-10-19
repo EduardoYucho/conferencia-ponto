@@ -41,7 +41,7 @@ class GerenciarAusenciasUseCaseTest {
     private final Clock clock = Clock.fixed(ZonedDateTime.of(2026, 9, 29, 10, 0, 0, 0, SP).toInstant(), SP);
 
     private final GerenciarAusenciasUseCase useCase =
-            new GerenciarAusenciasUseCase(ausencias, registros, regras, eventos::add, clock);
+            new GerenciarAusenciasUseCase(ausencias, registros, regras, br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock);
 
     @Test
     @DisplayName("Férias zeram a jornada base: dia útil registrado vira AUSENCIA e o trabalhado vira crédito")

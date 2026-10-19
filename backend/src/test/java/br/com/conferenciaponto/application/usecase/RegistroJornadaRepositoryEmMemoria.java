@@ -67,6 +67,9 @@ class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
 
     @Override
     public List<SaldoMensal> consolidarAno(UUID usuarioId, int ano) {
+        if (consolidacao.isEmpty()) { // sem consolidação definida pelo teste: a dos registros, como o banco faz
+            return consolidarPeriodo(usuarioId, LocalDate.of(ano, 1, 1), LocalDate.of(ano, 12, 31));
+        }
         return consolidacao.stream().filter(s -> s.ano() == ano).toList();
     }
 

@@ -17,8 +17,8 @@ public enum Perfil {
     ROLE_ADMIN("Administrador", true, Set.of()),
     /** Usuário: registra e confere o próprio ponto. */
     ROLE_USER("Usuário", false, Set.of(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR)),
-    /** Coordenador: consulta o ponto de todos, sem alterar. */
-    ROLE_VIEWER("Coordenador", false, Set.of(PermissoesDoPonto.EQUIPE));
+    /** Coordenador: consulta o ponto de todos, sem alterar, e confere o mês de cada um (V17). */
+    ROLE_VIEWER("Coordenador", false, Set.of(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR));
 
     private final String nomeInicial;
     private final boolean todas;

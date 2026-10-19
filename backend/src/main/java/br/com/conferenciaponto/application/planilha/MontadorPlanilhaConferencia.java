@@ -2,6 +2,7 @@ package br.com.conferenciaponto.application.planilha;
 
 import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
+import br.com.conferenciaponto.application.DiferencaDaCarga;
 import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.TextoDuracao;
 import br.com.conferenciaponto.application.planilha.Estilo.Alinhamento;
@@ -16,6 +17,7 @@ import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.AjusteJornada;
 import br.com.conferenciaponto.domain.model.Ausencia;
 import br.com.conferenciaponto.domain.model.CicloBanco;
+import br.com.conferenciaponto.domain.model.ConferenciaMes;
 import br.com.conferenciaponto.domain.model.Feriado;
 import br.com.conferenciaponto.domain.model.GradeHoraria;
 import br.com.conferenciaponto.domain.model.HorarioTrabalho;
@@ -26,7 +28,9 @@ import br.com.conferenciaponto.domain.model.StatusJornada;
 import br.com.conferenciaponto.domain.model.TipoBatida;
 import br.com.conferenciaponto.domain.model.TipoDia;
 import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.domain.port.ConferenciaMesRepository;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
+import br.com.conferenciaponto.domain.service.LeiDaJornada;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -42,6 +46,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Function;
 import java.util.stream.Collectors;
@@ -52,7 +57,11 @@ import java.util.stream.Collectors;
  * aba de resumo com o banco de horas.
  *
  * <p>Os totais batem com os do sistema por construção: como no saldo do mês, só entram os dias fechados (um
- * dia em andamento ou incompleto fica com as horas em branco).
+ * dia em andamento ou incompleto fica com as horas em branco). Quando a carga semanal passa do horário, a coluna
+ * "Diferença da carga" mostra o que cada dia útil levou ao banco.
+ *
+ * <p>Para quem confere, cada dia diz a origem das batidas (relógio com PDF, sem comprovante, ajustada, lançada à
+ * mão) e cada mês diz se foi conferido, por quem e quando.
  */
 @Service
 @Transactional(readOnly = true)
@@ -79,16 +88,21 @@ public class MontadorPlanilhaConferencia {
     private final ConsultarAuditoriaUseCase auditoria;
     private final GerenciarCicloBancoUseCase ciclos;
     private final RegrasJornada regras;
+    private final DiferencaDaCarga carga;
+    private final ConferenciaMesRepository conferencias;
     private final Clock clock;
 
     public MontadorPlanilhaConferencia(UsuarioRepository usuarios, ConsolidacaoBancoHoras consolidacao,
                                        ConsultarAuditoriaUseCase auditoria, GerenciarCicloBancoUseCase ciclos,
-                                       RegrasJornada regras, Clock clock) {
+                                       RegrasJornada regras, DiferencaDaCarga carga,
+                                       ConferenciaMesRepository conferencias, Clock clock) {
         this.usuarios = usuarios;
         this.consolidacao = consolidacao;
         this.auditoria = auditoria;
         this.ciclos = ciclos;
         this.regras = regras;
+        this.carga = carga;
+        this.conferencias = conferencias;
         this.clock = clock;
     }
 
@@ -102,7 +116,7 @@ public class MontadorPlanilhaConferencia {
 
         List<AbaDoMes> meses = new ArrayList<>();
         for (YearMonth mes : mesesComRegistro(usuarioId)) {
-            meses.add(abaDoMes(nome, auditoria.mes(usuarioId, mes), hoje, atualizado));
+            meses.add(abaDoMes(usuarioId, nome, auditoria.mes(usuarioId, mes), hoje, atualizado));
         }
         List<Aba> abas = new ArrayList<>(meses.size() + 1);
         abas.add(abaResumo(nome, meses, ciclos.listar(usuarioId), horarios(usuarioId), atualizado));
@@ -133,16 +147,32 @@ public class MontadorPlanilhaConferencia {
     // ------------------------------------------------------------------ aba do mês
 
     /** A aba e onde ficam os totais dela (o resumo aponta para eles). */
+    /**
+     * @param colunaCarga a coluna "Diferença da carga" (-1 = o mês não tem diferença, a coluna não existe)
+     * @param conferencia a conferência que vale para o mês (null = não conferido)
+     */
     record AbaDoMes(Aba aba, YearMonth mes, int colunaTrabalhado, int colunaPrevisto, int colunaTolerancia,
-                    int colunaSaldo, int colunaLancamentos, long trabalhado, long previsto, long tolerancia,
-                    long saldo, long lancamentos, int diasRegistrados, int diasEmAberto) {
+                    int colunaSaldo, int colunaLancamentos, int colunaCarga, long trabalhado, long previsto,
+                    long tolerancia, long saldo, long lancamentos, long carga, int diasRegistrados, int diasEmAberto,
+                    ConferenciaMes conferencia) {
 
         long saldoDoMes() {
-            return saldo + lancamentos;
+            return saldo + lancamentos + carga;
+        }
+
+        /** "K5+L5" ou, com a diferença da carga, "K5+L5+M5" (na própria aba ou, com o nome, em outra). */
+        String formulaDoSaldo(boolean externa) {
+            String f = externa
+                    ? aba.refExterna(LINHA_TOTAIS, colunaSaldo) + "+" + aba.refExterna(LINHA_TOTAIS, colunaLancamentos)
+                    : Aba.ref(LINHA_TOTAIS, colunaSaldo) + "+" + Aba.ref(LINHA_TOTAIS, colunaLancamentos);
+            if (colunaCarga >= 0) {
+                f += "+" + (externa ? aba.refExterna(LINHA_TOTAIS, colunaCarga) : Aba.ref(LINHA_TOTAIS, colunaCarga));
+            }
+            return f;
         }
     }
 
-    private AbaDoMes abaDoMes(String nome, AuditoriaMesView mes, LocalDate hoje, String atualizado) {
+    private AbaDoMes abaDoMes(UUID usuarioId, String nome, AuditoriaMesView mes, LocalDate hoje, String atualizado) {
         YearMonth referencia = mes.referencia();
         Map<LocalDate, AuditoriaMesView.Dia> porData = mes.dias().stream()
                 .collect(Collectors.toMap(d -> d.registro().data(), Function.identity()));
@@ -155,15 +185,26 @@ public class MontadorPlanilhaConferencia {
 
         boolean terceiroPeriodo = mes.dias().stream().flatMap(d -> d.registro().marcacoes().stream())
                 .anyMatch(m -> m.real() != null && m.tipo().ordinal() >= 4);
+        Map<LocalDate, Integer> diferencas = new java.util.HashMap<>();
+        for (AuditoriaMesView.Dia d : mes.dias()) {
+            RegistroJornadaView r = d.registro();
+            int valor = carga.doDia(usuarioId, r.data(), r.tipoDia(), r.saldoDiarioSegundos());
+            if (valor != 0) {
+                diferencas.put(r.data(), valor);
+            }
+        }
+        boolean comCarga = !diferencas.isEmpty();
         int batidas = terceiroPeriodo ? 6 : 4;
         int cTrabalhado = 3 + batidas;
         int cPrevisto = cTrabalhado + 1;
         int cTolerancia = cTrabalhado + 2;
         int cSaldo = cTrabalhado + 3;
         int cLancamento = cTrabalhado + 4;
-        int cSituacao = cTrabalhado + 5;
-        int cPdfs = cTrabalhado + 6;
-        int cObservacoes = cTrabalhado + 7;
+        int cCarga = comCarga ? cTrabalhado + 5 : -1;
+        int cSituacao = cTrabalhado + (comCarga ? 6 : 5);
+        int cPdfs = cSituacao + 1;
+        int cOrigem = cSituacao + 2;
+        int cObservacoes = cSituacao + 3;
         int colunas = cObservacoes + 1;
 
         List<List<Celula>> linhas = new ArrayList<>();
@@ -177,8 +218,11 @@ public class MontadorPlanilhaConferencia {
         for (int i = 0; i < batidas; i++) {
             rotulos.add(TipoBatida.daPosicao(i).rotulo());
         }
-        rotulos.addAll(List.of("Trabalhado", "Previsto", "Tolerância", "Saldo do dia", "Lançamento no banco",
-                "Situação", "PDFs", "Observações"));
+        rotulos.addAll(List.of("Trabalhado", "Previsto", "Tolerância", "Saldo do dia", "Lançamento no banco"));
+        if (comCarga) {
+            rotulos.add("Diferença da carga");
+        }
+        rotulos.addAll(List.of("Situação", "PDFs", "Origem das batidas", "Observações"));
         for (int c = 0; c < colunas; c++) {
             cabecalho[c] = Celula.texto(rotulos.get(c), Estilo.CABECALHO);
         }
@@ -190,6 +234,7 @@ public class MontadorPlanilhaConferencia {
         long tolerancia = 0;
         long saldo = 0;
         long lancado = 0;
+        long daCarga = 0;
         long pdfs = 0;
         for (LocalDate data = referencia.atDay(1); !data.isAfter(referencia.atEndOfMonth()); data = data.plusDays(1)) {
             LocalDate dia = data;
@@ -219,13 +264,14 @@ public class MontadorPlanilhaConferencia {
                     if (util && m.oficial() != null && !m.toleranciaAplicada()) {
                         estilo = estilo.comTexto(Cor.DEBITO);
                     }
-                    if (registro.horariosAjustados().contains(m.real())) {
+                    if (registro.registroManual() || registro.horariosAjustados().contains(m.real())) {
                         estilo = estilo.emItalico();
                     }
                     linha[3 + m.tipo().ordinal()] = Celula.hora(m.real(), estilo);
                 }
                 linha[cPdfs] = Celula.inteiro(registrado.comprovantes().size(), base.alinhado(Alinhamento.CENTRO));
                 pdfs += registrado.comprovantes().size();
+                linha[cOrigem] = Celula.texto(origem(registrado), base.comQuebra());
             }
             if (fechada) {
                 linha[cTrabalhado] = Celula.duracao(registro.segundosTrabalhados(), base);
@@ -241,6 +287,11 @@ public class MontadorPlanilhaConferencia {
                 trabalhado += registro.segundosTrabalhados();
                 previsto += registro.jornadaPrevistaSegundos();
                 saldo += registro.saldoDiarioSegundos();
+            }
+            Integer diferenca = diferencas.get(dia);
+            if (diferenca != null) {
+                linha[cCarga] = Celula.duracao(diferenca, base.corDoSaldo(diferenca));
+                daCarga += diferenca;
             }
             List<LancamentoBanco> doDia = lancamentos.getOrDefault(dia, List.of());
             if (!doDia.isEmpty()) {
@@ -262,6 +313,9 @@ public class MontadorPlanilhaConferencia {
         totais[cSaldo] = Celula.formulaDuracao(soma(cSaldo, ultimaLinhaDeDia), saldo, Estilo.TOTAL.corDoSaldo(saldo));
         totais[cLancamento] = Celula.formulaDuracao(soma(cLancamento, ultimaLinhaDeDia), lancado,
                 Estilo.TOTAL.corDoSaldo(lancado));
+        if (comCarga) {
+            totais[cCarga] = Celula.formulaDuracao(soma(cCarga, ultimaLinhaDeDia), daCarga, Estilo.TOTAL.corDoSaldo(daCarga));
+        }
         totais[cPdfs] = Celula.formulaInteiro(soma(cPdfs, ultimaLinhaDeDia), pdfs,
                 Estilo.TOTAL.alinhado(Alinhamento.CENTRO));
         linhas.set(LINHA_TOTAIS, List.of(totais));
@@ -269,7 +323,11 @@ public class MontadorPlanilhaConferencia {
         int diasRegistrados = mes.dias().size();
         int diasEmAberto = (int) mes.dias().stream()
                 .filter(d -> d.registro().status() != StatusJornada.FECHADA).count();
-        long saldoDoMes = saldo + lancado;
+        long saldoDoMes = saldo + lancado + daCarga;
+        ConferenciaMes conferencia = conferencias.vigente(usuarioId, referencia).orElse(null);
+        AbaDoMes parcial = new AbaDoMes(null, referencia, cTrabalhado, cPrevisto, cTolerancia, cSaldo, cLancamento,
+                cCarga, trabalhado, previsto, tolerancia, saldo, lancado, daCarga, diasRegistrados, diasEmAberto,
+                conferencia);
         linhas.add(linhaVazia(colunas));
         linhas.add(linhaDeTexto(colunas, "Resumo do mês", Estilo.SECAO));
         linhas.add(linhaDeResumo(colunas, "Horas trabalhadas",
@@ -282,30 +340,100 @@ public class MontadorPlanilhaConferencia {
                 Celula.formulaDuracao(Aba.ref(LINHA_TOTAIS, cSaldo), saldo, Estilo.NORMAL.corDoSaldo(saldo))));
         linhas.add(linhaDeResumo(colunas, "Lançamentos no banco",
                 Celula.formulaDuracao(Aba.ref(LINHA_TOTAIS, cLancamento), lancado, Estilo.NORMAL.corDoSaldo(lancado))));
+        if (comCarga) {
+            linhas.add(linhaDeResumo(colunas, "Diferença da carga semanal",
+                    Celula.formulaDuracao(Aba.ref(LINHA_TOTAIS, cCarga), daCarga, Estilo.NORMAL.corDoSaldo(daCarga))));
+        }
         linhas.add(linhaDeResumo(colunas, "Saldo do mês",
-                Celula.formulaDuracao(Aba.ref(LINHA_TOTAIS, cSaldo) + "+" + Aba.ref(LINHA_TOTAIS, cLancamento), saldoDoMes,
-                        Estilo.ROTULO.corDoSaldo(saldoDoMes))));
+                Celula.formulaDuracao(parcial.formulaDoSaldo(false), saldoDoMes, Estilo.ROTULO.corDoSaldo(saldoDoMes))));
         linhas.add(linhaDeResumo(colunas, "Dias com registro", Celula.inteiro(diasRegistrados, Estilo.NORMAL)));
         linhas.add(linhaDeResumo(colunas, "Dias em aberto", Celula.inteiro(diasEmAberto, Estilo.NORMAL)));
+        linhas.add(linhaDeResumo(colunas, "Conferência", Celula.texto(textoDaConferencia(parcial), conferencia == null
+                ? Estilo.NORMAL.comTexto(Cor.SUAVE) : Estilo.NORMAL)));
         linhas.add(linhaVazia(colunas));
         linhas.add(linhaDeTexto(colunas, "Saldo do dia = Trabalhado + Tolerância − Previsto. Tolerância: a batida "
                 + "dentro da tolerância do horário previsto vale o horário previsto (regra do RH).", Estilo.SUBTITULO));
         linhas.add(linhaDeTexto(colunas, "Horário em vermelho: batida fora da tolerância (vale o horário exato). "
-                + "Em itálico: batida incluída ou corrigida à mão.", Estilo.SUBTITULO));
+                + "Em itálico: batida incluída, corrigida ou lançada à mão.", Estilo.SUBTITULO));
         linhas.add(linhaDeTexto(colunas, "Só os dias fechados entram nos totais: dia em andamento ou incompleto "
                 + "(falta batida) fica com as horas em branco.", Estilo.SUBTITULO));
         linhas.add(linhaDeTexto(colunas, "Lançamento no banco: débito ou crédito avulso (ex.: folga compensada), "
                 + "somado ao saldo do mês.", Estilo.SUBTITULO));
+        linhas.add(linhaDeTexto(colunas, "Origem das batidas: relógio = com o comprovante em PDF; sem comprovante = "
+                + "registrada no sistema sem PDF; ajustada = incluída ou corrigida à mão; lançado à mão = dia sem "
+                + "expediente digitado (fim de semana, feriado).", Estilo.SUBTITULO));
+        if (comCarga) {
+            linhas.add(linhaDeTexto(colunas, "Diferença da carga: a carga semanal menos o horário, dividida pelos dias "
+                    + "com expediente, em cada dia útil fechado; as horas do fim de semana compensam.", Estilo.SUBTITULO));
+        }
 
         List<Integer> larguras = new ArrayList<>(List.of(88, 44, 118));
         for (int i = 0; i < batidas; i++) {
             larguras.add(84);
         }
-        larguras.addAll(List.of(92, 92, 86, 92, 104, 108, 50, 420));
+        larguras.addAll(List.of(92, 92, 86, 92, 104));
+        if (comCarga) {
+            larguras.add(104);
+        }
+        larguras.addAll(List.of(108, 50, 190, 420));
 
         Aba aba = new Aba(idDoMes(referencia), tituloDoMes(referencia), linhas, larguras, PRIMEIRA_LINHA_DE_DIA);
-        return new AbaDoMes(aba, referencia, cTrabalhado, cPrevisto, cTolerancia, cSaldo, cLancamento, trabalhado,
-                previsto, tolerancia, saldo, lancado, diasRegistrados, diasEmAberto);
+        return new AbaDoMes(aba, referencia, cTrabalhado, cPrevisto, cTolerancia, cSaldo, cLancamento, cCarga,
+                trabalhado, previsto, tolerancia, saldo, lancado, daCarga, diasRegistrados, diasEmAberto, conferencia);
+    }
+
+    /** "Relógio (3) · ajustada (1)", "Lançado à mão por eduardo em 18/10/2026". */
+    private String origem(AuditoriaMesView.Dia dia) {
+        RegistroJornadaView registro = dia.registro();
+        if (registro.registroManual()) {
+            return dia.ajustes().stream().filter(a -> a.origem() == AjusteJornada.Origem.MANUAL).findFirst()
+                    .map(a -> "Lançado à mão por %s em %s".formatted(a.usuario(),
+                            DATA.format(LocalDate.ofInstant(a.ajustadoEm(), clock.getZone()))))
+                    .orElse("Lançado à mão");
+        }
+        Set<TipoBatida> comPdf = new java.util.HashSet<>();
+        for (var c : dia.comprovantes()) {
+            comPdf.add(c.comprovante().tipoBatida());
+        }
+        int relogio = 0;
+        int ajustadas = 0;
+        int semComprovante = 0;
+        for (MarcacaoApurada m : registro.marcacoes()) {
+            if (m.real() == null) {
+                continue;
+            }
+            if (comPdf.contains(m.tipo())) {
+                relogio++;
+            } else if (registro.horariosAjustados().contains(m.real())) {
+                ajustadas++;
+            } else {
+                semComprovante++;
+            }
+        }
+        List<String> partes = new ArrayList<>();
+        if (relogio > 0) {
+            partes.add("Relógio (%d)".formatted(relogio));
+        }
+        if (ajustadas > 0) {
+            partes.add("Ajustada (%d)".formatted(ajustadas));
+        }
+        if (semComprovante > 0) {
+            partes.add("Sem comprovante (%d)".formatted(semComprovante));
+        }
+        String texto = String.join(" · ", partes);
+        return partes.isEmpty() ? "" : Character.toUpperCase(texto.charAt(0)) + texto.substring(1).toLowerCase(java.util.Locale.ROOT);
+    }
+
+    private String textoDaConferencia(AbaDoMes mes) {
+        ConferenciaMes c = mes.conferencia();
+        if (c == null) {
+            return "Não conferido";
+        }
+        String texto = "Conferido por %s em %s".formatted(c.conferidoPor(),
+                DATA.format(LocalDate.ofInstant(c.conferidoEm(), clock.getZone())));
+        boolean mudou = c.saldoMesSegundos() != mes.saldoDoMes() || c.trabalhadoSegundos() != mes.trabalhado()
+                || c.diasRegistrados() != mes.diasRegistrados();
+        return mudou ? texto + " (os números mudaram depois da conferência)" : texto;
     }
 
     private static String soma(int coluna, int ultimaLinha) {
@@ -369,7 +497,7 @@ public class MontadorPlanilhaConferencia {
 
     private Aba abaResumo(String nome, List<AbaDoMes> meses, List<CicloBancoView> ciclosDoUsuario,
                           List<HorarioTrabalho> horarios, String atualizado) {
-        int colunas = 10;
+        int colunas = 12;
         List<List<Celula>> linhas = new ArrayList<>();
         linhas.add(linhaDeTexto(colunas, "Conferência de ponto · " + nome, Estilo.TITULO));
         linhas.add(linhaDeTexto(colunas, atualizado + " pelo sistema de conferência de ponto. As abas são reescritas "
@@ -402,12 +530,13 @@ public class MontadorPlanilhaConferencia {
         // --- meses
         linhas.add(linhaDeTexto(colunas, "Meses", Estilo.SECAO));
         linhas.add(cabecalho(colunas, "Mês", "Dias com registro", "Dias em aberto", "Trabalhado", "Previsto",
-                "Tolerância", "Saldo dos dias", "Lançamentos no banco", "Saldo do mês", "Banco de horas no fim do mês"));
+                "Tolerância", "Saldo dos dias", "Lançamentos no banco", "Diferença da carga", "Saldo do mês",
+                "Banco de horas no fim do mês", "Conferência"));
         int linhaTotal = linhas.size();
         linhas.add(List.of());
         Map<YearMonth, BancoDeHorasPorMes.NoMes> bancoNoFimDoMes = BancoDeHorasPorMes.de(ciclosDoUsuario);
         int primeiraLinhaDeMes = linhas.size();
-        long[] totais = new long[8];
+        long[] totais = new long[9];
         for (AbaDoMes m : meses) {
             Aba aba = m.aba();
             String trabalhado = aba.refExterna(LINHA_TOTAIS, m.colunaTrabalhado());
@@ -424,15 +553,21 @@ public class MontadorPlanilhaConferencia {
             linha[5] = Celula.formulaDuracao(tolerancia, m.tolerancia(), Estilo.NORMAL.comTexto(Cor.SUAVE));
             linha[6] = Celula.formulaDuracao(saldo, m.saldo(), Estilo.NORMAL.corDoSaldo(m.saldo()));
             linha[7] = Celula.formulaDuracao(lancamentos, m.lancamentos(), Estilo.NORMAL.corDoSaldo(m.lancamentos()));
-            linha[8] = Celula.formulaDuracao(saldo + "+" + lancamentos, m.saldoDoMes(),
+            if (m.colunaCarga() >= 0) {
+                linha[8] = Celula.formulaDuracao(aba.refExterna(LINHA_TOTAIS, m.colunaCarga()), m.carga(),
+                        Estilo.NORMAL.corDoSaldo(m.carga()));
+            }
+            linha[9] = Celula.formulaDuracao(m.formulaDoSaldo(true), m.saldoDoMes(),
                     Estilo.ROTULO.corDoSaldo(m.saldoDoMes()));
             BancoDeHorasPorMes.NoMes banco = bancoNoFimDoMes.get(m.mes());
             if (banco != null) {
-                linha[9] = Celula.duracao(banco.saldoSegundos(), Estilo.NORMAL.corDoSaldo(banco.saldoSegundos()));
+                linha[10] = Celula.duracao(banco.saldoSegundos(), Estilo.NORMAL.corDoSaldo(banco.saldoSegundos()));
             }
+            linha[11] = Celula.texto(textoDaConferencia(m), (m.conferencia() == null
+                    ? Estilo.NORMAL.comTexto(Cor.SUAVE) : Estilo.NORMAL).comQuebra());
             linhas.add(List.of(linha));
             long[] valores = {m.diasRegistrados(), m.diasEmAberto(), m.trabalhado(), m.previsto(), m.tolerancia(),
-                    m.saldo(), m.lancamentos(), m.saldoDoMes()};
+                    m.saldo(), m.lancamentos(), m.carga(), m.saldoDoMes()};
             for (int i = 0; i < totais.length; i++) {
                 totais[i] += valores[i];
             }
@@ -458,7 +593,7 @@ public class MontadorPlanilhaConferencia {
         // --- horário
         linhas.add(linhaDeTexto(colunas, "Horário de trabalho", Estilo.SECAO));
         linhas.add(cabecalho(colunas, "Vale a partir de", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado",
-                "Domingo", "Tolerância por batida"));
+                "Domingo", "Tolerância por batida", "Carga semanal"));
         List<HorarioTrabalho> doMaisRecente = horarios.stream()
                 .sorted(Comparator.comparing(HorarioTrabalho::vigenteDesde).reversed()).toList();
         for (HorarioTrabalho h : doMaisRecente) {
@@ -472,11 +607,15 @@ public class MontadorPlanilhaConferencia {
                         Estilo.CENTRO.comQuebra());
             }
             linha[8] = Celula.texto(h.toleranciaMinutos() + " min", Estilo.CENTRO);
+            linha[9] = Celula.texto(h.diferencaSemanalSegundos() == 0
+                    ? LeiDaJornada.duracao(h.cargaSemanalSegundos()) + " (o horário)"
+                    : "%s (horário: %s)".formatted(LeiDaJornada.duracao(h.cargaSemanalSegundos()),
+                    LeiDaJornada.duracao(h.somaSemanalSegundos())), Estilo.CENTRO.comQuebra());
             linhas.add(List.of(linha));
         }
 
         List<Integer> larguras = new ArrayList<>(List.of(190));
-        larguras.addAll(Arrays.asList(118, 118, 118, 118, 118, 118, 118, 118, 132));
+        larguras.addAll(Arrays.asList(118, 118, 118, 118, 118, 118, 118, 118, 132, 132, 220));
         return new Aba(Aba.ID_RESUMO, "Resumo", linhas, larguras, 0);
     }
 

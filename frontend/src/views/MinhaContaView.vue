@@ -146,11 +146,12 @@ const quando = (iso) => {
     </div>
 
     <!-- Horário -->
-    <section v-if="temPonto" class="cartao mt-6 px-5 py-5" aria-labelledby="titulo-horario">
+    <section v-if="temPonto" id="horario" class="cartao mt-6 scroll-mt-6 px-5 py-5" aria-labelledby="titulo-horario">
       <h2 id="titulo-horario" class="font-sans text-lg font-bold">Horário de trabalho</h2>
       <p class="mt-1 mb-4 text-sm text-tinta-suave">
-        A base do cálculo: o que é previsto em cada dia e onde vale a tolerância. Dia sem expediente
-        (como sábado e domingo) conta todo o tempo trabalhado como crédito.
+        A base do cálculo: o que é previsto em cada dia e onde vale a tolerância, e a carga semanal que você deve
+        cumprir. Dia sem expediente (como sábado e domingo) conta todo o tempo trabalhado como crédito e compensa o que
+        o horário não fecha da carga.
       </p>
       <p v-if="!carregado" class="text-sm text-tinta-suave">{{ carregando ? 'Carregando…' : 'O horário não foi carregado.' }}</p>
       <EditorHorario

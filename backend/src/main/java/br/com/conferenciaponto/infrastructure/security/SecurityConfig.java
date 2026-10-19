@@ -108,6 +108,9 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasAuthority(PermissoesDoPonto.FERIADOS)
                         .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasAuthority(PermissoesDoPonto.FERIADOS)
                         // leitura: quem tem sessão (de quem são os dados é decidido em AcessoUsuarios)
+                        // conferir e reabrir o mês de uma pessoa (antes da regra geral das gravações)
+                        .requestMatchers("/api/v1/banco-de-horas/conferencia", "/api/v1/banco-de-horas/conferencia/**")
+                        .hasAuthority(PermissoesDoPonto.CONFERIR)
                         .requestMatchers(HttpMethod.GET, "/api/**").authenticated()
                         // horário e planilha: os próprios ou, com ?usuario=, os de outra pessoa
                         .requestMatchers("/api/v1/horarios", "/api/v1/horarios/**", "/api/v1/planilha", "/api/v1/planilha/**")

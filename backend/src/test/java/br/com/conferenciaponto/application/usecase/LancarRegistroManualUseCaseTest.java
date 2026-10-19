@@ -28,12 +28,14 @@ class LancarRegistroManualUseCaseTest {
     private static final LocalDate SEGUNDA = LocalDate.of(2026, 9, 28);
 
     private final RegistroJornadaRepositoryEmMemoria repository = new RegistroJornadaRepositoryEmMemoria();
+    private final AjusteJornadaRepositoryEmMemoria historico = new AjusteJornadaRepositoryEmMemoria();
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
     private final ClassificadorDiaService classificador = new ClassificadorDiaService(data -> false);
     private final Clock clock = Clock.fixed(ZonedDateTime.of(SEGUNDA, LocalTime.of(18, 0), SP).toInstant(), SP);
 
     private final LancarRegistroManualUseCase useCase =
-            new LancarRegistroManualUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock);
+            new LancarRegistroManualUseCase(repository, historico, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA,
+                    evento -> { }, clock);
 
     private static Intervalo intervalo(String entrada, String saida) {
         return new Intervalo(LocalTime.parse(entrada), LocalTime.parse(saida));
@@ -62,6 +64,25 @@ class LancarRegistroManualUseCaseTest {
     }
 
     @Test
+    @DisplayName("Cada lançamento à mão (e cada correção dele) fica no histórico do dia, com motivo, quem e quando")
+    void historico() {
+        useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:30")), "Compensação da carga semanal", "eduardo");
+        useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:00")), null, "eduardo");
+        useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:00")), "Sem mudança", "eduardo");
+
+        assertThat(historico.listarPorData(USUARIO, SABADO)).hasSize(2).allSatisfy(a -> {
+            assertThat(a.origem()).isEqualTo(br.com.conferenciaponto.domain.model.AjusteJornada.Origem.MANUAL);
+            assertThat(a.usuario()).isEqualTo("eduardo");
+        });
+        assertThat(historico.salvos.get(0).antes()).isEmpty();
+        assertThat(historico.salvos.get(0).justificativa()).isEqualTo("Compensação da carga semanal");
+        assertThat(historico.salvos.get(1).justificativa()).isEqualTo(LancarRegistroManualUseCase.MOTIVO_PADRAO);
+        assertThat(historico.salvos.get(1).antes()).containsExactly(LocalTime.of(9, 0), LocalTime.of(12, 30));
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:00")), "abc", "eduardo"))
+                .isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
     @DisplayName("Dia útil não aceita lançamento manual")
     void rejeitaDiaUtil() {
         assertThatThrownBy(() -> useCase.executar(USUARIO, SEGUNDA, List.of(intervalo("08:00", "12:00"))))
@@ -72,7 +93,7 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Não sobrescreve batidas de relógio já existentes")
     void naoSobrescreveRelogio() {
-        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock)
+        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, evento -> { }, clock)
                 .executar(USUARIO, SABADO, LocalTime.of(9, 0));
 
         assertThatThrownBy(() -> useCase.executar(USUARIO, SABADO, List.of(intervalo("09:00", "12:00"))))
@@ -82,7 +103,7 @@ class LancarRegistroManualUseCaseTest {
     @Test
     @DisplayName("Dia útil já batido: a regra de dia útil prevalece sobre o conflito")
     void diaUtilComBatidasRetornaErroDeDiaUtil() {
-        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock)
+        new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, evento -> { }, clock)
                 .executar(USUARIO, SEGUNDA, LocalTime.of(8, 0));
 
         assertThatThrownBy(() -> useCase.executar(USUARIO, SEGUNDA, List.of(intervalo("09:00", "11:00"))))

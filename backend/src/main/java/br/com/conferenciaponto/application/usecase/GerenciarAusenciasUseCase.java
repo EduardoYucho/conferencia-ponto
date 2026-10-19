@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.application.usecase;
 
 import br.com.conferenciaponto.application.RegrasJornada;
+import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
@@ -36,14 +37,17 @@ public class GerenciarAusenciasUseCase {
     private final AusenciaRepository ausencias;
     private final RegistroJornadaRepository registros;
     private final RegrasJornada regras;
+    private final TravaDosMesesConferidos trava;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public GerenciarAusenciasUseCase(AusenciaRepository ausencias, RegistroJornadaRepository registros,
-                                     RegrasJornada regras, ApplicationEventPublisher eventos, Clock clock) {
+                                     RegrasJornada regras, TravaDosMesesConferidos trava,
+                                     ApplicationEventPublisher eventos, Clock clock) {
         this.ausencias = ausencias;
         this.registros = registros;
         this.regras = regras;
+        this.trava = trava;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -57,6 +61,7 @@ public class GerenciarAusenciasUseCase {
     public Ausencia cadastrar(UUID usuarioId, LocalDate inicio, LocalDate fim, TipoAusencia tipo, String descricao,
                               String usuario) {
         Ausencia nova = Ausencia.nova(usuarioId, inicio, fim, tipo, descricao, usuario, clock.instant());
+        trava.exigirAbertoNoPeriodo(usuarioId, inicio, fim);
         List<Ausencia> sobrepostas = ausencias.listarNoPeriodo(usuarioId, inicio, fim);
         if (!sobrepostas.isEmpty()) {
             Ausencia outra = sobrepostas.get(0);
@@ -75,6 +80,7 @@ public class GerenciarAusenciasUseCase {
                 .filter(a -> a.usuarioId().equals(usuarioId))
                 .orElseThrow(() -> new RecursoNaoEncontradoException("AUSENCIA_NAO_ENCONTRADA",
                         "Ausência não encontrada."));
+        trava.exigirAbertoNoPeriodo(usuarioId, ausencia.dataInicio(), ausencia.dataFim());
         ausencias.excluir(id);
         reclassificar(usuarioId, ausencia.dataInicio(), ausencia.dataFim(),
                 "%s removida".formatted(ausencia.rotulo()));
@@ -87,6 +93,7 @@ public class GerenciarAusenciasUseCase {
     @Transactional
     public Ausencia registrarDia(UUID usuarioId, LocalDate data, TipoAusencia tipo, String descricao,
                                  String usuario) {
+        trava.exigirAberto(usuarioId, data);
         List<Ausencia> vizinhas = ausencias.listarNoPeriodo(usuarioId, data.minusDays(1), data.plusDays(1));
         Optional<Ausencia> jaCobre = vizinhas.stream().filter(a -> a.contem(data)).findFirst();
         if (jaCobre.isPresent()) {

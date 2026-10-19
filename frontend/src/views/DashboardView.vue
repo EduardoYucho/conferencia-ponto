@@ -27,7 +27,7 @@ const {
   configuracao, ano, mes, resumo, carregando, salvando,
   hoje, diasPorData, registroHoje, diaSelecionado, dataSelecionada,
   saldoMensal, ciclo, marcadoresDoMes, lancamentosPorData, lancamentosMes, ehMesAtual, expedientePorData,
-  tempoReal, monitoramento, ultimoEvento, cargaDiaInteiro, temDados,
+  tempoReal, monitoramento, ultimoEvento, cargaDiaInteiro, temDados, conferenciaMes, dias,
 } = storeToRefs(store)
 
 const agora = useRelogio(1000)
@@ -328,8 +328,25 @@ const selecionadoIncompleto = computed(() =>
   diaSelecionado.value?.status === 'EM_ANDAMENTO' && diaSelecionado.value.data < hoje.value)
 
 function aoSalvarManual(registro) {
-  mostrarAviso(`Lançamento de ${dataCurta(registro.data)} salvo: ${formatarSaldo(registro.saldoDiarioSegundos)} de crédito`)
+  const onde = store.temExpediente(registro.data) ? '' : ' · está na tela Banco de horas'
+  mostrarAviso(`Lançamento de ${dataCurta(registro.data)} salvo: ${formatarSaldo(registro.saldoDiarioSegundos)} de crédito${onde}`)
 }
+
+/** Os dias sem expediente com registro no mês (ficam fora do cartão, na tela Banco de horas). */
+const fimDeSemanaDoMes = computed(() => {
+  const lista = dias.value.filter((d) => !store.temExpediente(d.data))
+  return {
+    dias: lista.length,
+    saldo: lista.filter((d) => d.status === 'FECHADA').reduce((s, d) => s + (d.saldoDiarioSegundos ?? 0), 0),
+  }
+})
+const linkDoBanco = computed(() => ({ name: 'banco', query: ano.value ? { ano: ano.value, mes: mes.value } : {} }))
+const textoConferencia = computed(() => {
+  const c = conferenciaMes.value
+  if (!c) return null
+  const quando = new Date(c.conferidoEm).toLocaleDateString('pt-BR')
+  return `${nomeMes(c.mes)} foi conferido por ${c.conferidoPor} em ${quando}: batidas, lançamentos e folgas do mês estão travados.`
+})
 
 async function excluirSelecionado() {
   if (!confirmandoExclusao.value) {
@@ -426,6 +443,16 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
       <EstadoDaTela :erro="erroCarga" :carregando="carregando" manter @tentar="carregar()" />
     </div>
 
+    <!-- Mês conferido: travado para mudanças à mão -->
+    <p
+      v-if="textoConferencia"
+      role="status"
+      class="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-[3px] border border-credito/40 bg-credito/5 px-4 py-2.5 text-sm"
+    >
+      <span><b class="text-credito">Mês conferido.</b> {{ textoConferencia }}</span>
+      <RouterLink :to="linkDoBanco" class="text-xs font-semibold underline underline-offset-4">ver no Banco de horas</RouterLink>
+    </p>
+
     <!-- Aviso de prazo do banco de horas (30/15 dias ou previsão vencida) -->
     <p
       v-if="ciclo && prazoCiclo?.urgente"
@@ -483,6 +510,18 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
           <template v-if="resumo.segundosLancados">
             <dt class="text-tinta-suave">Lançado no banco</dt>
             <dd class="carimbo text-right font-semibold" :class="classeSaldo(resumo.segundosLancados)">{{ formatarSaldo(resumo.segundosLancados) }}</dd>
+          </template>
+          <template v-if="fimDeSemanaDoMes.saldo">
+            <dt class="text-tinta-suave">
+              <RouterLink :to="linkDoBanco" class="underline decoration-linha underline-offset-4 hover:text-tinta">Fins de semana</RouterLink>
+            </dt>
+            <dd class="carimbo text-right font-semibold" :class="classeSaldo(fimDeSemanaDoMes.saldo)">{{ formatarSaldo(fimDeSemanaDoMes.saldo) }}</dd>
+          </template>
+          <template v-if="resumo.segundosDaCarga">
+            <dt class="text-tinta-suave" title="A carga semanal menos o horário, em cada dia útil fechado">
+              <RouterLink :to="linkDoBanco" class="underline decoration-linha underline-offset-4 hover:text-tinta">Diferença da carga</RouterLink>
+            </dt>
+            <dd class="carimbo text-right font-semibold" :class="classeSaldo(resumo.segundosDaCarga)">{{ formatarSaldo(resumo.segundosDaCarga) }}</dd>
           </template>
         </dl>
         <p v-if="resumo?.diasEmAberto" class="mt-2 text-xs italic text-tinta-suave">
@@ -605,6 +644,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         :marcadores="marcadoresDoMes"
         :lancamentos="lancamentosPorData"
         :expedientes="expedientePorData"
+        ocultar-sem-expediente
         @selecionar="store.selecionarDia"
         @lancar="abrirLancamento"
         @ajustar="abrirAjuste"
@@ -612,6 +652,13 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
       />
       <p v-else class="py-8 pl-2 text-center text-sm text-tinta-suave">
         {{ carregando ? 'Carregando…' : 'O mês ainda não foi carregado.' }}
+      </p>
+      <p v-if="ano" class="mt-3 pl-2 text-xs text-tinta-suave">
+        Sábados e domingos ficam na tela
+        <RouterLink :to="linkDoBanco" class="font-semibold underline underline-offset-4 hover:text-tinta">Banco de horas</RouterLink><template v-if="fimDeSemanaDoMes.dias">
+          · {{ fimDeSemanaDoMes.dias }} dia(s) com horas neste mês<template v-if="fimDeSemanaDoMes.saldo">
+            (<span class="carimbo" :class="classeSaldo(fimDeSemanaDoMes.saldo)">{{ formatarSaldo(fimDeSemanaDoMes.saldo) }}</span>)</template></template>.
+        O botão <b>Lançamento manual</b> continua lançando as horas deles.
       </p>
     </section>
 
@@ -639,7 +686,13 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
       </ul>
     </section>
 
-    <ModalLancamentoManual v-if="auth.podeEscrever" v-model="modalAberto" :data-inicial="dataModal" @salvo="aoSalvarManual" />
+    <ModalLancamentoManual
+      v-if="auth.podeEscrever"
+      v-model="modalAberto"
+      :data-inicial="dataModal"
+      :registro="dataModal ? diasPorData[dataModal] ?? null : null"
+      @salvo="aoSalvarManual"
+    />
     <ModalCicloBanco v-if="auth.podeEscrever" v-model="cicloAberto" :modo="modoCiclo" :ciclo="ciclo" @concluido="aoConcluirCiclo" />
     <ModalLancamentoBanco
       v-if="auth.podeEscrever"

@@ -260,6 +260,14 @@ const indicadores = computed(() => {
 
 const ajustadasNoMes = computed(() => linhas.value.reduce((s, l) => s + l.batidasAjustadas, 0))
 
+/** Resumo do histórico do dia: conforme o RH, lançado à mão, excluído ou ajustado à mão. */
+function rotuloDosAjustes(ajustes) {
+  const doRh = (a) => a.origem === 'RH' || a.justificativa.startsWith('Conforme relatório do RH')
+  if (ajustes.every(doRh)) return 'conforme RH'
+  if (ajustes.every((a) => a.origem === 'MANUAL')) return 'lançado à mão'
+  return 'ajustado à mão'
+}
+
 const formatarMomento = (iso) =>
   new Date(iso).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })
 const listaHoras = (horarios) => (horarios.length ? horarios.join(' ') : 'sem batidas')
@@ -471,11 +479,11 @@ async function exportarExcel() {
                 </div>
                 <details v-if="l.ajustes.length" class="mt-1 text-xs">
                   <summary class="cursor-pointer font-semibold text-tinta-suave hover:text-tinta">
-                    {{ l.ajustes.every((a) => a.justificativa.startsWith('Conforme relatório do RH')) ? 'conforme RH' : 'ajustado à mão' }}{{ l.ajustes.length > 1 ? ` (${l.ajustes.length}×)` : '' }}
+                    {{ rotuloDosAjustes(l.ajustes) }}{{ l.ajustes.length > 1 ? ` (${l.ajustes.length}×)` : '' }}
                   </summary>
                   <ul class="mt-1 w-60 space-y-1.5 whitespace-normal">
                     <li v-for="a in l.ajustes" :key="a.id" class="rounded-[2px] bg-papel px-2 py-1.5">
-                      <span class="block text-tinta-suave">{{ formatarMomento(a.ajustadoEm) }} · {{ a.usuario }}</span>
+                      <span class="block text-tinta-suave">{{ formatarMomento(a.ajustadoEm) }} · {{ a.usuario }}<template v-if="a.origem === 'EXCLUSAO'"> · excluiu o dia</template><template v-else-if="a.origem === 'MANUAL'"> · lançou à mão</template></span>
                       <span class="carimbo block">{{ listaHoras(a.antes) }} → {{ listaHoras(a.depois) }}</span>
                       <span class="block italic">“{{ a.justificativa }}”</span>
                     </li>

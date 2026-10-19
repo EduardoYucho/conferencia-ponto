@@ -30,7 +30,7 @@ class RegistrarBatidaUseCaseTest {
 
     private RegistrarBatidaUseCase useCaseEm(String horaAtual) {
         Clock clock = Clock.fixed(ZonedDateTime.of(DIA, LocalTime.parse(horaAtual), SP).toInstant(), SP);
-        return new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), evento -> { }, clock);
+        return new RegistrarBatidaUseCase(repository, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, evento -> { }, clock);
     }
 
     @Test

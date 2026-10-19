@@ -43,7 +43,8 @@ class GerenciarHorariosUseCaseTest {
     private final List<Object> eventos = new ArrayList<>();
     private final Clock clock = Clock.fixed(ZonedDateTime.of(2026, 9, 29, 10, 0, 0, 0, SP).toInstant(), SP);
     private final GerenciarHorariosUseCase useCase = new GerenciarHorariosUseCase(horarios, ciclos, regras,
-            new RecalcularJornadasUseCase(registros, regras), eventos::add, clock);
+            new RecalcularJornadasUseCase(registros, regras), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA,
+            br.com.conferenciaponto.domain.service.LeiDaJornada.vigente(), eventos::add, clock);
 
     private RegistroJornada dia(java.util.UUID usuario, LocalDate data, String... batidas) {
         RegistroJornada r = RegistroJornada.novo(usuario, data, regras.classificar(usuario, data));

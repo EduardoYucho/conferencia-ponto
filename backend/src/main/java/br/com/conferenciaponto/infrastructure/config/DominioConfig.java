@@ -8,6 +8,7 @@ import br.com.conferenciaponto.domain.port.CalendarioFeriados;
 import br.com.conferenciaponto.domain.port.HorarioTrabalhoRepository;
 import br.com.conferenciaponto.domain.service.ClassificadorDiaService;
 import br.com.conferenciaponto.domain.service.ComparadorConciliacaoService;
+import br.com.conferenciaponto.domain.service.LeiDaJornada;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -41,6 +42,12 @@ public class DominioConfig {
     public RegrasJornada regrasJornada(HorarioTrabalhoRepository horarios, ClassificadorDiaService classificador,
                                        PontoProperties properties) {
         return new RegrasJornada(horarios, classificador, gradePadrao(properties), properties.toleranciaMinutos());
+    }
+
+    /** As regras da lei sobre a jornada (com as datas da EC 141/2026), para os avisos. */
+    @Bean
+    public LeiDaJornada leiDaJornada() {
+        return LeiDaJornada.vigente();
     }
 
     @Bean

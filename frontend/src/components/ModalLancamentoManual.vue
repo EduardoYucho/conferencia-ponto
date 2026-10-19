@@ -6,20 +6,25 @@ import { dataCurta, dataISO, deISO, diaSemanaCurto, formatarDuracao, paraMinutos
 
 /**
  * Lançamento manual de intervalos em fim de semana/feriado.
- * Dias não úteis têm jornada base zero: todo o tempo informado vira crédito.
+ * Dias não úteis têm jornada base zero: todo o tempo informado vira crédito. O motivo vai para o histórico do dia
+ * (com quem lançou e quando), para quem confere ver que as horas foram lançadas à mão.
  */
 const props = defineProps({
   modelValue: { type: Boolean, default: false },
   /** Data sugerida (yyyy-MM-dd). Sem ela, sugere o último sábado. */
   dataInicial: { type: String, default: null },
+  /** O lançamento que está sendo corrigido (preenche os intervalos). */
+  registro: { type: Object, default: null },
 })
 const emit = defineEmits(['update:modelValue', 'salvo'])
 
 const store = usePontoStore()
 
 const MAX_INTERVALOS = 3
+const MOTIVOS = ['Compensação da carga semanal', 'Hora extra no fim de semana', 'Correção do lançamento']
 const data = ref('')
 const intervalos = ref([])
+const motivo = ref('')
 const erroServidor = ref('')
 const errosCampo = ref({})
 const tentouEnviar = ref(false)
@@ -33,9 +38,19 @@ function ultimoSabado(hojeIso) {
   return dataISO(d)
 }
 
+/** Os intervalos de um lançamento que já existe (pares entrada e saída, sem os segundos). */
+function intervalosDe(registro) {
+  const reais = (registro?.batidas ?? []).map((b) => b.real).filter(Boolean).map((h) => h.slice(0, 5))
+  const pares = []
+  for (let i = 0; i + 1 < reais.length; i += 2) pares.push({ entrada: reais[i], saida: reais[i + 1] })
+  return pares
+}
+
 function reiniciar() {
   data.value = props.dataInicial ?? ultimoSabado(store.hoje)
-  intervalos.value = [{ entrada: '', saida: '' }]
+  const existentes = props.registro?.registroManual ? intervalosDe(props.registro) : []
+  intervalos.value = existentes.length ? existentes : [{ entrada: '', saida: '' }]
+  motivo.value = existentes.length ? 'Correção do lançamento' : 
   erroServidor.value = ''
   errosCampo.value = {}
   tentouEnviar.value = false
@@ -97,7 +112,14 @@ const erroData = computed(() => {
   return null
 })
 
-const valido = computed(() => !erroData.value && errosIntervalos.value.every((e) => e === null))
+const erroMotivo = computed(() => {
+  const texto = motivo.value.trim()
+  if (texto && texto.length < 5) return 'Escreva o motivo com pelo menos 5 letras (ou deixe em branco).'
+  if (texto.length > 500) return 'O motivo pode ter no máximo 500 caracteres.'
+  return null
+})
+
+const valido = computed(() => !erroData.value && !erroMotivo.value && errosIntervalos.value.every((e) => e === null))
 
 const totalMinutos = computed(() =>
   intervalos.value.reduce((soma, iv) => {
@@ -118,6 +140,7 @@ async function enviar() {
     registro = await store.postRegistroManual({
       data: data.value,
       intervalos: intervalos.value.map(({ entrada, saida }) => ({ entrada, saida })),
+      justificativa: motivo.value.trim() || null,
     })
   } catch (e) {
     erroServidor.value = mensagemDe(e)
@@ -157,7 +180,9 @@ async function enviar() {
               <h2 id="titulo-lancamento" class="mt-1 font-sans text-xl font-extrabold tracking-tight [font-stretch:88%]">
                 Horas em dia sem expediente / feriado
               </h2>
-              <p class="mt-1 text-sm text-tinta-suave">Carga base zero: 100% do tempo informado vira crédito.</p>
+              <p class="mt-1 text-sm text-tinta-suave">
+                Carga base zero: 100% do tempo informado vira crédito. Fica marcado como lançado à mão, com o motivo.
+              </p>
             </div>
             <button
               type="button"
@@ -240,6 +265,30 @@ async function enviar() {
                 + Adicionar {{ intervalos.length + 1 }}º intervalo
               </button>
             </fieldset>
+
+            <!-- Motivo (vai para o histórico do dia) -->
+            <div>
+              <label for="lanc-motivo" class="rotulo">Motivo <span class="font-normal normal-case text-tinta-apagada">(opcional)</span></label>
+              <input
+                id="lanc-motivo"
+                v-model="motivo"
+                type="text"
+                maxlength="500"
+                class="campo mt-1.5"
+                placeholder="Ex.: compensação da carga semanal"
+                :aria-invalid="tentouEnviar && !!erroMotivo"
+              />
+              <div class="mt-2 flex flex-wrap gap-1.5">
+                <button
+                  v-for="m in MOTIVOS"
+                  :key="m"
+                  type="button"
+                  class="rounded-full border border-linha px-2.5 py-0.5 text-xs text-tinta-suave hover:border-tinta hover:text-tinta"
+                  @click="motivo = m"
+                >{{ m }}</button>
+              </div>
+              <p v-if="tentouEnviar && erroMotivo" class="mt-1.5 text-sm text-carimbo">{{ erroMotivo }}</p>
+            </div>
 
             <div class="flex items-center justify-between rounded-[3px] border border-dashed border-tinta/40 px-4 py-3">
               <span class="rotulo">Crédito a lançar</span>

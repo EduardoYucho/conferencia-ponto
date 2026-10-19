@@ -29,7 +29,7 @@ class GerenciarLancamentosBancoUseCaseTest {
     private final CicloBancoRepositoryEmMemoria ciclos = new CicloBancoRepositoryEmMemoria();
     private final List<Object> eventos = new ArrayList<>();
     private final GerenciarLancamentosBancoUseCase useCase =
-            new GerenciarLancamentosBancoUseCase(repositorio, ciclos, eventos::add, clock);
+            new GerenciarLancamentosBancoUseCase(repositorio, ciclos, br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock);
 
     @BeforeEach
     void cicloAberto() {

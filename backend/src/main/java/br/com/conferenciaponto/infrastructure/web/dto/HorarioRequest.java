@@ -15,14 +15,21 @@ import java.util.Map;
 /**
  * Novo horário a partir de uma data.
  *
- * @param dias SEG, TER, QUA, QUI, SEX, SAB, DOM -> períodos "HH:MM-HH:MM" separados por espaço (até 3);
- *             dia ausente ou vazio = sem expediente
+ * @param dias                 SEG, TER, QUA, QUI, SEX, SAB, DOM -> períodos "HH:MM-HH:MM" separados por espaço
+ *                             (até 3); dia ausente ou vazio = sem expediente
+ * @param cargaSemanalSegundos a carga que a pessoa deve cumprir por semana; vazia = a soma do horário
  */
 public record HorarioRequest(
         @NotNull(message = "Informe a partir de quando o horário vale.") LocalDate vigenteDesde,
         @Min(value = 0, message = "A tolerância não pode ser negativa.")
         @Max(value = 60, message = "A tolerância pode ser de no máximo 60 minutos.") int toleranciaMinutos,
-        @NotNull(message = "Informe o horário dos dias da semana.") Map<String, String> dias) {
+        @NotNull(message = "Informe o horário dos dias da semana.") Map<String, String> dias,
+        @Min(value = 3600, message = "A carga semanal deve ser de pelo menos 1 hora.")
+        @Max(value = 288000, message = "A carga semanal pode ser de no máximo 80 horas.") Integer cargaSemanalSegundos) {
+
+    public HorarioRequest(LocalDate vigenteDesde, int toleranciaMinutos, Map<String, String> dias) {
+        this(vigenteDesde, toleranciaMinutos, dias, null);
+    }
 
     public static final Map<DayOfWeek, String> SIGLAS = siglas();
 

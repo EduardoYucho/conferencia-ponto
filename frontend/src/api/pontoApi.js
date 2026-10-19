@@ -95,6 +95,19 @@ export const pontoApi = {
    */
   salvarHorario: (horario, usuario = null) => http.post('/horarios', horario, { params: usuario ? { usuario } : {} }),
   excluirHorario: (id, usuario = null) => http.delete(`/horarios/${id}`, { params: usuario ? { usuario } : {} }),
+  /** Confere o horário sem salvar: a soma, a carga semanal, a diferença e os avisos da lei. */
+  avaliarHorario: (horario, usuario = null) =>
+    http.post('/horarios/avaliacao', horario, { params: usuario ? { usuario } : {} }),
+
+  // ------------------------------------------------ banco de horas (carga semanal, fins de semana, conferência)
+  /** O mês na tela Banco de horas: carga x horário, compensação, dias com a origem das batidas, avisos e conferência. */
+  bancoDeHoras: (ano, mes) => http.get('/banco-de-horas', { params: { ano, mes } }),
+  /** Marca o mês da pessoa (login) como conferido. */
+  conferirMes: (ano, mes, usuario, observacao) =>
+    http.post('/banco-de-horas/conferencia', { observacao: observacao || null }, { params: { ano, mes, usuario } }),
+  /** Reabre o mês conferido (o motivo é obrigatório). */
+  reabrirMes: (ano, mes, usuario, motivo) =>
+    http.post('/banco-de-horas/conferencia/reabrir', { motivo }, { params: { ano, mes, usuario } }),
 
   // ------------------------------------------------ minha conta e usuários
   salvarMinhaPasta: (pasta) => http.put('/conta/pasta', { pasta }, { timeout: 30000 }),

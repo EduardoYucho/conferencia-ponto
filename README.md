@@ -6,7 +6,9 @@ vigência) e **pasta de comprovantes** (ou envio dos PDFs pela tela). Cálculo *
 do RH** (com segundos, tolerância por horário da grade, até 6 batidas; horário padrão 08:00–12:00 e
 13:00–17:48 = 08:48), lançamento manual de dias sem expediente/feriados (100% crédito),
 **banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
-creditar horas), **feriados, férias, folgas, atestados e abonos**,
+creditar horas), **carga semanal** comparada com o horário (o fim de semana compensa o que falta) e a tela **Banco de
+horas** com a origem de cada batida, os avisos da lei e a **conferência do mês**, **feriados, férias, folgas,
+atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
 PDFs**, **controle de acessos por perfis e permissões (JWT)** com auditoria para a coordenação, **conciliação com o relatório de
 banco de horas do RH** (tela dividida conferência × RH) e **planilha de conferência** — em Excel ou numa
@@ -31,7 +33,7 @@ conferencia-ponto/
     └── src/
         ├── api/                http.js (Bearer), eventos.js (SSE autenticado), pontoApi, authApi
         ├── stores/             auth.js (sessão, permissões, "dados de") · ponto.js (usePontoStore, tempo real)
-        ├── views/              Login · TrocarSenha · Dashboard · Auditoria · Conciliacao · Ausencias ·
+        ├── views/              Login · TrocarSenha · Dashboard · BancoDeHoras · Auditoria · Conciliacao · Ausencias ·
         │                       MinhaConta (senha, pasta, horário, planilha) · Usuarios · Perfis (acessos)
         └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EditorPlanilha,
                                 IntegracaoGoogle, EnvioComprovantes, ...
@@ -253,7 +255,7 @@ O que cada pessoa pode fazer vem de **permissões**, uma por tela e por ação, 
 
 - **Permissões** (a lista fica no código; cada módulo declara as dele): *Ponto* — ter o próprio ponto, lançar no
   próprio ponto (requer o anterior), consultar o ponto da equipe, configurar o ponto da equipe (horário, pasta e
-  planilha de outras pessoas; requer consultar), cadastrar feriados; *Atendimentos* — usar os atendimentos, ver o
+  planilha de outras pessoas; requer consultar), conferir o mês (requer consultar), cadastrar feriados; *Atendimentos* — usar os atendimentos, ver o
   espaço em disco; *Base de conhecimento* — pesquisar, curar (requer pesquisar); *Administração* — cadastrar
   usuários, perfis e acessos, integração com o Google, logs. Uma permissão sem o requisito não vale.
 - **Perfis** (tela *Perfis de acesso*): um nome, uma descrição e as permissões que libera. Vêm três de fábrica:
@@ -695,6 +697,7 @@ todos os dias de nov/2025 a ago/2026:
 | Tolerância | Cada horário da grade (ex.: 08:00 e 13:00 de entrada, 12:00 e 17:48 de saída) é casado com a batida mais próxima do mesmo tipo; se a diferença for **até a tolerância do horário (padrão 5:00, inclusive)**, vale a grade. Batidas extras não têm horário de grade: o tempo fora conta integralmente. |
 | Dia útil | Saldo = trabalhado + ajustes da tolerância − carga do dia (padrão 08:48:00). |
 | Dia sem expediente / feriado / ausência | Base 0: todo o tempo é crédito. |
+| Carga semanal | Quando a carga informada passa do horário, a diferença ÷ dias com expediente entra no banco em cada dia útil fechado (à parte do saldo do dia, como um lançamento). Ver [Carga semanal e fins de semana](#carga-semanal-e-fins-de-semana-tela-banco-de-horas). |
 | Jornada em andamento | Número ímpar de batidas: saldo = `null` (fora das consolidações até fechar). |
 
 Na subida, todos os dias gravados são recalculados com a regra atual (`RecalculoJornadasNaInicializacao`).
@@ -715,13 +718,16 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | GET/POST | `/usuarios` | lista (`usuarios.gerenciar` ou `acessos.gerenciar`) · cria `{login, nome, perfis?, senhaProvisoria, pastaComprovantes?}` (`usuarios.gerenciar`; os perfis, só com `acessos.gerenciar`) |
 | PUT | `/usuarios/{id}` · `/{id}/senha` · `/{id}/pasta` | `{nome, ativo}` · `{senhaProvisoria}` (`usuarios.gerenciar`) · `{pasta}` (`ponto.equipe.configurar`) |
 | PUT | `/conta/pasta` · POST `/conta/pasta/verificar` | Pasta dos meus comprovantes `{pasta}` (vazia = sem monitoramento) · só confere o acesso |
-| GET/POST | `/horarios` | Vigências do horário · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}}` (outra pessoa, com `ponto.equipe.configurar`: `?usuario=login`) |
+| GET/POST | `/horarios` | Vigências do horário (com a soma, a carga, a diferença e os `avisos` da lei) · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}, cargaSemanalSegundos?}` (outra pessoa, com `ponto.equipe.configurar`: `?usuario=login`) |
+| POST | `/horarios/avaliacao` | O mesmo corpo, sem salvar: a soma, a carga, a diferença e os avisos da lei |
+| GET | `/banco-de-horas?ano=&mes=` | A tela Banco de horas: `horario`, `compensacao`, `resumo`, `bancoDeHoras`, `dias` (com comprovantes, histórico e `diferencaDaCargaSegundos`), `semExpediente`, `semRegistro`, `excluidos`, `avisos`, `conferencia` |
+| POST | `/banco-de-horas/conferencia?ano=&mes=&usuario=` · `/conferencia/reabrir` | (`ponto.conferir`) marca o mês como conferido `{observacao?}` · reabre `{motivo}` |
 | DELETE | `/horarios/{id}` | Remove uma vigência (os dias voltam ao horário anterior) |
 | GET | `/configuracao` | Horário da pessoa que vale hoje (grade, tolerância, jornada), data/hora do servidor |
-| GET | `/jornadas?ano=&mes=` | Dias do mês + resumo (saldo mensal e anual acumulado) |
+| GET | `/jornadas?ano=&mes=` | Dias do mês + resumo (saldo mensal e anual acumulado, com `segundosLancados` e `segundosDaCarga`) + `conferencia` do mês (null = não conferido) |
 | GET | `/jornadas/{data}` | Um dia |
 | POST | `/jornadas/batidas` | Próxima batida `{data?, horario?}` (vazio = relógio do servidor) |
-| POST | `/jornadas/manual` | `{data, intervalos:[{entrada, saida}]}` — só fim de semana/feriado |
+| POST | `/jornadas/manual` | `{data, intervalos:[{entrada, saida}], justificativa?}` — só fim de semana/feriado; fica no histórico do dia |
 | DELETE | `/jornadas/{data}` | Exclui o registro do dia (bloqueado se o dia tiver PDFs arquivados) |
 | PUT | `/jornadas/{data}/batidas` | Ajuste manual: `{horarios: ["08:05:53","12:00",...], justificativa}` (lista final do dia) |
 | GET | `/jornadas/{data}/ajustes` | Batidas com PDF (travadas) + histórico de ajustes do dia |
@@ -762,7 +768,7 @@ Nos `GET`, `?usuario=login` consulta outra pessoa (com `ponto.equipe`). Dias, m�
 Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas (`ACESSO_DESATIVADO` quando o
 usuário foi desativado) · `403` sem a permissão (`ACESSO_NEGADO`, `SOMENTE_CONSULTA`, `SEM_PONTO`,
 `ALTERAR_DADOS_DE_OUTRO`, `ACESSO_MAIOR_QUE_O_SEU`, `TROCAR_SENHA`) · `404` não encontrado · `409` conflito (`REGISTRO_REPETIDO`, `REGISTRO_JA_ALTERADO`,
-`SISTEMA_OCUPADO`) · `422` regra de negócio · `503 BANCO_INDISPONIVEL` · `500 ERRO_INTERNO` (com o protocolo na
+`SISTEMA_OCUPADO`, `MES_CONFERIDO`, `MES_JA_CONFERIDO`) · `422` regra de negócio · `503 BANCO_INDISPONIVEL` · `500 ERRO_INTERNO` (com o protocolo na
 mensagem) e `500 COMPROVANTE_CORROMPIDO` (arquivo alterado em disco). Ver "Erros, protocolo e logs".
 
 ## Permissões nas rotas
@@ -778,6 +784,7 @@ decidida **pelo método HTTP**, então uma rota nova de escrita já nasce proteg
 | `GET /api/**` (leitura, SSE, download) | sessão; de quem são os dados é decidido em `AcessoUsuarios` (os próprios com `ponto.proprio`; os de qualquer pessoa com `ponto.equipe`) |
 | `POST/PUT/PATCH/DELETE /api/**` (o resto) | `ponto.lancar` (e sempre nos próprios dados) |
 | horários e planilha | `ponto.lancar` (os próprios) ou `ponto.equipe.configurar` (`?usuario=` de outra pessoa) |
+| conferir e reabrir o mês (`/banco-de-horas/conferencia/**`) | `ponto.conferir` (de qualquer pessoa, com `?usuario=`) |
 | feriados (gravar) · usuários · acessos · integrações · logs | `ponto.feriados` · `usuarios.gerenciar` · `acessos.gerenciar` · `integracoes.gerenciar` · `logs.ver` |
 
 Tela inicial: o Painel para quem tem o próprio ponto; a Auditoria para quem só consulta a equipe; senão a primeira
@@ -863,6 +870,52 @@ fica abaixo do cartão (com "Remover"). Regras: até 300 h por lançamento, só 
 saldo de um ciclo fechado já foi congelado) e no máximo 1 ano à frente. A conciliação com o RH continua comparando
 só as jornadas. Folga que deve **descontar** do banco = lançamento de −08:48 no dia (atalho "dia inteiro").
 
+## Carga semanal e fins de semana (tela Banco de horas)
+
+Quem trabalha de vez em quando no fim de semana para completar as horas da semana (ex.: um sábado de manhã por
+mês, porque o horário de segunda a sexta não fecha a carga):
+
+- **Carga semanal** (*Minha conta → Horário de trabalho*): o total que a pessoa deve cumprir por semana, junto do
+  horário (entrada, intervalos e saída de cada dia), com a mesma vigência. Vazia = a soma do horário (o normal: nada
+  muda). A tela compara na hora: "o horário soma 40:00; a carga é 42:00: faltam 02:00 por semana (00:24 por dia
+  útil)".
+- **No banco:** a diferença da semana ÷ dias com expediente entra no banco em **cada dia útil fechado** (débito; se o
+  horário passa da carga, crédito). Feriados, férias, folgas e dias sem registro não levam a diferença, como já não
+  levam a jornada do dia. O saldo de cada dia (contra a grade, como o RH) **não muda**: a diferença soma à parte,
+  como um lançamento (`SaldoMensal.segundosDaCarga`, `DiferencaDaCarga`). A conciliação com o RH continua comparando
+  só as jornadas.
+- **O fim de semana compensa:** sábado de manhã, à tarde ou domingo, quando for melhor (pelo ponto ou pelo
+  *Lançamento manual*, que agora pede um motivo opcional). As horas do mês primeiro pagam a diferença do mês; o que
+  sobra fica de crédito no banco; o que falta no fim do mês fica como débito.
+- **Painel:** os dias sem expediente (sábado e domingo, no horário padrão) **não aparecem no cartão**; o lançamento
+  continua. O cartão do mês mostra as linhas "Fins de semana" e "Diferença da carga" com o link para a tela nova.
+- **Tela Banco de horas** (`/banco-de-horas`): carga x horário, a compensação do mês (a compensar, compensado, falta,
+  para o banco e os fins de semana que ainda vêm), o saldo do mês por parte, o banco de horas pelo ciclo e o
+  **extrato** (fins de semana e lançamentos; o que foi lançado ou ajustado à mão; o mês inteiro). Cada batida diz a
+  origem: **relógio** (com o PDF para baixar), **sem comprovante**, **ajustada à mão** ou **lançada à mão**; cada dia
+  tem o histórico (quem, quando, antes → depois, o motivo), inclusive os dias excluídos, e os botões *Ajustar* e
+  *Corrigir*. Dia útil que passou sem registro aparece como "ponto não batido".
+- **Avisos da lei** (`LeiDaJornada`, só avisos: dá para salvar): até 15/12/2026, 44 h por semana e a folga semanal;
+  a partir de 16/12/2026 (EC 141/2026, fim da escala 6x1), 42 h e 2 folgas por semana, jornada normal de 8 h por dia
+  (com acordo ou convenção, até 8h24) e compensação no fim de semana só com acordo ou convenção coletiva (pelo menos
+  1 folga em toda semana e média de 2 no mês); a partir de 16/12/2027, 40 h. E sempre: no máximo 10 h no dia (art.
+  59), intervalo de 1 a 2 h acima de 6 h e de 15 min de 4 a 6 h (art. 71), 11 h entre um dia e outro (art. 66). O
+  horário mostra os avisos ao editar e em vigor; os dias trabalhados, na tela Banco de horas.
+- **Conferência do mês** (permissão `ponto.conferir`, dada ao perfil Coordenador): quem confere marca um mês que já
+  terminou como **conferido** (com observação), e os números da hora ficam guardados. O mês fica **travado** para
+  mudanças à mão (ajuste, lançamento, batida de dia passado, exclusão, lançamento no banco, folgas e o horário que
+  valeria nele); os PDFs do relógio continuam entrando, e a tela avisa que os números mudaram depois da conferência.
+  **Reabrir** pede o motivo; tudo fica no histórico e a pessoa é avisada no sino.
+- **Sino:** faltando horas da carga e restando 2 fins de semana (ou 1) no mês; o mês que terminou faltando horas; e
+  7 dias seguidos sem folga (a partir de 16/12/2026, semana sem nenhuma folga). Todo dia à 01:00, na subida e quando
+  um dia sem expediente é lançado.
+- **Planilha de conferência:** a coluna "Diferença da carga" (quando o mês tem), "Origem das batidas" (relógio,
+  ajustada, sem comprovante, lançado à mão por quem), o saldo do mês com a diferença, a conferência de cada mês e a
+  carga semanal de cada horário.
+- **Migração `V17`:** `tb_horario_trabalho.carga_semanal_segundos` (vazia nos horários que já existiam),
+  `tb_ajuste_jornada.origem` (AJUSTE, RH, MANUAL, EXCLUSAO; os registros antigos ficam AJUSTE), `tb_conferencia_mes` e a
+  permissão `ponto.conferir` no perfil Coordenador. Nenhum número muda sem uma carga informada.
+
 ## Feriados, férias, atestados, licenças, folgas e abonos
 
 Tela **Folgas e feriados** (`/ausencias`), ou direto pelo dia no Painel (ícone de calendário, ou clique num dia útil
@@ -908,7 +961,8 @@ Quando o relógio falha (batida não registrada, comprovante não gerado) e o RH
 - **Justificativa obrigatória** (há sugestões prontas). Cada ajuste fica no histórico com antes → depois, usuário e
   data; o usuário vem do token, não da tela.
 - Batidas ajustadas aparecem marcadas (`aj` no cartão, "ajustada" na auditoria) e a coordenação vê o histórico em
-  "ajustado à mão", com filtro próprio; na planilha de conferência a batida vai em itálico e o motivo, nas
+  "ajustado à mão", com filtro próprio. O lançamento à mão de um dia sem expediente e a exclusão de um dia também
+  ficam no histórico (`tb_ajuste_jornada.origem` = MANUAL ou EXCLUSAO); na planilha de conferência a batida vai em itálico e o motivo, nas
   observações do dia. Perfil `VIEWER` não ajusta (`403`).
 - Regras: de 1 a 6 batidas (com segundos), pelo menos 1 minuto entre elas, nada no futuro e alguma coisa precisa mudar.
 - "Incompleto" = dia que já passou com entrada sem saída (antes aparecia como "em andamento").

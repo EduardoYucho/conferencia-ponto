@@ -24,6 +24,7 @@ class AjusteJornadaRepositoryAdapter implements AjusteJornadaRepository {
                 HorariosTexto.escrever(ajuste.antes()), HorariosTexto.escrever(ajuste.depois()),
                 ajuste.justificativa(), ajuste.usuario(), ajuste.ajustadoEm().atOffset(ZoneOffset.UTC));
         e.setUsuarioId(ajuste.usuarioId());
+        e.setOrigem(ajuste.origem().name());
         jpa.save(e);
     }
 
@@ -44,6 +45,7 @@ class AjusteJornadaRepositoryAdapter implements AjusteJornadaRepository {
     private static AjusteJornada paraDominio(AjusteJornadaEntity e) {
         return new AjusteJornada(e.getId(), e.getUsuarioId(), e.getRegistroJornadaId(), e.getDataReferencia(),
                 HorariosTexto.ler(e.getBatidasAntes()), HorariosTexto.ler(e.getBatidasDepois()),
-                e.getJustificativa(), e.getUsuarioLogin(), e.getAjustadoEm().toInstant());
+                e.getJustificativa(), e.getUsuarioLogin(), e.getAjustadoEm().toInstant(),
+                e.getOrigem() == null ? AjusteJornada.Origem.AJUSTE : AjusteJornada.Origem.valueOf(e.getOrigem()));
     }
 }

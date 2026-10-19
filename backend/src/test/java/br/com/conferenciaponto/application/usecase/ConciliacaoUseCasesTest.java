@@ -81,9 +81,9 @@ class ConciliacaoUseCasesTest {
     private final ImportarRelatorioRhUseCase importar =
             new ImportarRelatorioRhUseCase(pdf -> proximoLido, relatorios, conferir, eventos::add, clock);
     private final AjustarBatidasUseCase ajustar =
-            new AjustarBatidasUseCase(registros, arquivos, ajustes, regras, eventos::add, clock);
+            new AjustarBatidasUseCase(registros, arquivos, ajustes, regras, br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock);
     private final GerenciarAusenciasUseCase ausencias =
-            new GerenciarAusenciasUseCase(ausenciasRepo, registros, regras, eventos::add, clock);
+            new GerenciarAusenciasUseCase(ausenciasRepo, registros, regras, br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock);
     private final PlatformTransactionManager semTransacao = new PlatformTransactionManager() {
         @Override
         public TransactionStatus getTransaction(TransactionDefinition definicao) {

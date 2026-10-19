@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.infrastructure.web;
 
 import br.com.conferenciaponto.application.usecase.AjustarBatidasUseCase;
+import br.com.conferenciaponto.application.usecase.ConferirMesUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarJornadaUseCase;
 import br.com.conferenciaponto.application.usecase.ExcluirRegistroUseCase;
 import br.com.conferenciaponto.application.usecase.LancarRegistroManualUseCase;
@@ -9,6 +10,7 @@ import br.com.conferenciaponto.application.view.RegistroJornadaView;
 import br.com.conferenciaponto.infrastructure.web.acesso.Titular;
 import br.com.conferenciaponto.infrastructure.web.dto.AjusteBatidasRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
+import br.com.conferenciaponto.infrastructure.web.dto.ConferenciaResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.ContextoAjusteResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.MesJornadaResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.RegistrarBatidaRequest;
@@ -30,6 +32,7 @@ import org.springframework.web.bind.annotation.RestController;
 import java.net.URI;
 import java.time.Clock;
 import java.time.LocalDate;
+import java.time.YearMonth;
 
 /**
  * <pre>
@@ -52,12 +55,14 @@ public class JornadaController {
     private final LancarRegistroManualUseCase lancarManual;
     private final ExcluirRegistroUseCase excluir;
     private final AjustarBatidasUseCase ajustar;
+    private final ConferirMesUseCase conferencias;
     private final Clock clock;
 
     public JornadaController(ConsultarJornadaUseCase consultar, RegistrarBatidaUseCase registrarBatida,
                              LancarRegistroManualUseCase lancarManual, ExcluirRegistroUseCase excluir,
-                             AjustarBatidasUseCase ajustar, Clock clock) {
+                             AjustarBatidasUseCase ajustar, ConferirMesUseCase conferencias, Clock clock) {
         this.consultar = consultar;
+        this.conferencias = conferencias;
         this.registrarBatida = registrarBatida;
         this.lancarManual = lancarManual;
         this.excluir = excluir;
@@ -68,8 +73,9 @@ public class JornadaController {
     @GetMapping
     public ApiResponse<MesJornadaResponse> mes(@RequestParam(required = false) Integer ano,
                                                @RequestParam(required = false) Integer mes, Titular titular) {
-        return ApiResponse.ok(MesJornadaResponse.de(
-                consultar.mes(titular.id(), ReferenciaMes.resolver(ano, mes, clock))));
+        YearMonth referencia = ReferenciaMes.resolver(ano, mes, clock);
+        return ApiResponse.ok(MesJornadaResponse.de(consultar.mes(titular.id(), referencia),
+                conferencias.vigente(titular.id(), referencia).map(ConferenciaResponse::de).orElse(null)));
     }
 
     @GetMapping("/{data}")
@@ -90,13 +96,14 @@ public class JornadaController {
     @PostMapping("/manual")
     public ResponseEntity<ApiResponse<RegistroJornadaResponse>> lancarManual(
             @Valid @RequestBody RegistroManualRequest request, Titular titular) {
-        return criado(lancarManual.executar(titular.id(), request.data(), request.intervalosDominio()));
+        return criado(lancarManual.executar(titular.id(), request.data(), request.intervalosDominio(),
+                request.justificativa(), titular.quem()));
     }
 
     @DeleteMapping("/{data}")
     public ApiResponse<Void> excluir(@PathVariable @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate data,
                                      Titular titular) {
-        excluir.executar(titular.id(), data);
+        excluir.executar(titular.id(), data, titular.quem());
         return ApiResponse.ok(null);
     }
 

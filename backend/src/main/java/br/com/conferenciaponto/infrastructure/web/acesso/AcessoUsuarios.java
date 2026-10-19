@@ -104,6 +104,24 @@ public class AcessoUsuarios {
         return titularPorLogin(loginPedido);
     }
 
+    /** Pessoa cujo mês será conferido ou reaberto (ponto.conferir): a pedida ou, sem pedido, o próprio titular. */
+    public Usuario alvoDaConferencia(Usuario logado, String loginPedido) {
+        if (logado.trocarSenha()) {
+            throw new AcessoNegadoException("TROCAR_SENHA", "Troque a senha provisória para continuar.");
+        }
+        if (!logado.pode(PermissoesDoPonto.CONFERIR)) {
+            throw new AcessoNegadoException("ACESSO_NEGADO", "Seu acesso não libera conferir o mês.");
+        }
+        if (loginPedido == null || loginPedido.isBlank()
+                || loginPedido.strip().toLowerCase(Locale.ROOT).equals(logado.login())) {
+            if (!logado.isTitular()) {
+                throw semPonto();
+            }
+            return logado;
+        }
+        return titularPorLogin(loginPedido);
+    }
+
     private static AcessoNegadoException somenteConsulta() {
         return new AcessoNegadoException("SOMENTE_CONSULTA", "Seu acesso ao ponto é só de consulta.");
     }

@@ -3,13 +3,17 @@ import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { pontoApi } from '@/api/pontoApi'
 import { mensagemDe } from '@/utils/erros'
 import {
-  DIAS_HORARIO, cargaDosPeriodos, dataBR, formatarDuracao, periodosDoTexto, textoDosPeriodos,
+  DIAS_HORARIO, cargaDosPeriodos, dataBR, duracaoEmSegundos, formatarDuracao, normalizarDuracao, periodosDoTexto,
+  textoDosPeriodos,
 } from '@/utils/tempo'
 
 /**
- * Horário de trabalho com vigência: cada dia da semana com até 3 períodos (dia sem período = sem expediente)
- * e a tolerância por marcação. Mudar o horário vale "a partir de" uma data: os dias anteriores continuam
- * calculados com o horário que valia para eles.
+ * Horário de trabalho com vigência: cada dia da semana com até 3 períodos (dia sem período = sem expediente),
+ * a tolerância por marcação e a carga semanal que a pessoa deve cumprir (vazia = a soma do horário). Mudar o horário
+ * vale "a partir de" uma data: os dias anteriores continuam calculados com o horário que valia para eles.
+ *
+ * Quando o horário não fecha a carga, a diferença entra no banco de horas em cada dia útil e o fim de semana
+ * compensa. A tela compara os dois e mostra os avisos da lei (o servidor confere enquanto a pessoa digita).
  */
 const props = defineProps({
   /** Vigências (GET /horarios), da mais antiga para a mais recente. */
@@ -38,7 +42,11 @@ const tentou = ref(false)
 const confirmandoRemocao = ref(null)
 const form = ref(null)
 let timerConfirmacao = null
-onBeforeUnmount(() => clearTimeout(timerConfirmacao))
+let timerAvaliacao = null
+onBeforeUnmount(() => {
+  clearTimeout(timerConfirmacao)
+  clearTimeout(timerAvaliacao)
+})
 
 function periodosDe(vigencia, sigla) {
   try {
@@ -53,6 +61,7 @@ function abrir() {
   form.value = {
     vigenteDesde: props.hoje,
     toleranciaMinutos: base?.toleranciaMinutos ?? 5,
+    carga: base?.cargaInformada ? formatarDuracao(base.cargaSemanalSegundos, { curto: true }) : '',
     dias: Object.fromEntries(DIAS_HORARIO.map((d) => [d.sigla, periodosDe(base, d.sigla).map((p) => ({ ...p }))])),
   }
   erro.value = ''
@@ -106,18 +115,82 @@ const situacaoDias = computed(() => {
 const cargaSemanal = computed(() => Object.values(situacaoDias.value).reduce((s, d) => s + d.carga, 0))
 const diasComExpediente = computed(() => form.value ? DIAS_HORARIO.filter((d) => form.value.dias[d.sigla].length).length : 0)
 
+/** A carga digitada em segundos (null = vazia: a soma do horário; NaN = não deu para ler). */
+const cargaInformada = computed(() => {
+  const texto = form.value?.carga?.trim()
+  if (!texto) return null
+  const normal = normalizarDuracao(texto)
+  return normal ? duracaoEmSegundos(normal) : Number.NaN
+})
+const cargaEfetiva = computed(() => (Number.isFinite(cargaInformada.value) ? cargaInformada.value : cargaSemanal.value))
+const diferenca = computed(() => cargaEfetiva.value - cargaSemanal.value)
+const porDia = computed(() => (diasComExpediente.value ? Math.round(diferenca.value / diasComExpediente.value) : 0))
+
 const erroForm = computed(() => {
   const f = form.value
   if (!f) return null
   if (!f.vigenteDesde) return 'Informe a partir de quando o horário vale.'
   const t = Number(f.toleranciaMinutos)
   if (!Number.isInteger(t) || t < 0 || t > 60) return 'A tolerância deve ficar entre 0 e 60 minutos.'
+  if (Number.isNaN(cargaInformada.value)) return 'Carga semanal: use horas e minutos (ex.: 42:00 ou 42h).'
+  if (cargaInformada.value !== null && (cargaInformada.value < 3600 || cargaInformada.value > 80 * 3600)) {
+    return 'A carga semanal deve ficar entre 1 e 80 horas.'
+  }
   if (!diasComExpediente.value) return 'Informe o horário de pelo menos um dia da semana.'
   const comErro = DIAS_HORARIO.find((d) => situacaoDias.value[d.sigla].erro)
   return comErro ? `${comErro.nome}: ${situacaoDias.value[comErro.sigla].erro}` : null
 })
 
 const avisoPassado = computed(() => form.value?.vigenteDesde && form.value.vigenteDesde < props.hoje)
+
+/** O que vai para o servidor (o mesmo corpo de salvar e de avaliar). */
+function corpo() {
+  const f = form.value
+  return {
+    vigenteDesde: f.vigenteDesde,
+    toleranciaMinutos: Number(f.toleranciaMinutos),
+    dias: Object.fromEntries(DIAS_HORARIO.map((d) => [d.sigla, textoDosPeriodos(f.dias[d.sigla])])),
+    cargaSemanalSegundos: cargaInformada.value,
+  }
+}
+
+// ---------------------------------------------------------- avisos da lei enquanto digita
+const avaliacao = ref(null)
+const avaliando = ref(false)
+let pedidoAvaliacao = 0
+watch(form, () => {
+  clearTimeout(timerAvaliacao)
+  if (!editando.value || erroForm.value) return
+  timerAvaliacao = setTimeout(avaliar, 500)
+}, { deep: true })
+
+async function avaliar() {
+  const meu = ++pedidoAvaliacao
+  avaliando.value = true
+  try {
+    const resposta = await pontoApi.avaliarHorario(corpo(), props.usuario)
+    if (meu === pedidoAvaliacao) avaliacao.value = resposta
+  } catch {
+    if (meu === pedidoAvaliacao) avaliacao.value = null // os avisos são ajuda: sem eles, dá para salvar do mesmo jeito
+  } finally {
+    if (meu === pedidoAvaliacao) avaliando.value = false
+  }
+}
+
+const NIVEL = {
+  ALERTA: { classe: 'border-carimbo/50 bg-carimbo/5', rotulo: 'Fora da lei', cor: 'text-carimbo' },
+  AVISO: { classe: 'border-amber-500/50 bg-amber-500/5', rotulo: 'Atenção', cor: 'text-amber-800' },
+  INFO: { classe: 'border-linha bg-papel/60', rotulo: 'Para saber', cor: 'text-tinta-suave' },
+}
+
+/** "faltam 02:00 por semana (00:24 por dia útil)" ou "o horário fecha a carga". */
+function textoDaDiferenca(dif, dia) {
+  if (!dif) return 'o horário fecha a carga'
+  const curto = (x) => formatarDuracao(Math.abs(x), { curto: true })
+  return dif > 0
+    ? `faltam ${curto(dif)} por semana (${curto(dia)} por dia útil), compensados no fim de semana`
+    : `o horário passa da carga em ${curto(dif)} por semana (${curto(dia)} de crédito por dia útil)`
+}
 
 async function salvar() {
   tentou.value = true
@@ -126,12 +199,7 @@ async function salvar() {
   salvando.value = true
   let resultado
   try {
-    const f = form.value
-    resultado = await pontoApi.salvarHorario({
-      vigenteDesde: f.vigenteDesde,
-      toleranciaMinutos: Number(f.toleranciaMinutos),
-      dias: Object.fromEntries(DIAS_HORARIO.map((d) => [d.sigla, textoDosPeriodos(f.dias[d.sigla])])),
-    }, props.usuario)
+    resultado = await pontoApi.salvarHorario(corpo(), props.usuario)
   } catch (e) {
     erro.value = mensagemDe(e)
     return
@@ -175,7 +243,9 @@ const textoDia = (vigencia, sigla) => periodosDe(vigencia, sigla).map((p) => `${
         <p class="text-sm text-tinta-suave">
           Em vigor desde <b class="text-tinta">{{ vigente.vigenteDesde <= '2000-01-01' ? 'sempre' : dataBR(vigente.vigenteDesde) }}</b>
           · tolerância de <b class="carimbo text-tinta">{{ vigente.toleranciaMinutos }} min</b> por marcação
-          · <b class="carimbo text-tinta">{{ formatarDuracao(vigente.cargaSemanalSegundos, { curto: true }) }}</b> por semana
+          · horário de <b class="carimbo text-tinta">{{ formatarDuracao(vigente.somaSemanalSegundos, { curto: true }) }}</b> por semana
+          · carga de <b class="carimbo text-tinta">{{ formatarDuracao(vigente.cargaSemanalSegundos, { curto: true }) }}</b>
+          <span v-if="!vigente.cargaInformada" class="text-tinta-apagada">(a do horário)</span>
         </p>
         <button v-if="podeEditar" type="button" class="botao-secundario py-1.5! text-xs" @click="abrir">Alterar horário</button>
       </div>
@@ -193,10 +263,25 @@ const textoDia = (vigencia, sigla) => periodosDe(vigencia, sigla).map((p) => `${
         </tbody>
       </table>
 
+      <p
+        class="mt-3 rounded-[3px] border px-3 py-2 text-sm"
+        :class="vigente.diferencaSemanalSegundos > 0 ? 'border-carimbo/40 bg-carimbo/5' : 'border-linha bg-papel/60'"
+        data-comparacao
+      >
+        <b>Horário x carga:</b> {{ textoDaDiferenca(vigente.diferencaSemanalSegundos, vigente.diferencaPorDiaSegundos) }}.
+        <RouterLink v-if="vigente.diferencaSemanalSegundos" :to="{ name: 'banco' }" class="font-semibold underline underline-offset-4">ver no Banco de horas</RouterLink>
+      </p>
+      <ul v-if="vigente.avisos?.length" class="mt-2 space-y-1.5" aria-label="Avisos da lei sobre o horário">
+        <li v-for="a in vigente.avisos" :key="`${a.codigo}-${a.data}`" class="rounded-[3px] border px-3 py-2 text-sm" :class="NIVEL[a.nivel].classe">
+          <b :class="NIVEL[a.nivel].cor">{{ NIVEL[a.nivel].rotulo }}:</b> {{ a.mensagem }} <span class="text-xs text-tinta-apagada">({{ a.fundamento }})</span>
+        </li>
+      </ul>
+
       <div v-if="futuras.length" class="mt-3 rounded-[3px] border border-dashed border-tinta/40 px-3 py-2 text-sm">
         <p v-for="f in futuras" :key="f.id">
           A partir de <b>{{ dataBR(f.vigenteDesde) }}</b>: novo horário
-          ({{ formatarDuracao(f.cargaSemanalSegundos, { curto: true }) }} por semana).
+          ({{ formatarDuracao(f.somaSemanalSegundos, { curto: true }) }} por semana, carga de
+          {{ formatarDuracao(f.cargaSemanalSegundos, { curto: true }) }}).
         </p>
       </div>
 
@@ -207,7 +292,7 @@ const textoDia = (vigencia, sigla) => periodosDe(vigencia, sigla).map((p) => `${
         <ul class="mt-2 divide-y divide-linha/70 text-sm">
           <li v-for="(v, i) in [...vigencias].reverse()" :key="v.id ?? v.vigenteDesde" class="flex flex-wrap items-center gap-x-3 gap-y-1 py-2">
             <span class="carimbo w-28 font-semibold">{{ v.vigenteDesde <= '2000-01-01' ? 'início' : dataBR(v.vigenteDesde) }}</span>
-            <span class="carimbo text-tinta-suave">{{ formatarDuracao(v.cargaSemanalSegundos, { curto: true }) }}/semana · ±{{ v.toleranciaMinutos }} min</span>
+            <span class="carimbo text-tinta-suave">{{ formatarDuracao(v.somaSemanalSegundos, { curto: true }) }}/semana<template v-if="v.cargaInformada"> · carga {{ formatarDuracao(v.cargaSemanalSegundos, { curto: true }) }}</template> · ±{{ v.toleranciaMinutos }} min</span>
             <span v-if="v.criadoPor" class="text-xs text-tinta-apagada">por {{ v.criadoPor }}</span>
             <button
               v-if="podeEditar && i < vigencias.length - 1"
@@ -223,7 +308,7 @@ const textoDia = (vigencia, sigla) => periodosDe(vigencia, sigla).map((p) => `${
 
     <!-- Edição -->
     <form v-if="editando && form" class="space-y-5" novalidate @submit.prevent="salvar">
-      <div class="grid gap-4 sm:grid-cols-[1fr_1fr_1.4fr]">
+      <div class="grid gap-4 sm:grid-cols-3">
         <label class="flex flex-col">
           <span class="rotulo">Vale a partir de</span>
           <input v-model="form.vigenteDesde" type="date" class="campo mt-1.5" />
@@ -232,10 +317,37 @@ const textoDia = (vigencia, sigla) => periodosDe(vigencia, sigla).map((p) => `${
           <span class="rotulo">Tolerância (min)</span>
           <input v-model.number="form.toleranciaMinutos" type="number" min="0" max="60" class="campo mt-1.5" />
         </label>
-        <p class="self-end text-sm text-tinta-suave">
-          <b class="carimbo text-tinta">{{ formatarDuracao(cargaSemanal, { curto: true }) }}</b> por semana
-          em {{ diasComExpediente }} dia(s)
+        <label class="flex flex-col">
+          <span class="rotulo">Carga semanal a cumprir</span>
+          <input
+            v-model="form.carga"
+            type="text"
+            inputmode="numeric"
+            class="campo carimbo mt-1.5"
+            :placeholder="`${formatarDuracao(cargaSemanal, { curto: true })} (a do horário)`"
+            aria-describedby="ajuda-carga"
+          />
+          <span id="ajuda-carga" class="mt-1 text-xs text-tinta-apagada">Ex.: 42:00. Vazio = a soma do horário.</span>
+        </label>
+      </div>
+
+      <!-- Comparação: o que o horário soma x a carga -->
+      <div class="rounded-[3px] border px-3 py-2.5 text-sm" :class="diferenca > 0 ? 'border-carimbo/40 bg-carimbo/5' : 'border-linha bg-papel/60'" data-comparacao>
+        <p>
+          O horário soma <b class="carimbo">{{ formatarDuracao(cargaSemanal, { curto: true }) }}</b> em {{ diasComExpediente }} dia(s);
+          a carga é <b class="carimbo">{{ formatarDuracao(cargaEfetiva, { curto: true }) }}</b>:
+          {{ textoDaDiferenca(diferenca, porDia) }}.
         </p>
+        <p v-if="diferenca > 0" class="mt-1 text-xs text-tinta-suave">
+          A diferença entra no banco de horas em cada dia útil fechado; as horas do fim de semana (sábado de manhã, à tarde
+          ou domingo, quando for melhor) compensam no mês, e o que passar vai para o banco.
+        </p>
+      </div>
+      <div v-if="avaliacao?.avisos?.length" class="-mt-2 space-y-1.5" aria-live="polite" aria-label="Avisos da lei">
+        <p v-for="a in avaliacao.avisos" :key="`${a.codigo}-${a.data}`" class="rounded-[3px] border px-3 py-2 text-sm" :class="NIVEL[a.nivel].classe">
+          <b :class="NIVEL[a.nivel].cor">{{ NIVEL[a.nivel].rotulo }}:</b> {{ a.mensagem }} <span class="text-xs text-tinta-apagada">({{ a.fundamento }})</span>
+        </p>
+        <p class="text-xs text-tinta-apagada">São avisos: dá para salvar (acordos e convenções coletivas podem mudar a regra).</p>
       </div>
       <p v-if="avisoPassado" class="-mt-2 rounded-[3px] border border-carimbo/30 bg-carimbo/5 px-3 py-2 text-sm">
         Os dias já registrados a partir de <b>{{ dataBR(form.vigenteDesde) }}</b> serão recalculados com este horário.

@@ -16,6 +16,7 @@ export const router = createRouter({
     { path: '/login', name: 'login', component: LoginView, meta: { publica: true } },
     // meta.permissao: 'ponto' = o próprio ponto ou o da equipe; um código ou uma lista = basta ter um
     { path: '/', name: 'painel', component: DashboardView, meta: { permissao: 'ponto' } },
+    { path: '/banco-de-horas', name: 'banco', component: () => import('@/views/BancoDeHorasView.vue'), meta: { permissao: 'ponto' } },
     { path: '/auditoria', name: 'auditoria', component: () => import('@/views/AuditoriaView.vue'), meta: { permissao: 'ponto' } },
     { path: '/conciliacao', name: 'conciliacao', component: () => import('@/views/ConciliacaoView.vue'), meta: { permissao: 'ponto' } },
     { path: '/ausencias', name: 'ausencias', component: () => import('@/views/AusenciasView.vue'), meta: { permissao: 'ponto' } },

@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.application.usecase;
 
 import br.com.conferenciaponto.application.RegrasJornada;
+import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
@@ -51,16 +52,18 @@ public class AjustarBatidasUseCase {
     private final ComprovanteArquivadoRepository arquivos;
     private final AjusteJornadaRepository ajustes;
     private final RegrasJornada regrasJornada;
+    private final TravaDosMesesConferidos trava;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public AjustarBatidasUseCase(RegistroJornadaRepository registros, ComprovanteArquivadoRepository arquivos,
                                  AjusteJornadaRepository ajustes, RegrasJornada regrasJornada,
-                                 ApplicationEventPublisher eventos, Clock clock) {
+                                 TravaDosMesesConferidos trava, ApplicationEventPublisher eventos, Clock clock) {
         this.registros = registros;
         this.arquivos = arquivos;
         this.ajustes = ajustes;
         this.regrasJornada = regrasJornada;
+        this.trava = trava;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -102,6 +105,7 @@ public class AjustarBatidasUseCase {
 
     private RegistroJornadaView aplicar(UUID usuarioId, LocalDate data, List<LocalTime> horarios, String motivo,
                                         String usuario, OrigemAtualizacao origem) {
+        trava.exigirAberto(usuarioId, data);
         Optional<RegistroJornada> existente = registros.buscarPorData(usuarioId, data);
         RegistroJornada registro = existente
                 .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regrasJornada.classificar(usuarioId, data)));
@@ -119,7 +123,8 @@ public class AjustarBatidasUseCase {
         if (!pdfs.isEmpty()) {
             VinculoComprovantes.reorganizar(registro, arquivos); // as batidas podem ter mudado de coluna
         }
-        AjusteJornada ajuste = AjusteJornada.novo(registro, antes, motivo, usuario, clock.instant());
+        AjusteJornada ajuste = AjusteJornada.novo(registro, antes, motivo, usuario, clock.instant(),
+                origem == OrigemAtualizacao.CONCILIACAO ? AjusteJornada.Origem.RH : AjusteJornada.Origem.AJUSTE);
         ajustes.salvar(ajuste);
 
         RegistroJornadaView view = RegistroJornadaView.de(registro, motor);

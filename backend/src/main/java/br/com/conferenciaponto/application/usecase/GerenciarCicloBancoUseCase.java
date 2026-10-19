@@ -232,8 +232,7 @@ public class GerenciarCicloBancoUseCase {
             SaldoMensal s = porMes.get(m);
             acumulado += s == null ? 0 : s.saldoMensalSegundos();
             meses.add(s == null ? SaldoMensal.vazio(m.getYear(), m.getMonthValue(), acumulado)
-                    : new SaldoMensal(s.ano(), s.mes(), s.diasRegistrados(), s.diasEmAberto(), s.segundosTrabalhados(),
-                    s.segundosPrevistos(), s.saldoMensalSegundos(), acumulado, s.segundosLancados()));
+                    : s.comAcumulado(acumulado));
         }
         return meses;
     }
