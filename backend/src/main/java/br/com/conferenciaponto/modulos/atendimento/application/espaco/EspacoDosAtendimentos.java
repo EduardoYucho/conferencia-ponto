@@ -2,11 +2,12 @@ package br.com.conferenciaponto.modulos.atendimento.application.espaco;
 
 import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
 import org.springframework.stereotype.Service;
 
-/** O espaço em disco dos atendimentos, para a tela Acessos do administrador (sem o conteúdo de ninguém). */
+/** O espaço em disco dos atendimentos, para quem tem atendimentos.espaco (sem o conteúdo de ninguém). */
 @Service
 public class EspacoDosAtendimentos {
 
@@ -27,8 +28,8 @@ public class EspacoDosAtendimentos {
     }
 
     public EspacoView consultar(Usuario quem) {
-        if (!quem.isAdmin()) {
-            throw new AcessoNegadoException("ACESSO_NEGADO", "Só o administrador vê o espaço ocupado pelos atendimentos.");
+        if (!quem.pode(PermissoesDoAtendimento.ESPACO)) {
+            throw new AcessoNegadoException("ACESSO_NEGADO", "O espaço ocupado pelos atendimentos não está liberado para você.");
         }
         long livre = pasta.espacoLivre();
         return new EspacoView(pasta.espacoOcupado(), livre == Long.MAX_VALUE ? -1 : livre, atendimentos.pausados());

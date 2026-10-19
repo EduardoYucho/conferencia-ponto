@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.conhecimento.application.pesquisa;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.conhecimento.application.vetor.ParaOsTestesDosVetores;
@@ -41,7 +42,7 @@ class CasosParecidosTest {
     @BeforeEach
     void preparar() {
         autor = ParaOsTestesDosVetores.autor();
-        quem = new Usuario(ParaOsTestesDosVetores.autor(), "quem", "quem", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        quem = new Usuario(ParaOsTestesDosVetores.autor(), "quem", "quem", "hash", true, Acesso.usuario(), null, null, false);
         gerador.comChave(autor, quem.id())
                 .fixo("Pedido com desconto não grava", direcao(1, 0))
                 .fixo("Desconto acima do limite trava o pedido", direcao(0.9f, 0.44f))

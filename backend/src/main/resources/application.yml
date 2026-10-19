@@ -88,6 +88,8 @@ ponto:
       emissor: conferencia-ponto
     # Criados na primeira subida, se não existirem. Senha vazia = gerada e exibida uma vez no log.
     # Para usar outros logins/nomes, redefina a lista inteira em config/application.yml.
+    # perfis: os do sistema (ROLE_ADMIN = Administrador, ROLE_USER = Usuário, ROLE_VIEWER = Coordenador);
+    # depois, os perfis de cada pessoa mudam na tela Usuários.
     usuarios-iniciais:
       - login: admin
         nome: Administrador

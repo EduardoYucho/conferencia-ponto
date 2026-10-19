@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.chave;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.DominioException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -223,7 +224,7 @@ class GerenciarChaveGeminiTest {
     }
 
     private static Usuario usuario(String login) {
-        return new Usuario(UUID.randomUUID(), login, login, "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        return new Usuario(UUID.randomUUID(), login, login, "hash", true, Acesso.usuario(), null, null, false);
     }
 
     static class ChavesEmMemoria implements ChavesGemini {

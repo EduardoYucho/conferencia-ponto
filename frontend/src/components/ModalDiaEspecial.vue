@@ -4,6 +4,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { mensagemDe } from '@/utils/erros'
 import { dataBR, dataCurta, diaSemanaCurto } from '@/utils/tempo'
+import { PONTO_FERIADOS } from '@/utils/permissoes'
 
 /**
  * Marca um dia (ou período) sem jornada: feriado, folga, férias, atestado, licença ou outra justificativa
@@ -22,7 +23,7 @@ const emit = defineEmits(['update:modelValue', 'salvo', 'compensar'])
 const store = usePontoStore()
 const auth = useAuthStore()
 
-/** Feriado vale para todos: só o administrador cadastra e remove. */
+/** Feriado vale para todos: só quem cadastra feriados cadastra e remove. */
 const TODOS_TIPOS = [
   { valor: 'FERIADO', rotulo: 'Feriado' },
   { valor: 'FOLGA', rotulo: 'Folga' },
@@ -31,7 +32,9 @@ const TODOS_TIPOS = [
   { valor: 'LICENCA', rotulo: 'Licença' },
   { valor: 'ABONO', rotulo: 'Outra justificativa' },
 ]
-const TIPOS = computed(() => TODOS_TIPOS.filter((t) => t.valor !== 'FERIADO' || auth.ehAdmin))
+/** Feriado vale para todos: só quem cadastra feriados. */
+const cadastraFeriados = computed(() => auth.pode(PONTO_FERIADOS))
+const TIPOS = computed(() => TODOS_TIPOS.filter((t) => t.valor !== 'FERIADO' || cadastraFeriados.value))
 const ABRANGENCIAS = [
   { valor: 'MUNICIPAL', rotulo: 'Municipal' },
   { valor: 'ESTADUAL', rotulo: 'Estadual' },
@@ -61,7 +64,7 @@ watch(
   () => props.modelValue,
   async (aberto) => {
     if (!aberto) return
-    tipo.value = auth.ehAdmin ? 'FERIADO' : 'FOLGA'
+    tipo.value = cadastraFeriados.value ? 'FERIADO' : 'FOLGA'
     dataInicio.value = props.data ?? store.hoje
     dataFim.value = props.data ?? store.hoje
     descricao.value = ''
@@ -216,8 +219,8 @@ function compensar() {
               <p v-if="marcador.tipo === 'feriado'" class="text-sm text-tinta-suave">{{ marcador.feriado?.abrangenciaRotulo }}</p>
               <p v-else-if="periodoAtual" class="text-sm text-tinta-suave">Período: {{ periodoAtual }}</p>
             </div>
-            <p v-if="marcador.tipo === 'feriado' && !auth.ehAdmin" class="text-sm text-tinta-suave">
-              Feriados valem para todos: só o administrador remove.
+            <p v-if="marcador.tipo === 'feriado' && !cadastraFeriados" class="text-sm text-tinta-suave">
+              Feriados valem para todos: só quem cadastra feriados remove.
             </p>
             <p v-else class="text-sm text-tinta-suave">
               Para trocar a marcação, remova esta primeiro{{ marcador.tipo === 'ausencia' && marcador.ausencia?.dataInicio !== marcador.ausencia?.dataFim ? ' (o período inteiro é removido)' : '' }}.
@@ -228,7 +231,7 @@ function compensar() {
             <div class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
               <button type="button" class="botao-secundario" :disabled="store.salvando" @click="fechar">Fechar</button>
               <button
-                v-if="marcador.tipo !== 'feriado' || auth.ehAdmin"
+                v-if="marcador.tipo !== 'feriado' || cadastraFeriados"
                 type="button"
                 class="botao"
                 :class="confirmandoRemocao ? 'bg-carimbo text-cartao' : 'border border-carimbo/50 text-carimbo hover:bg-carimbo/10'"

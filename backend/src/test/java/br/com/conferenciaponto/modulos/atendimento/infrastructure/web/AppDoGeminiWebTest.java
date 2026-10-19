@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -8,7 +9,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.PeloAppDoGemini;
@@ -61,8 +62,6 @@ class AppDoGeminiWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private PeloAppDoGemini app;
     @MockitoBean
     private ProcessarAtendimentos processamento;
@@ -71,17 +70,24 @@ class AppDoGeminiWebTest {
 
     @BeforeEach
     void cadastrar() {
-        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Acesso.usuario(), null, null, false);
         when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(maria));
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 
     @Test
     void semOGeradorLiberadoNadaPassa() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(false);
 
         mvc.perform(post(ROTA + "/pacote").with(como(maria))).andExpect(status().isForbidden());
         mvc.perform(get("/api/v1/atendimentos/app-gemini/habilidade").with(como(maria))).andExpect(status().isForbidden());
@@ -93,7 +99,7 @@ class AppDoGeminiWebTest {
 
     @Test
     void asInstrucoesOPacoteEAResposta() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(app.habilidade()).thenReturn(new PeloAppDoGemini.Habilidade(2, "resumo-de-atendimento", "Você escreve os textos...",
                 "---\nname: resumo-de-atendimento\n---\n\nVocê escreve os textos..."));
         when(app.pacote(maria, ID)).thenReturn(new PeloAppDoGemini.PacoteView(
@@ -124,7 +130,7 @@ class AppDoGeminiWebTest {
 
     @Test
     void respostaQueNaoServeVoltaComAMensagem() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(app.usarResposta(maria, ID, TipoDeSaida.RESUMO, "oi")).thenThrow(new RegraNegocioException(
                 "RESPOSTA_SEM_TEXTO", "A resposta não tem nenhum trecho de texto."));
 
@@ -136,7 +142,7 @@ class AppDoGeminiWebTest {
 
     @Test
     void osArquivosDoPacote() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         Path pdf = Files.write(pasta.resolve("Atendimento_1.pdf"), new byte[]{'%', 'P', 'D', 'F', 1, 2});
         when(app.arquivo(maria, ID, "Atendimento_1.pdf")).thenReturn(new PeloAppDoGemini.ArquivoDoPacote("Atendimento_1.pdf", pdf, 6, ""));
         when(app.arquivo(maria, ID, "nada.txt")).thenThrow(new RecursoNaoEncontradoException("ARQUIVO_DO_PACOTE_NAO_ENCONTRADO",

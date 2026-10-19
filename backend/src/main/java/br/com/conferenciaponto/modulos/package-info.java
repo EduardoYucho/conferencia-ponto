@@ -5,8 +5,9 @@
  * <p>Regras (conferidas pelo ArquiteturaModulosTest):
  * <ul>
  *   <li>o ponto não usa nada daqui;</li>
- *   <li>os módulos usam do ponto só o usuário logado, o envelope de resposta com o protocolo de erro, as
- *       exceções do domínio e o log por usuário;</li>
+ *   <li>os módulos usam do ponto só o usuário logado (com as permissões dele), o envelope de resposta com o
+ *       protocolo de erro, as exceções do domínio, o log por usuário e a interface com que cada módulo declara as
+ *       próprias permissões ({@code FonteDePermissoes}), que aparecem na tela de perfis do ponto;</li>
  *   <li>{@code conhecimento} conhece só os eventos publicados por {@code atendimento}; {@code atendimento} não
  *       conhece {@code conhecimento}.</li>
  * </ul>

@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.view.PresencaView;
 import br.com.conferenciaponto.application.view.PresencaView.Pessoa;
@@ -51,7 +52,7 @@ class ConsultarPresencaUseCaseTest {
     }
 
     private static Usuario usuario(String id, String login, String nome, Perfil perfil, boolean ativo) {
-        return new Usuario(UUID.fromString(id), login, nome, "h:senha", ativo, Set.of(perfil), null);
+        return new Usuario(UUID.fromString(id), login, nome, "h:senha", ativo, Acesso.de(perfil), null);
     }
 
     private PresencaView painel(Usuario quem, LocalDate dia, String hora) {

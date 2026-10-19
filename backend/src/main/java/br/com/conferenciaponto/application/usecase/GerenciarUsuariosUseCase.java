@@ -1,34 +1,35 @@
 package br.com.conferenciaponto.application.usecase;
 
-import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
+import br.com.conferenciaponto.domain.acesso.Acesso;
+import br.com.conferenciaponto.domain.acesso.PermissoesDaAdministracao;
+import br.com.conferenciaponto.domain.acesso.PermissoesDoPonto;
 import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
-import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.CodificadorSenha;
-import br.com.conferenciaponto.domain.port.HorarioTrabalhoRepository;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.Clock;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
 /**
- * Cadastro de usuários (administrador) e pasta de comprovantes (o próprio usuário ou o administrador).
+ * Cadastro de usuários (quem tem "Cadastrar usuários") e pasta de comprovantes (o próprio usuário ou quem configura
+ * o ponto da equipe). Os perfis e os ajustes de cada pessoa ficam em {@link GerenciarAcessosUseCase}.
  *
- * <p>Usuários não são excluídos (os dados de ponto ficam): são desativados. O administrador cria o acesso com
- * uma senha provisória, que a pessoa troca no primeiro login. Quem é titular (ADMIN/USER) ganha o horário
- * padrão e o ciclo do banco de horas; a coordenação (VIEWER) só consulta.
+ * <p>Usuários não são excluídos (os dados de ponto ficam): são desativados. O acesso é criado com uma senha
+ * provisória, que a pessoa troca no primeiro login. Quem tem o próprio ponto ganha o horário padrão e o ciclo do
+ * banco de horas. Desativar alguém ou trocar a senha dele só pode quem tem pelo menos os mesmos acessos que ele
+ * (senão, quem só cadastra usuários conseguiria entrar como o administrador).
  */
 @Service
 public class GerenciarUsuariosUseCase {
@@ -38,22 +39,18 @@ public class GerenciarUsuariosUseCase {
 
     private final UsuarioRepository usuarios;
     private final CodificadorSenha codificador;
-    private final HorarioTrabalhoRepository horarios;
-    private final RegrasJornada regras;
-    private final GerenciarCicloBancoUseCase ciclos;
+    private final PreparacaoDoTitular preparacao;
+    private final GerenciarAcessosUseCase acessos;
     private final ApplicationEventPublisher eventos;
-    private final Clock clock;
 
     public GerenciarUsuariosUseCase(UsuarioRepository usuarios, CodificadorSenha codificador,
-                                    HorarioTrabalhoRepository horarios, RegrasJornada regras,
-                                    GerenciarCicloBancoUseCase ciclos, ApplicationEventPublisher eventos, Clock clock) {
+                                    PreparacaoDoTitular preparacao, GerenciarAcessosUseCase acessos,
+                                    ApplicationEventPublisher eventos) {
         this.usuarios = usuarios;
         this.codificador = codificador;
-        this.horarios = horarios;
-        this.regras = regras;
-        this.ciclos = ciclos;
+        this.preparacao = preparacao;
+        this.acessos = acessos;
         this.eventos = eventos;
-        this.clock = clock;
     }
 
     /** Todos os usuários, ativos primeiro, por nome. */
@@ -65,7 +62,7 @@ public class GerenciarUsuariosUseCase {
                 .toList();
     }
 
-    /** Usuários ativos com dados de ponto (ADMIN/USER), por nome: os que a coordenação pode consultar. */
+    /** Usuários ativos com o próprio ponto, por nome: os que quem consulta a equipe pode ver. */
     @Transactional(readOnly = true)
     public List<Usuario> titulares() {
         return listar().stream().filter(u -> u.ativo() && u.isTitular()).toList();
@@ -76,9 +73,13 @@ public class GerenciarUsuariosUseCase {
         return usuarios.buscarPorId(id).orElseThrow(GerenciarUsuariosUseCase::naoEncontrado);
     }
 
+    /**
+     * @param perfis os perfis da pessoa (só quem cuida dos acessos escolhe; vazio = sem acesso a nada, até alguém
+     *               dar um perfil)
+     */
     @Transactional
-    public Usuario criar(String login, String nome, Perfil perfil, String senhaProvisoria, String pasta,
-                         String criadoPor) {
+    public Usuario criar(String login, String nome, Collection<UUID> perfis, String senhaProvisoria, String pasta,
+                         Usuario quem) {
         String normalizado = login == null ? "" : login.strip().toLowerCase(Locale.ROOT);
         if (!LOGIN.matcher(normalizado).matches()) {
             throw new RegraNegocioException("LOGIN_INVALIDO",
@@ -87,43 +88,51 @@ public class GerenciarUsuariosUseCase {
         if (usuarios.buscarPorLogin(normalizado).isPresent()) {
             throw new ConflitoException("LOGIN_EM_USO", "Já existe um usuário com o login \"%s\".".formatted(normalizado));
         }
+        boolean comPerfis = perfis != null && !perfis.isEmpty();
+        if (comPerfis && !quem.pode(PermissoesDaAdministracao.ACESSOS)) {
+            throw new AcessoNegadoException("ACESSO_NEGADO", "Só quem cuida dos acessos escolhe os perfis. Cadastre "
+                    + "a pessoa sem perfil e peça a quem cuida dos acessos para dar o perfil.");
+        }
         validarSenha(senhaProvisoria);
-        Usuario novo = Usuario.novo(normalizado, validarNome(nome), "-", Set.of(exigirPerfil(perfil)))
+        Usuario novo = Usuario.novo(normalizado, validarNome(nome), "-", Acesso.NENHUM)
                 .comSenhaProvisoria(codificador.codificar(senhaProvisoria))
                 .comPasta(validarPasta(pasta, null));
         usuarios.salvar(novo);
-        prepararTitular(novo, criadoPor);
-        eventos.publishEvent(new UsuarioAlteradoEvento(novo.id(), "Usuário %s cadastrado".formatted(novo.login())));
-        return novo;
+        acessos.darPerfisAoNovo(quem, novo, comPerfis ? perfis : List.of());
+        Usuario criado = buscar(novo.id());
+        preparacao.preparar(criado, quem.login());
+        eventos.publishEvent(new UsuarioAlteradoEvento(criado.id(), "Usuário %s cadastrado".formatted(criado.login())));
+        return criado;
     }
 
     /**
-     * Altera nome, perfil e situação. O administrador não pode tirar o próprio acesso de administrador nem se
-     * desativar, e sempre sobra pelo menos um administrador ativo.
+     * Altera o nome e a situação. Ninguém se desativa; desativar exige ter pelo menos os mesmos acessos da pessoa,
+     * e sempre sobra alguém ativo que cuide dos acessos.
      */
     @Transactional
-    public Usuario atualizar(UUID id, String nome, Perfil perfil, boolean ativo, UUID quemAltera, String login) {
+    public Usuario atualizar(UUID id, String nome, boolean ativo, Usuario quem) {
         Usuario atual = buscar(id);
-        Perfil novoPerfil = exigirPerfil(perfil);
-        if (id.equals(quemAltera) && (!ativo || novoPerfil != Perfil.ROLE_ADMIN)) {
-            throw new RegraNegocioException("ALTERAR_PROPRIO_ACESSO",
-                    "Você não pode desativar o próprio usuário nem tirar seu perfil de administrador.");
+        if (id.equals(quem.id()) && !ativo) {
+            throw new RegraNegocioException("ALTERAR_PROPRIO_ACESSO", "Você não pode desativar o próprio usuário.");
         }
-        boolean deixaDeSerAdminAtivo = atual.isAdmin() && atual.ativo() && (!ativo || novoPerfil != Perfil.ROLE_ADMIN);
-        if (deixaDeSerAdminAtivo && administradoresAtivos() <= 1) {
-            throw new RegraNegocioException("ULTIMO_ADMINISTRADOR", "É preciso manter pelo menos um administrador ativo.");
+        if (atual.ativo() != ativo) {
+            conferirQuePodeMexerEm(quem, atual, ativo ? "reativar" : "desativar");
         }
-        Usuario alterado = atual.comDados(validarNome(nome), Set.of(novoPerfil), ativo);
+        if (atual.ativo() && !ativo) {
+            acessos.conferirDesativacao(quem, id);
+        }
+        Usuario alterado = atual.comDados(validarNome(nome), ativo);
         usuarios.salvar(alterado);
-        prepararTitular(alterado, login);
+        preparacao.preparar(alterado, quem.login());
         eventos.publishEvent(new UsuarioAlteradoEvento(id, "Usuário %s atualizado".formatted(alterado.login())));
         return alterado;
     }
 
-    /** Senha provisória definida pelo administrador (a pessoa troca no próximo acesso). */
+    /** Senha provisória (a pessoa troca no próximo acesso). */
     @Transactional
-    public Usuario redefinirSenha(UUID id, String senhaProvisoria) {
+    public Usuario redefinirSenha(UUID id, String senhaProvisoria, Usuario quem) {
         Usuario atual = buscar(id);
+        conferirQuePodeMexerEm(quem, atual, "trocar a senha de");
         validarSenha(senhaProvisoria);
         Usuario alterado = atual.comSenhaProvisoria(codificador.codificar(senhaProvisoria));
         usuarios.salvar(alterado);
@@ -134,17 +143,18 @@ public class GerenciarUsuariosUseCase {
      * Pasta monitorada com os comprovantes PDF do usuário (local, de rede ou sincronizada). Vazia = sem
      * monitoramento (os PDFs podem ser enviados pela tela).
      *
-     * @param quem quem está alterando: o próprio usuário ou um administrador
+     * @param quem quem está alterando: o próprio usuário ou quem configura o ponto da equipe
      */
     @Transactional
     public Usuario definirPasta(UUID id, String pasta, Usuario quem) {
-        if (!quem.id().equals(id) && !quem.isAdmin()) {
-            throw new AcessoNegadoException("ACESSO_NEGADO", "Só o próprio usuário ou um administrador altera a pasta.");
+        if (!quem.id().equals(id) && !quem.pode(PermissoesDoPonto.CONFIGURAR_EQUIPE)) {
+            throw new AcessoNegadoException("ACESSO_NEGADO",
+                    "Só a própria pessoa ou quem configura o ponto da equipe altera a pasta.");
         }
         Usuario atual = buscar(id);
         if (!atual.isTitular()) {
             throw new RegraNegocioException("USUARIO_SEM_PONTO",
-                    "Este usuário é da coordenação (só consulta): não tem comprovantes próprios.");
+                    "Esta pessoa não tem o próprio ponto aqui: não tem comprovantes próprios.");
         }
         Usuario alterado = atual.comPasta(validarPasta(pasta, id));
         usuarios.salvar(alterado);
@@ -158,24 +168,21 @@ public class GerenciarUsuariosUseCase {
     @Transactional
     public void prepararTitulares() {
         for (Usuario u : usuarios.listar()) {
-            prepararTitular(u, "sistema");
+            preparacao.preparar(u, "sistema");
         }
     }
 
-    /** Titular sem horário gravado ganha o horário padrão (vale para todo o histórico) e o ciclo do banco. */
-    private void prepararTitular(Usuario usuario, String quem) {
-        if (!usuario.isTitular() || !usuario.ativo()) {
+    /** Desativar, reativar ou trocar a senha de alguém: só quem tem pelo menos os mesmos acessos que a pessoa. */
+    private static void conferirQuePodeMexerEm(Usuario quem, Usuario alvo, String acao) {
+        if (quem.id().equals(alvo.id()) || quem.acesso().permissoes().containsAll(alvo.acesso().permissoes())) {
             return;
         }
-        if (horarios.listarPorUsuario(usuario.id()).isEmpty()) {
-            horarios.salvar(regras.padraoParaGravar(usuario.id(), quem, clock.instant()));
-            regras.invalidar(usuario.id());
-        }
-        ciclos.garantirCicloAberto(usuario.id());
+        throw new AcessoNegadoException("ACESSO_MAIOR_QUE_O_SEU", "%s tem acessos que você não tem: só quem tem pelo "
+                .formatted(nomeOuLogin(alvo)) + "menos os mesmos acessos pode " + acao + " " + primeiroNome(alvo) + ".");
     }
 
-    private long administradoresAtivos() {
-        return usuarios.listar().stream().filter(u -> u.ativo() && u.isAdmin()).count();
+    private static String primeiroNome(Usuario u) {
+        return nomeOuLogin(u).split("\\s+")[0];
     }
 
     private String validarPasta(String pasta, UUID dono) {
@@ -242,13 +249,6 @@ public class GerenciarUsuariosUseCase {
             throw new RegraNegocioException("NOME_LONGO", "O nome pode ter no máximo 120 caracteres.");
         }
         return limpo;
-    }
-
-    private static Perfil exigirPerfil(Perfil perfil) {
-        if (perfil == null) {
-            throw new RegraNegocioException("PERFIL_OBRIGATORIO", "Escolha o perfil do usuário.");
-        }
-        return perfil;
     }
 
     static void validarSenha(String senha) {

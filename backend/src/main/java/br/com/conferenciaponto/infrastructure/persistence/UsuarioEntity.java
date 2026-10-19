@@ -1,13 +1,10 @@
 package br.com.conferenciaponto.infrastructure.persistence;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Usuario;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
-import jakarta.persistence.FetchType;
 import jakarta.persistence.Id;
-import jakarta.persistence.JoinColumn;
-import jakarta.persistence.JoinTable;
-import jakarta.persistence.ManyToMany;
 import jakarta.persistence.PostLoad;
 import jakarta.persistence.PostPersist;
 import jakarta.persistence.PrePersist;
@@ -17,10 +14,7 @@ import org.springframework.data.domain.Persistable;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
-import java.util.HashSet;
-import java.util.Set;
 import java.util.UUID;
-import java.util.stream.Collectors;
 
 @Entity
 @Table(name = "tb_usuario")
@@ -54,12 +48,6 @@ public class UsuarioEntity implements Persistable<UUID> {
     @Column(name = "trocar_senha", nullable = false)
     private boolean trocarSenha;
 
-    @ManyToMany(fetch = FetchType.EAGER)
-    @JoinTable(name = "tb_usuario_role",
-            joinColumns = @JoinColumn(name = "usuario_id"),
-            inverseJoinColumns = @JoinColumn(name = "role_id"))
-    private Set<RoleEntity> roles = new HashSet<>();
-
     @Transient
     private boolean novo = true;
 
@@ -72,20 +60,18 @@ public class UsuarioEntity implements Persistable<UUID> {
         this.login = login;
     }
 
-    void copiar(Usuario usuario, Set<RoleEntity> rolesDoUsuario) {
+    /** O acesso (perfis e ajustes) não vai junto: é gravado à parte, em AcessosRepository. */
+    void copiar(Usuario usuario) {
         this.nome = usuario.nome();
         this.senhaHash = usuario.senhaHash();
         this.ativo = usuario.ativo();
         this.ultimoLoginEm = usuario.ultimoLoginEm() == null ? null : usuario.ultimoLoginEm().atOffset(ZoneOffset.UTC);
         this.pastaComprovantes = usuario.pastaComprovantes();
         this.trocarSenha = usuario.trocarSenha();
-        this.roles.clear();
-        this.roles.addAll(rolesDoUsuario);
     }
 
-    Usuario paraDominio() {
-        return new Usuario(id, login, nome, senhaHash, ativo,
-                roles.stream().map(RoleEntity::getNome).collect(Collectors.toSet()),
+    Usuario paraDominio(Acesso acesso) {
+        return new Usuario(id, login, nome, senhaHash, ativo, acesso,
                 ultimoLoginEm == null ? null : ultimoLoginEm.toInstant(), pastaComprovantes, trocarSenha);
     }
 

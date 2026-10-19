@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.importacao;
 
+import br.com.conferenciaponto.domain.acesso.PermissoesDaAdministracao;
 import br.com.conferenciaponto.infrastructure.log.ContextoDeLog;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
 import br.com.conferenciaponto.application.usecase.GerenciarUsuariosUseCase;
@@ -171,7 +172,7 @@ public class GerenciadorMonitoresPdf {
             return;
         }
         usuarios.listar().stream()
-                .filter(u -> u.ativo() && u.isAdmin())
+                .filter(u -> u.ativo() && u.isTitular() && u.pode(PermissoesDaAdministracao.ACESSOS))
                 .findFirst()
                 .ifPresent(admin -> {
                     gerenciarUsuarios.definirPasta(admin.id(), pastaConfigurada.strip(), admin);

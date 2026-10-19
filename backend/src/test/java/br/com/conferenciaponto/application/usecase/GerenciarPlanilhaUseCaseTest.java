@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
 import br.com.conferenciaponto.application.evento.PlanilhaAtualizadaEvento;
@@ -103,7 +104,7 @@ class GerenciarPlanilhaUseCaseTest {
         var ciclo = new GerenciarCicloBancoUseCase(new CicloBancoRepositoryEmMemoria(), consolidacao,
                 new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), e -> { }, clock);
         var usuarios = UsuarioRepositoryEmMemoria.comTitular();
-        usuarios.salvar(new Usuario(OUTRO, "maria", "Maria", "h:senha", true, Set.of(Perfil.ROLE_USER), null));
+        usuarios.salvar(new Usuario(OUTRO, "maria", "Maria", "h:senha", true, Acesso.usuario(), null));
         var montador = new MontadorPlanilhaConferencia(usuarios, consolidacao, auditoria, ciclo, regras, clock);
         return new GerenciarPlanilhaUseCase(vinculos, remotas, montador, eventos::add, clock);
     }

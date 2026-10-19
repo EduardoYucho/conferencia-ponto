@@ -3,13 +3,15 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useAuthStore } from '@/stores/auth'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
+import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 
 /**
  * O menu lateral: os grupos (Ponto, Atendimentos, Base de conhecimento, Administração), cada um com os submenus.
  * No computador, fica aberto (com os nomes) ou recolhido (só os ícones; o grupo abre os submenus num menu ao lado),
  * e o navegador lembra a escolha e os grupos fechados. No celular, abre por cima da tela pelo botão do alto.
- * Os itens seguem as mesmas regras de antes: Atendimentos e Base só para quem foi liberado; Administração só para
- * o administrador.
+ * Cada item aparece só com a permissão da tela (a soma dos perfis da pessoa com os ajustes só dela): o Ponto para
+ * quem tem o próprio ponto ou consulta o da equipe, Atendimentos e Base para quem tem a permissão do módulo, e cada
+ * item da Administração com a permissão dele.
  */
 const props = defineProps({
   /** No celular: a gaveta aberta. */
@@ -52,9 +54,17 @@ const fechados = ref(lerFechados())
 /** Com o menu recolhido: o grupo cujos submenus estão abertos ao lado. */
 const flutuante = ref(null)
 
+const administracao = computed(() =>
+  [
+    auth.podeAlgum(USUARIOS, ACESSOS, INTEGRACOES) && { nome: 'usuarios', rotulo: 'Usuários' },
+    auth.pode(ACESSOS) && { nome: 'perfis', rotulo: 'Perfis de acesso' },
+    auth.pode(LOGS) && { nome: 'logs', rotulo: 'Logs' },
+  ].filter(Boolean),
+)
+
 const grupos = computed(() =>
   [
-    {
+    (auth.ehTitular || auth.podeVerTodos) && {
       id: 'ponto',
       rotulo: 'Ponto',
       icone: 'relogio',
@@ -83,15 +93,11 @@ const grupos = computed(() =>
       icone: 'livro',
       itens: [{ nome: 'base-conhecimento', rotulo: 'Pesquisar', tambem: ['registro-da-base'] }],
     },
-    auth.ehAdmin && {
+    administracao.value.length > 0 && {
       id: 'administracao',
       rotulo: 'Administração',
       icone: 'engrenagem',
-      itens: [
-        { nome: 'usuarios', rotulo: 'Usuários' },
-        { nome: 'acessos-modulos', rotulo: 'Acessos' },
-        { nome: 'logs', rotulo: 'Logs' },
-      ],
+      itens: administracao.value,
     },
   ].filter(Boolean),
 )

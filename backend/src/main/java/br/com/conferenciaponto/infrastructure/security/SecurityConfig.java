@@ -1,5 +1,9 @@
 package br.com.conferenciaponto.infrastructure.security;
 
+import br.com.conferenciaponto.domain.acesso.PermissoesDaAdministracao;
+import br.com.conferenciaponto.domain.acesso.PermissoesDoPonto;
+import br.com.conferenciaponto.domain.model.Usuario;
+import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.log.FiltroUsuarioNoLog;
 import org.springframework.security.oauth2.server.resource.web.authentication.BearerTokenAuthenticationFilter;
 import com.nimbusds.jose.jwk.source.ImmutableSecret;
@@ -15,6 +19,9 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authentication.DisabledException;
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -24,7 +31,6 @@ import org.springframework.security.oauth2.jwt.JwtValidators;
 import org.springframework.security.oauth2.jwt.NimbusJwtDecoder;
 import org.springframework.security.oauth2.jwt.NimbusJwtEncoder;
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationConverter;
-import org.springframework.security.oauth2.server.resource.authentication.JwtGrantedAuthoritiesConverter;
 import org.springframework.security.web.SecurityFilterChain;
 
 import javax.crypto.KeyGenerator;
@@ -32,39 +38,45 @@ import javax.crypto.SecretKey;
 import javax.crypto.spec.SecretKeySpec;
 import java.nio.charset.StandardCharsets;
 import java.security.NoSuchAlgorithmException;
+import java.util.Collection;
 
 /**
- * Autenticação stateless com JWT (HS256) e autorização por perfil (RBAC).
+ * Autenticação stateless com JWT (HS256) e autorização por permissão. O token leva só o login: a cada
+ * requisição o usuário é relido do banco e as authorities são as permissões que valem para ele agora (a soma dos
+ * perfis com os ajustes só dele). Assim, trocar um perfil, um ajuste ou desativar a pessoa vale na hora.
  *
  * <pre>
- * Rota                                   ADMIN  USER  VIEWER  anônimo
- * POST /api/v1/auth/login                  ✓     ✓      ✓       ✓
- * PUT  /api/v1/auth/senha                  ✓     ✓      ✓       –
- * GET  /api/v1/usuarios/titulares          ✓     ✓      ✓       –
- * /api/v1/usuarios/** (cadastro)           ✓     –      –       –
- * /api/v1/integracoes/** (conta Google)    ✓     –      –       –
- * /api/v1/logs/** (logs do sistema)        ✓     –      –       –
- * POST /api/v1/erros-de-tela               ✓     ✓      ✓       –   (a tela avisa o servidor de um erro dela)
- * POST/DELETE /api/v1/feriados/**          ✓     –      –       –   (feriado vale para todos)
- * GET  /api/**  (leitura, SSE, download)   ✓     ✓      ✓       –
- * POST/PUT/PATCH/DELETE /api/**            ✓     ✓      –       –
- * GET  fora de /api (front-end: HTML/JS)   ✓     ✓      ✓       ✓
- * qualquer outra rota                      negada
+ * Rota                                          Exige
+ * POST /api/v1/auth/login                       nada
+ * /api/v1/auth/** (me, senha)                   sessão
+ * /api/v1/acessos/** (perfis e acessos)         acessos.gerenciar
+ * GET  /api/v1/usuarios/titulares               sessão (cada um vê quem pode consultar)
+ * GET  /api/v1/usuarios                         usuarios.gerenciar ou acessos.gerenciar
+ * PUT  /api/v1/usuarios/{id}/pasta              ponto.equipe.configurar
+ * /api/v1/usuarios/** (cadastro)                usuarios.gerenciar
+ * /api/v1/integracoes/** (conta Google)         integracoes.gerenciar
+ * /api/v1/logs/**                               logs.ver
+ * POST /api/v1/erros-de-tela                    sessão (a tela avisa o servidor de um erro dela)
+ * POST/DELETE /api/v1/feriados/**               ponto.feriados
+ * POST/PUT/DELETE horários e planilha           ponto.lancar ou ponto.equipe.configurar (?usuario= de outra pessoa)
+ * POST /api/v1/notificacoes/**                  ponto.proprio
+ * GET  /api/** (leitura, SSE, download)         sessão (de quem são os dados: AcessoUsuarios)
+ * POST/PUT/PATCH/DELETE /api/** (o resto)       ponto.lancar
+ * GET  fora de /api (front-end: HTML/JS)        nada
+ * qualquer outra rota                           negada
  * </pre>
  *
  * <p>O front-end é público porque só tem código (os dados vêm da API, que exige o token). Quem vê os dados de
- * quem (cada um os seus; administrador e coordenação os de todos) é decidido em AcessoUsuarios.
+ * quem (cada um os seus; com ponto.equipe, os de todos) é decidido em AcessoUsuarios. Os módulos têm as cadeias
+ * deles (com o mesmo conversor de token).
  */
 @Configuration
 @EnableWebSecurity
 public class SecurityConfig {
 
-    public static final String CLAIM_PERFIS = "roles";
     public static final String CLAIM_NOME = "nome";
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
-    private static final String[] ESCRITA = {"ADMIN", "USER"};
-    private static final String[] LEITURA = {"ADMIN", "USER", "VIEWER"};
 
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http, RespostasSeguranca respostas,
@@ -80,22 +92,32 @@ public class SecurityConfig {
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
                         .requestMatchers(HttpMethod.POST, "/api/v1/auth/login").permitAll()
-                        .requestMatchers(HttpMethod.PUT, "/api/v1/auth/senha").authenticated()
-                        // cadastro de usuários e feriados (valem para todos): só o administrador
-                        .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/titulares").hasAnyRole(LEITURA)
-                        .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/integracoes", "/api/v1/integracoes/**").hasRole("ADMIN")
-                        .requestMatchers("/api/v1/logs", "/api/v1/logs/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.POST, "/api/v1/erros-de-tela").hasAnyRole(LEITURA)
-                        .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasRole("ADMIN")
-                        .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasRole("ADMIN")
-                        // leitura: todos os perfis
-                        .requestMatchers(HttpMethod.GET, "/api/**").hasAnyRole(LEITURA)
-                        // escrita: registros manuais, batidas, exclusões e processamento de arquivos
-                        .requestMatchers(HttpMethod.POST, "/api/**").hasAnyRole(ESCRITA)
-                        .requestMatchers(HttpMethod.PUT, "/api/**").hasAnyRole(ESCRITA)
-                        .requestMatchers(HttpMethod.PATCH, "/api/**").hasAnyRole(ESCRITA)
-                        .requestMatchers(HttpMethod.DELETE, "/api/**").hasAnyRole(ESCRITA)
+                        .requestMatchers("/api/v1/auth", "/api/v1/auth/**").authenticated()
+                        // administração
+                        .requestMatchers("/api/v1/acessos", "/api/v1/acessos/**").hasAuthority(PermissoesDaAdministracao.ACESSOS)
+                        .requestMatchers(HttpMethod.GET, "/api/v1/usuarios/titulares").authenticated()
+                        .requestMatchers(HttpMethod.GET, "/api/v1/usuarios")
+                        .hasAnyAuthority(PermissoesDaAdministracao.USUARIOS, PermissoesDaAdministracao.ACESSOS)
+                        .requestMatchers(HttpMethod.PUT, "/api/v1/usuarios/*/pasta").hasAuthority(PermissoesDoPonto.CONFIGURAR_EQUIPE)
+                        .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasAuthority(PermissoesDaAdministracao.USUARIOS)
+                        .requestMatchers("/api/v1/integracoes", "/api/v1/integracoes/**")
+                        .hasAuthority(PermissoesDaAdministracao.INTEGRACOES)
+                        .requestMatchers("/api/v1/logs", "/api/v1/logs/**").hasAuthority(PermissoesDaAdministracao.LOGS)
+                        .requestMatchers(HttpMethod.POST, "/api/v1/erros-de-tela").authenticated()
+                        // feriados valem para todos
+                        .requestMatchers(HttpMethod.POST, "/api/v1/feriados", "/api/v1/feriados/**").hasAuthority(PermissoesDoPonto.FERIADOS)
+                        .requestMatchers(HttpMethod.DELETE, "/api/v1/feriados/**").hasAuthority(PermissoesDoPonto.FERIADOS)
+                        // leitura: quem tem sessão (de quem são os dados é decidido em AcessoUsuarios)
+                        .requestMatchers(HttpMethod.GET, "/api/**").authenticated()
+                        // horário e planilha: os próprios ou, com ?usuario=, os de outra pessoa
+                        .requestMatchers("/api/v1/horarios", "/api/v1/horarios/**", "/api/v1/planilha", "/api/v1/planilha/**")
+                        .hasAnyAuthority(PermissoesDoPonto.LANCAR, PermissoesDoPonto.CONFIGURAR_EQUIPE)
+                        .requestMatchers("/api/v1/notificacoes", "/api/v1/notificacoes/**").hasAuthority(PermissoesDoPonto.PROPRIO)
+                        // o resto que grava: registros manuais, batidas, exclusões e processamento de arquivos
+                        .requestMatchers(HttpMethod.POST, "/api/**").hasAuthority(PermissoesDoPonto.LANCAR)
+                        .requestMatchers(HttpMethod.PUT, "/api/**").hasAuthority(PermissoesDoPonto.LANCAR)
+                        .requestMatchers(HttpMethod.PATCH, "/api/**").hasAuthority(PermissoesDoPonto.LANCAR)
+                        .requestMatchers(HttpMethod.DELETE, "/api/**").hasAuthority(PermissoesDoPonto.LANCAR)
                         // front-end empacotado no jar (index.html, assets e rotas do Vue): só leitura
                         .requestMatchers(SecurityConfig::leituraDoFrontend).permitAll()
                         .anyRequest().denyAll())
@@ -121,15 +143,25 @@ public class SecurityConfig {
         return !caminho.equals("/api") && !caminho.startsWith("/api/");
     }
 
-    /** As authorities vêm da claim "roles" já com o prefixo ROLE_ (ex.: ROLE_VIEWER). */
+    /**
+     * As authorities são as permissões que valem agora para o login do token, relidas do banco a cada requisição.
+     * Usuário que não existe mais ou foi desativado: 401 (ACESSO_DESATIVADO), e a tela volta ao login.
+     */
     @Bean
-    public JwtAuthenticationConverter jwtAuthenticationConverter() {
-        JwtGrantedAuthoritiesConverter perfis = new JwtGrantedAuthoritiesConverter();
-        perfis.setAuthoritiesClaimName(CLAIM_PERFIS);
-        perfis.setAuthorityPrefix("");
+    public JwtAuthenticationConverter jwtAuthenticationConverter(UsuarioRepository usuarios) {
         JwtAuthenticationConverter conversor = new JwtAuthenticationConverter();
-        conversor.setJwtGrantedAuthoritiesConverter(perfis);
+        conversor.setJwtGrantedAuthoritiesConverter(jwt -> permissoesDe(usuarios, jwt.getSubject()));
         return conversor;
+    }
+
+    static Collection<GrantedAuthority> permissoesDe(UsuarioRepository usuarios, String login) {
+        Usuario usuario = login == null ? null : usuarios.buscarPorLogin(login).filter(Usuario::ativo).orElse(null);
+        if (usuario == null) {
+            throw new DisabledException(RespostasSeguranca.ACESSO_DESATIVADO);
+        }
+        return usuario.acesso().permissoes().stream()
+                .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(p))
+                .toList();
     }
 
     @Bean

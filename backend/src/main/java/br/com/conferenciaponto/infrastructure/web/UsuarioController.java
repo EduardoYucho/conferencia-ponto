@@ -31,12 +31,12 @@ import java.util.UUID;
 
 /**
  * <pre>
- * GET  /api/v1/usuarios/titulares      quem tem dados de ponto (ADMIN e coordenação: todos; USER: só ele)
- * GET  /api/v1/usuarios                todos os usuários                         (ADMIN)
- * POST /api/v1/usuarios                {login, nome, perfil, senhaProvisoria, pastaComprovantes?}  (ADMIN)
- * PUT  /api/v1/usuarios/{id}           {nome, perfil, ativo}                    (ADMIN)
- * PUT  /api/v1/usuarios/{id}/senha     {senhaProvisoria}                        (ADMIN)
- * PUT  /api/v1/usuarios/{id}/pasta     {pasta}                                  (ADMIN)
+ * GET  /api/v1/usuarios/titulares      quem tem dados de ponto (com ponto.equipe: todos; senão, só ele)
+ * GET  /api/v1/usuarios                todos os usuários                  (usuarios.gerenciar ou acessos.gerenciar)
+ * POST /api/v1/usuarios                {login, nome, perfis?, senhaProvisoria, pastaComprovantes?} (usuarios.gerenciar)
+ * PUT  /api/v1/usuarios/{id}           {nome, ativo}                      (usuarios.gerenciar)
+ * PUT  /api/v1/usuarios/{id}/senha     {senhaProvisoria}                  (usuarios.gerenciar)
+ * PUT  /api/v1/usuarios/{id}/pasta     {pasta}                            (ponto.equipe.configurar)
  * </pre>
  */
 @RestController
@@ -73,23 +73,21 @@ public class UsuarioController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public ApiResponse<UsuarioAdminResponse> criar(@Valid @RequestBody NovoUsuarioRequest r) {
-        Usuario novo = usuarios.criar(r.login(), r.nome(), r.perfil(), r.senhaProvisoria(), r.pastaComprovantes(),
-                acesso.logado().login());
+        Usuario novo = usuarios.criar(r.login(), r.nome(), r.perfis(), r.senhaProvisoria(), r.pastaComprovantes(),
+                acesso.logado());
         return ApiResponse.ok(paraAdmin(novo));
     }
 
     @PutMapping("/{id}")
     public ApiResponse<UsuarioAdminResponse> atualizar(@PathVariable UUID id,
                                                        @Valid @RequestBody AtualizarUsuarioRequest r) {
-        Usuario logado = acesso.logado();
-        return ApiResponse.ok(paraAdmin(usuarios.atualizar(id, r.nome(), r.perfil(), r.ativo(), logado.id(),
-                logado.login())));
+        return ApiResponse.ok(paraAdmin(usuarios.atualizar(id, r.nome(), r.ativo(), acesso.logado())));
     }
 
     @PutMapping("/{id}/senha")
     public ApiResponse<UsuarioAdminResponse> redefinirSenha(@PathVariable UUID id,
                                                             @Valid @RequestBody SenhaProvisoriaRequest r) {
-        return ApiResponse.ok(paraAdmin(usuarios.redefinirSenha(id, r.senhaProvisoria())));
+        return ApiResponse.ok(paraAdmin(usuarios.redefinirSenha(id, r.senhaProvisoria(), acesso.logado())));
     }
 
     @PutMapping("/{id}/pasta")

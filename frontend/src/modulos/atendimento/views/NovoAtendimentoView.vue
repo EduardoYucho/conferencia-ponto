@@ -136,7 +136,7 @@ function recomecar() {
       <EstadoDaTela :carregando="!modulos.carregado" :erro="modulos.erro" carregando-texto="Conferindo o seu acesso…" @tentar="modulos.carregar()">
         <section v-if="!modulos.gerador" class="cartao px-5 py-4">
           <p class="font-semibold">O gerador de atendimentos não está liberado para você.</p>
-          <p class="mt-1 text-sm text-tinta-suave">Peça ao administrador para liberar.</p>
+          <p class="mt-1 text-sm text-tinta-suave">Peça a quem cuida dos acessos para liberar.</p>
         </section>
 
         <div v-else class="grid grid-cols-[minmax(0,1fr)] gap-5">

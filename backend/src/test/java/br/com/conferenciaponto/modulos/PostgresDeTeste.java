@@ -47,6 +47,25 @@ public final class PostgresDeTeste {
         return banco;
     }
 
+    /**
+     * Um banco novo e vazio (sem migração nenhuma), do usuário "ponto", no mesmo PostgreSQL temporário: para testar
+     * uma migração com os dados de antes dela. O nome só pode ter letras minúsculas e sublinhado.
+     */
+    public static synchronized DataSource bancoVazio(String nome) {
+        if (!nome.matches("[a-z_]+")) {
+            throw new IllegalArgumentException("nome de banco inválido: " + nome);
+        }
+        banco();
+        try (Connection conexao = postgres.getPostgresDatabase().getConnection();
+             Statement sql = conexao.createStatement()) {
+            sql.execute("DROP DATABASE IF EXISTS " + nome);
+            sql.execute("CREATE DATABASE " + nome + " OWNER ponto ENCODING 'UTF8' TEMPLATE template0 LC_COLLATE 'C' LC_CTYPE 'C'");
+        } catch (SQLException e) {
+            throw new IllegalStateException("Não foi possível criar o banco " + nome, e);
+        }
+        return postgres.getDatabase("ponto", nome);
+    }
+
     public static JdbcClient jdbc() {
         return JdbcClient.create(banco());
     }

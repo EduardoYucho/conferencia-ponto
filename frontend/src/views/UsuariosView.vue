@@ -1,29 +1,51 @@
 <script setup>
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import { acessosApi } from '@/api/acessosApi'
 import { pontoApi } from '@/api/pontoApi'
 import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
+import AcessoDaPessoa from '@/components/AcessoDaPessoa.vue'
 import IntegracaoGoogle from '@/components/IntegracaoGoogle.vue'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import { ACESSOS, INTEGRACOES, PONTO_CONFIGURAR_EQUIPE, PONTO_PROPRIO, USUARIOS } from '@/utils/permissoes'
 import { dataBR, dataISO } from '@/utils/tempo'
 import { mensagemDe } from '@/utils/erros'
 
 /**
- * Cadastro de usuários (administrador). Cada pessoa tem o próprio acesso, horário, banco de horas e pasta de
+ * Usuários. Cada pessoa tem o próprio login e, se tem o próprio ponto, horário, banco de horas e pasta de
  * comprovantes. O acesso é criado com uma senha provisória, que a pessoa troca no primeiro login. Usuários
  * não são excluídos (o histórico de ponto fica): são desativados.
+ *
+ * O que cada um faz aqui depende das permissões: "Cadastrar usuários" cria, renomeia, desativa e dá senha
+ * provisória; "Perfis e acessos" escolhe os perfis e os ajustes de cada pessoa; "Integração com o Google" vê a
+ * conta de serviço no fim da tela.
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
 const router = useRouter()
 
-const PERFIS = [
-  { valor: 'ROLE_USER', rotulo: 'Usuário', descricao: 'registra e confere o próprio ponto' },
-  { valor: 'ROLE_ADMIN', rotulo: 'Administrador', descricao: 'também cadastra usuários e feriados e consulta todos' },
-  { valor: 'ROLE_VIEWER', rotulo: 'Coordenação', descricao: 'só consulta o ponto de todos' },
-]
-const rotuloPerfil = (valor) => PERFIS.find((p) => p.valor === valor)?.rotulo ?? valor
+const cadastra = computed(() => auth.pode(USUARIOS))
+const cuidaDosAcessos = computed(() => auth.pode(ACESSOS))
+const veLista = computed(() => cadastra.value || cuidaDosAcessos.value)
+
+/** Para escolher os perfis (no cadastro e no acesso de cada pessoa): só com "Perfis e acessos". */
+const perfis = ref([])
+const grupos = ref([])
+const erroPerfis = ref(null)
+async function carregarPerfis() {
+  if (!cuidaDosAcessos.value) return
+  erroPerfis.value = null
+  try {
+    const [p, g] = await Promise.all([acessosApi.perfis(), acessosApi.permissoes()])
+    perfis.value = p
+    grupos.value = g
+  } catch (e) {
+    erroPerfis.value = e
+  }
+}
+onMounted(carregarPerfis)
+const perfilDoUsuario = computed(() => perfis.value.find((p) => p.sistema === 'ROLE_USER'))
 
 const usuarios = ref([])
 const carregando = ref(false)
@@ -49,6 +71,7 @@ function limparErrosDeAcao() {
 }
 
 async function carregar() {
+  if (!veLista.value) return
   carregando.value = true
   erroLista.value = null
   try {
@@ -60,7 +83,10 @@ async function carregar() {
   }
 }
 onMounted(carregar)
-watch(() => ponto.ultimaAlteracaoUsuarios, () => carregar())
+watch(() => ponto.ultimaAlteracaoUsuarios, () => {
+  carregar()
+  carregarPerfis()
+})
 
 const ativos = computed(() => usuarios.value.filter((u) => u.ativo).length)
 
@@ -80,7 +106,10 @@ function senhaAleatoria() {
 
 function abrirNovo() {
   limparErrosDeAcao()
-  novo.value = { nome: '', login: '', perfil: 'ROLE_USER', senhaProvisoria: senhaAleatoria(), pastaComprovantes: '' }
+  novo.value = {
+    nome: '', login: '', perfis: perfilDoUsuario.value ? [perfilDoUsuario.value.id] : [],
+    senhaProvisoria: senhaAleatoria(), pastaComprovantes: '',
+  }
   tentouNovo.value = false
   credenciais.value = null
   novoAberto.value = true
@@ -104,6 +133,19 @@ const errosNovo = computed(() => {
   }
 })
 
+/** Algum perfil escolhido dá o próprio ponto: aí vale perguntar a pasta dos comprovantes. */
+const novoTemPonto = computed(() =>
+  (novo.value?.perfis ?? []).some((id) => {
+    const p = perfis.value.find((x) => x.id === id)
+    return p && (p.todas || p.permissoes.includes(PONTO_PROPRIO))
+  }),
+)
+
+function alternarPerfilNovo(id) {
+  const lista = novo.value.perfis
+  novo.value.perfis = lista.includes(id) ? lista.filter((x) => x !== id) : [...lista, id]
+}
+
 async function criar() {
   tentouNovo.value = true
   limparErrosDeAcao()
@@ -114,9 +156,9 @@ async function criar() {
     const enviado = {
       nome: n.nome.trim(),
       login: n.login.trim().toLowerCase(),
-      perfil: n.perfil,
+      perfis: cuidaDosAcessos.value ? n.perfis : [],
       senhaProvisoria: n.senhaProvisoria,
-      pastaComprovantes: n.perfil === 'ROLE_VIEWER' ? null : (n.pastaComprovantes.trim() || null),
+      pastaComprovantes: novoTemPonto.value ? (n.pastaComprovantes.trim() || null) : null,
     }
     let criado
     try {
@@ -152,7 +194,8 @@ const salvandoEdicao = ref(false)
 
 function editar(u) {
   limparErrosDeAcao()
-  editando.value = { id: u.id, nome: u.nome, perfil: u.perfil, ativo: u.ativo, login: u.login }
+  vendoAcesso.value = null
+  editando.value = { id: u.id, nome: u.nome, ativo: u.ativo, login: u.login }
 }
 
 async function salvarEdicao() {
@@ -165,7 +208,7 @@ async function salvarEdicao() {
   salvandoEdicao.value = true
   try {
     try {
-      await pontoApi.atualizarUsuario(e.id, { nome: e.nome.trim(), perfil: e.perfil, ativo: e.ativo })
+      await pontoApi.atualizarUsuario(e.id, { nome: e.nome.trim(), ativo: e.ativo })
     } catch (ex) {
       erroEdicao.value = mensagemDe(ex)
       return
@@ -179,6 +222,32 @@ async function salvarEdicao() {
     salvandoEdicao.value = false
   }
 }
+
+// ------------------------------------------------------------------ acesso
+/** A pessoa cujo acesso (perfis e ajustes) está aberto. */
+const vendoAcesso = ref(null)
+
+function abrirAcesso(u) {
+  limparErrosDeAcao()
+  editando.value = null
+  vendoAcesso.value = vendoAcesso.value === u.id ? null : u.id
+}
+
+async function acessoSalvo() {
+  vendoAcesso.value = null
+  mostrar('Acesso salvo. Vale na hora, inclusive para quem está com o sistema aberto.')
+  await carregar()
+  carregarPerfis()
+  auth.carregarTitulares().catch(() => {})
+}
+
+/**
+ * Desativar e trocar a senha: só de quem não tem mais acesso do que você (o servidor confere; a tela só explica).
+ */
+function podeMexer(u) {
+  return u.id === auth.usuario?.id || (u.permissoes ?? []).every((p) => auth.pode(p))
+}
+const NAO_PODE_MEXER = 'Esta pessoa tem acessos que você não tem: só quem tem pelo menos os mesmos acessos troca a senha ou desativa.'
 
 const confirmandoSenha = ref(null)
 async function redefinirSenha(u) {
@@ -233,8 +302,15 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
         <p class="rotulo">Administração<template v-if="usuarios.length"> · {{ ativos }} usuário(s) ativo(s)</template></p>
         <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%] sm:text-4xl">Usuários</h1>
       </div>
-      <button type="button" class="botao-primario" @click="abrirNovo">Novo usuário</button>
+      <div class="flex flex-wrap gap-2">
+        <RouterLink v-if="cuidaDosAcessos" :to="{ name: 'perfis' }" class="botao-secundario">Perfis de acesso</RouterLink>
+        <button v-if="cadastra" type="button" class="botao-primario" @click="abrirNovo">Novo usuário</button>
+      </div>
     </header>
+
+    <div v-if="erroPerfis" class="mt-6">
+      <EstadoDaTela :erro="erroPerfis" manter @tentar="carregarPerfis" />
+    </div>
 
     <!-- Falha ao carregar a lista (numa recarga, as pessoas que já estavam na tela continuam) -->
     <div v-if="erroLista" class="mt-6">
@@ -271,22 +347,27 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
         <input v-model="novo.login" class="campo mt-1.5 font-sans" placeholder="maria" autocapitalize="off" spellcheck="false" />
         <span v-if="tentouNovo && errosNovo.login" class="mt-1 text-xs text-carimbo">{{ errosNovo.login }}</span>
       </label>
-      <fieldset class="sm:col-span-2">
-        <legend class="rotulo">Perfil</legend>
+      <fieldset v-if="cuidaDosAcessos" class="sm:col-span-2">
+        <legend class="rotulo">Perfis (um ou mais)</legend>
         <div class="mt-1.5 grid gap-2 sm:grid-cols-3">
           <label
-            v-for="p in PERFIS"
-            :key="p.valor"
+            v-for="p in perfis"
+            :key="p.id"
             class="flex cursor-pointer flex-col rounded-[3px] border px-3 py-2 text-sm transition"
-            :class="novo.perfil === p.valor ? 'border-tinta bg-papel-escuro/60' : 'border-linha hover:border-tinta'"
+            :class="novo.perfis.includes(p.id) ? 'border-tinta bg-papel-escuro/60' : 'border-linha hover:border-tinta'"
           >
             <span class="flex items-center gap-2 font-semibold">
-              <input v-model="novo.perfil" type="radio" :value="p.valor" class="accent-tinta" /> {{ p.rotulo }}
+              <input type="checkbox" class="accent-tinta" :checked="novo.perfis.includes(p.id)" @change="alternarPerfilNovo(p.id)" />
+              {{ p.nome }}
             </span>
-            <span class="mt-0.5 text-xs text-tinta-suave">{{ p.descricao }}</span>
+            <span v-if="p.descricao" class="mt-0.5 text-xs text-tinta-suave">{{ p.descricao }}</span>
           </label>
         </div>
+        <p class="mt-1 text-xs text-tinta-apagada">Ajustes só desta pessoa (liberar ou retirar uma permissão) ficam em "Acesso", depois de criar.</p>
       </fieldset>
+      <p v-else class="text-sm text-tinta-suave sm:col-span-2">
+        A pessoa entra sem perfil (sem acesso a nada): peça a quem cuida dos acessos para dar o perfil dela.
+      </p>
       <label class="flex flex-col">
         <span class="rotulo">Senha provisória</span>
         <span class="mt-1.5 flex gap-2">
@@ -296,14 +377,14 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
         <span v-if="tentouNovo && errosNovo.senha" class="mt-1 text-xs text-carimbo">{{ errosNovo.senha }}</span>
         <span v-else class="mt-1 text-xs text-tinta-apagada">A pessoa troca no primeiro acesso.</span>
       </label>
-      <label v-if="novo.perfil !== 'ROLE_VIEWER'" class="flex flex-col">
+      <label v-if="novoTemPonto" class="flex flex-col">
         <span class="rotulo">Pasta dos comprovantes (opcional)</span>
         <input v-model="novo.pastaComprovantes" class="campo mt-1.5 text-sm" placeholder="\\NOME-DO-PC\Ponto" spellcheck="false" />
         <span class="mt-1 text-xs text-tinta-apagada">A pessoa também pode escolher depois, em "Minha conta".</span>
       </label>
-      <p class="text-sm text-tinta-suave sm:col-span-2">
-        O usuário começa com o horário padrão (segunda a sexta, 08:00–12:00 e 13:00–17:48), que pode ser alterado
-        por ele ou por você.
+      <p v-if="novoTemPonto" class="text-sm text-tinta-suave sm:col-span-2">
+        Com o próprio ponto, a pessoa começa com o horário padrão (segunda a sexta, 08:00–12:00 e 13:00–17:48), que
+        pode ser alterado por ela ou por quem configura o ponto da equipe.
       </p>
       <p v-if="erroNovo" role="alert" class="rounded-[3px] border border-carimbo/40 bg-carimbo/10 px-3 py-2 text-sm text-carimbo sm:col-span-2">{{ erroNovo }}</p>
       <div class="flex flex-col-reverse gap-2 sm:col-span-2 sm:flex-row sm:justify-end">
@@ -313,12 +394,12 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
     </form>
 
     <!-- Lista -->
-    <section class="cartao mt-6 overflow-x-auto" aria-label="Usuários cadastrados">
+    <section v-if="veLista" class="cartao relative mt-6 overflow-x-auto" aria-label="Usuários cadastrados">
       <table class="w-full min-w-[52rem] text-sm">
         <thead>
           <tr class="border-b-2 border-tinta text-left">
             <th class="rotulo px-4 py-2.5">Pessoa</th>
-            <th class="rotulo py-2.5">Perfil</th>
+            <th class="rotulo py-2.5">Perfis</th>
             <th class="rotulo py-2.5">Comprovantes</th>
             <th class="rotulo py-2.5">Último acesso</th>
             <th class="py-2.5"><span class="sr-only">Ações</span></th>
@@ -336,7 +417,10 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
                 <span v-if="!u.ativo" class="ml-2 rounded-[2px] bg-tinta/10 px-1.5 text-[0.68rem] font-bold uppercase">inativo</span>
                 <span v-else-if="u.trocarSenha" class="ml-2 rounded-[2px] bg-amber-500/15 px-1.5 text-[0.68rem] font-bold text-amber-700 uppercase">senha provisória</span>
               </td>
-              <td class="py-2.5">{{ rotuloPerfil(u.perfil) }}</td>
+              <td class="max-w-[14rem] py-2.5">
+                <span v-if="!u.perfis?.length" class="text-xs text-tinta-apagada">sem perfil</span>
+                <span v-for="nome in u.perfis" :key="nome" class="mr-1 mb-1 inline-block rounded-[2px] bg-papel-escuro px-1.5 py-0.5 text-xs font-semibold">{{ nome }}</span>
+              </td>
               <td class="max-w-[16rem] py-2.5">
                 <template v-if="u.titular">
                   <span class="flex items-center gap-1.5 text-xs">
@@ -351,17 +435,29 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
               <td class="py-2.5 text-xs text-tinta-suave">{{ ultimoAcesso(u.ultimoLoginEm) }}</td>
               <td class="py-2 pr-3 text-right whitespace-nowrap">
                 <template v-if="u.titular && u.ativo">
-                  <button type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="verDados(u)">Ver ponto</button>
-                  <button type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="verDados(u, 'conta')">Horário e pasta</button>
+                  <button v-if="auth.podeVerTodos" type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="verDados(u)">Ver ponto</button>
+                  <button v-if="auth.pode(PONTO_CONFIGURAR_EQUIPE)" type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="verDados(u, 'conta')">Horário e pasta</button>
                 </template>
-                <button type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="editar(u)">Editar</button>
                 <button
-                  v-if="u.id !== auth.usuario?.id"
+                  v-if="cuidaDosAcessos"
                   type="button"
                   class="rounded-[3px] px-2 py-1 text-xs font-semibold transition"
-                  :class="confirmandoSenha === u.id ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
-                  @click="redefinirSenha(u)"
-                >{{ confirmandoSenha === u.id ? 'Gerar senha provisória?' : 'Redefinir senha' }}</button>
+                  :class="vendoAcesso === u.id ? 'bg-tinta text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-tinta'"
+                  :aria-expanded="vendoAcesso === u.id"
+                  @click="abrirAcesso(u)"
+                >Acesso</button>
+                <template v-if="cadastra">
+                  <button type="button" class="rounded-[3px] px-2 py-1 text-xs font-semibold text-tinta-suave hover:bg-papel-escuro hover:text-tinta" @click="editar(u)">Editar</button>
+                  <button
+                    v-if="u.id !== auth.usuario?.id"
+                    type="button"
+                    class="rounded-[3px] px-2 py-1 text-xs font-semibold transition disabled:cursor-not-allowed disabled:opacity-40"
+                    :class="confirmandoSenha === u.id ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"
+                    :disabled="!podeMexer(u)"
+                    :title="podeMexer(u) ? null : NAO_PODE_MEXER"
+                    @click="redefinirSenha(u)"
+                  >{{ confirmandoSenha === u.id ? 'Gerar senha provisória?' : 'Redefinir senha' }}</button>
+                </template>
                 <p v-if="falhaNaLinha?.id === u.id" role="alert" class="mt-1 max-w-[22rem] text-left text-xs whitespace-normal text-carimbo sm:ml-auto">{{ falhaNaLinha.mensagem }}</p>
               </td>
             </tr>
@@ -372,14 +468,12 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
                     <span class="rotulo">Nome</span>
                     <input v-model="editando.nome" class="campo mt-1 py-1.5! font-sans text-sm" />
                   </label>
-                  <label class="flex flex-col">
-                    <span class="rotulo">Perfil</span>
-                    <select v-model="editando.perfil" class="campo mt-1 py-1.5! font-sans text-sm" :disabled="u.id === auth.usuario?.id">
-                      <option v-for="p in PERFIS" :key="p.valor" :value="p.valor">{{ p.rotulo }}</option>
-                    </select>
-                  </label>
-                  <label class="flex items-center gap-2 pb-2 text-sm" :class="u.id === auth.usuario?.id ? 'opacity-50' : ''">
-                    <input v-model="editando.ativo" type="checkbox" class="accent-tinta" :disabled="u.id === auth.usuario?.id" /> Ativo
+                  <label
+                    class="flex items-center gap-2 pb-2 text-sm"
+                    :class="u.id === auth.usuario?.id || !podeMexer(u) ? 'opacity-50' : ''"
+                    :title="podeMexer(u) ? null : NAO_PODE_MEXER"
+                  >
+                    <input v-model="editando.ativo" type="checkbox" class="accent-tinta" :disabled="u.id === auth.usuario?.id || !podeMexer(u)" /> Ativo
                   </label>
                   <span class="flex gap-2">
                     <button type="button" class="botao-secundario py-1.5! text-xs" @click="editando = null">Cancelar</button>
@@ -392,12 +486,20 @@ const ultimoAcesso = (iso) => (iso ? dataBR(dataISO(new Date(iso))) : 'nunca ent
                 </form>
               </td>
             </tr>
+            <tr v-if="vendoAcesso === u.id && grupos.length" class="border-b border-linha/70 bg-papel/50">
+              <td colspan="5" class="px-4 py-3">
+                <!-- no celular a tabela rola de lado: o painel fica preso à esquerda, na largura da tela -->
+                <div class="sticky left-0 w-[min(100%,calc(100vw-3rem))]">
+                  <AcessoDaPessoa :usuario="u" :grupos="grupos" :perfis="perfis" @salvo="acessoSalvo" @cancelar="vendoAcesso = null" />
+                </div>
+              </td>
+            </tr>
           </template>
         </tbody>
       </table>
     </section>
 
-    <IntegracaoGoogle />
+    <IntegracaoGoogle v-if="auth.pode(INTEGRACOES)" />
 
     <Transition
       enter-active-class="transition duration-200"

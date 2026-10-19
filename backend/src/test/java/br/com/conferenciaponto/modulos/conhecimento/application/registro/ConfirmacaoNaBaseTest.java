@@ -71,7 +71,7 @@ class ConfirmacaoNaBaseTest {
     @BeforeEach
     void preparar() throws Exception {
         PastaDaBaseEmDisco pastaDaBase = new PastaDaBaseEmDisco(raiz);
-        RegistrarTextoConfirmado registrar = new RegistrarTextoConfirmado(registros, pastaDaBase, base.gerenciarAcessos,
+        RegistrarTextoConfirmado registrar = new RegistrarTextoConfirmado(registros, pastaDaBase,
                 base.usuarios);
         gerador = new GerenciarSaidas(RepositoriosDeTeste.atendimentos(), saidas, new PastaEmDisco(raiz),
                 new ConfiguracaoDaRedacao("m", 3, 1000, null, null, Duration.ofHours(1), 1024), new ObjectMapper(),
@@ -80,7 +80,7 @@ class ConfirmacaoNaBaseTest {
                         registrar.aoConfirmar(texto);
                     }
                 }, RepositoriosDeTeste.transacao(), RELOGIO);
-        naBase = new GerenciarRegistros(registros, pastaDaBase, base.gerenciarAcessos, RELOGIO);
+        naBase = new GerenciarRegistros(registros, pastaDaBase, RELOGIO);
         maria = base.pessoa("maria", true, false);
         atendimento = UUID.randomUUID();
         jdbc.sql("""

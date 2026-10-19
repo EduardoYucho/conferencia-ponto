@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.processamento;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -140,7 +141,7 @@ class PeloAppDoGeminiTest {
     // --------------------------------------------------------------------------------------------- montagem
 
     private static Usuario usuario(String login) {
-        return new Usuario(PostgresDeTeste.novoUsuario(true), login, login, "hash", true, Set.of(Perfil.ROLE_USER), null,
+        return new Usuario(PostgresDeTeste.novoUsuario(true), login, login, "hash", true, Acesso.usuario(), null,
                 null, false);
     }
 

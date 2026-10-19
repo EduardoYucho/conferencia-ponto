@@ -44,10 +44,12 @@ class ArquiteturaModulosTest {
             "br.com.conferenciaponto.domain.exception",     // exceções que o GlobalExceptionHandler transforma em mensagem
             "br.com.conferenciaponto.infrastructure.log");  // protocolo e log por usuário
 
-    /** ...e estas classes (o usuário logado e o envelope das respostas). */
+    /** ...e estas classes (o usuário logado, as permissões que cada módulo declara e o envelope das respostas). */
     private static final Set<String> CLASSES_PERMITIDAS = Set.of(
             "br.com.conferenciaponto.domain.model.Usuario",
             "br.com.conferenciaponto.domain.model.Perfil",
+            "br.com.conferenciaponto.domain.acesso.FonteDePermissoes",
+            "br.com.conferenciaponto.domain.acesso.Permissao",
             "br.com.conferenciaponto.domain.port.UsuarioRepository",
             "br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios",
             "br.com.conferenciaponto.infrastructure.web.dto.ApiResponse",

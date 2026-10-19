@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -7,7 +8,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.chave.ChaveGeminiView;
 import br.com.conferenciaponto.modulos.atendimento.application.chave.GerenciarChaveGemini;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
@@ -57,8 +58,6 @@ class ChaveGeminiWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private GerenciarChaveGemini chaves;
 
     private Usuario maria;
@@ -88,7 +87,7 @@ class ChaveGeminiWebTest {
 
     @Test
     void cadastraSemDevolverAChave() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(chaves.cadastrar(maria, CHAVE, true)).thenReturn(CADASTRADA);
 
         String resposta = mvc.perform(put("/api/v1/atendimentos/chave-gemini").with(como(maria))
@@ -103,7 +102,7 @@ class ChaveGeminiWebTest {
 
     @Test
     void aCoordenacaoLiberadaTambemCadastra() throws Exception {
-        when(acessos.liberado(coordenacao)).thenReturn(true);
+        coordenacao = liberar(coordenacao);
         when(chaves.cadastrar(coordenacao, CHAVE, true)).thenReturn(CADASTRADA);
 
         mvc.perform(put("/api/v1/atendimentos/chave-gemini").with(como(coordenacao))
@@ -113,7 +112,7 @@ class ChaveGeminiWebTest {
 
     @Test
     void chaveVaziaERecusadaComMensagem() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
 
         mvc.perform(put("/api/v1/atendimentos/chave-gemini").with(como(maria))
                         .contentType(MediaType.APPLICATION_JSON).content(corpo("", true)))
@@ -123,7 +122,7 @@ class ChaveGeminiWebTest {
 
     @Test
     void recusaDoGoogleChegaComOCodigoEAMensagem() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(chaves.cadastrar(eq(maria), anyString(), anyBoolean()))
                 .thenThrow(new RegraNegocioException("CHAVE_GEMINI_RECUSADA", "O Google recusou a chave. Ela não foi guardada."));
 
@@ -139,7 +138,7 @@ class ChaveGeminiWebTest {
 
     @Test
     void consultaTestaEApagaAPropria() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(chaves.estado(maria)).thenReturn(CADASTRADA);
         when(chaves.testar(maria)).thenReturn(CADASTRADA);
         when(chaves.apagar(maria)).thenReturn(new ChaveGeminiView(false, null, false, null, null, null, true, null));
@@ -164,13 +163,20 @@ class ChaveGeminiWebTest {
     }
 
     private Usuario usuario(String login, Perfil perfil) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, Set.of(perfil), null, null, false);
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, Acesso.de(perfil), null, null, false);
         when(usuarios.buscarPorLogin(login)).thenReturn(Optional.of(usuario));
         return usuario;
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        String perfil = usuario.perfis().iterator().next().name();
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority(perfil));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 }

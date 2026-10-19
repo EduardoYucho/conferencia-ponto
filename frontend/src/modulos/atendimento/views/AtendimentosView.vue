@@ -5,11 +5,13 @@ import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { useAuthStore } from '@/stores/auth'
 import { atendimentoApi } from '@/modulos/atendimento/api'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
-import { dataHora, periodo, SITUACOES, validadeDosLinks } from '@/modulos/atendimento/formato'
+import { dataHora, periodo, SITUACOES, tamanho, validadeDosLinks } from '@/modulos/atendimento/formato'
+import { mensagemDe } from '@/utils/erros'
+import { ACESSOS } from '@/utils/permissoes'
 
 /**
  * Início do gerador: os atendimentos da pessoa (cada um vê só os próprios), o botão para criar um novo a partir
- * do PDF do Digisac e o atalho para a chave do Gemini.
+ * do PDF do Digisac, o atalho para a chave do Gemini e, para quem tem a permissão, o espaço em disco.
  */
 const auth = useAuthStore()
 const modulos = useAcessoModulosStore()
@@ -36,6 +38,22 @@ async function carregar() {
 onMounted(carregar)
 watch(() => modulos.gerador, (liberado) => liberado && !carregou.value && carregar())
 
+/** Com "Ver o espaço em disco dos atendimentos": quanto ocupam e quanto sobra (se falhar, a lista continua). */
+const espaco = ref(null)
+const erroDoEspaco = ref('')
+async function carregarEspaco() {
+  if (!modulos.espaco) return
+  erroDoEspaco.value = ''
+  try {
+    espaco.value = await atendimentoApi.espaco()
+  } catch (e) {
+    espaco.value = null
+    erroDoEspaco.value = mensagemDe(e)
+  }
+}
+onMounted(carregarEspaco)
+watch(() => modulos.espaco, (pode) => pode && !espaco.value && carregarEspaco())
+
 function abrir(linha) {
   router.push({ name: 'atendimento', params: { id: linha.id } })
 }
@@ -58,14 +76,30 @@ function situacao(linha) {
       </div>
     </header>
 
+    <section v-if="modulos.espaco && (espaco || erroDoEspaco)" class="mt-4 text-sm" aria-label="Espaço em disco dos atendimentos">
+      <p v-if="espaco" class="text-tinta-suave">
+        Arquivos dos atendimentos (de todos):
+        <b class="text-tinta">{{ espaco.ocupado >= 0 ? tamanho(espaco.ocupado) : 'não deu para somar' }}</b> ocupados<template v-if="espaco.livre >= 0">
+          · <b class="text-tinta">{{ tamanho(espaco.livre) }}</b> livres no disco</template>.
+      </p>
+      <p v-if="espaco?.pausados" role="alert" class="mt-1 font-semibold text-carimbo">
+        {{ espaco.pausados }} atendimento(s) pausado(s) por falta de espaço. Libere espaço no disco; cada pessoa retoma o seu
+        no próprio atendimento.
+      </p>
+      <p v-else-if="erroDoEspaco" class="text-carimbo">
+        Não deu para ver o espaço em disco: {{ erroDoEspaco }}
+        <button type="button" class="ml-1 font-semibold underline underline-offset-4" @click="carregarEspaco">Tentar de novo</button>
+      </p>
+    </section>
+
     <div class="mt-6">
       <EstadoDaTela :carregando="!modulos.carregado" :erro="modulos.erro" carregando-texto="Conferindo o seu acesso…" @tentar="modulos.carregar()">
         <section v-if="!modulos.gerador" class="cartao px-5 py-4">
           <p class="font-semibold">O gerador de atendimentos não está liberado para você.</p>
           <p class="mt-1 text-sm text-tinta-suave">
-            {{ auth.ehAdmin ? 'Libere em Acessos (inclusive para você mesmo).' : 'Peça ao administrador para liberar.' }}
+            {{ auth.pode(ACESSOS) ? 'Libere em Usuários, no acesso da pessoa ou num perfil (inclusive para você mesmo).' : 'Peça a quem cuida dos acessos para liberar.' }}
           </p>
-          <RouterLink v-if="auth.ehAdmin" :to="{ name: 'acessos-modulos' }" class="botao-secundario mt-3 inline-block">Abrir Acessos</RouterLink>
+          <RouterLink v-if="auth.pode(ACESSOS)" :to="{ name: 'usuarios' }" class="botao-secundario mt-3 inline-block">Abrir Usuários</RouterLink>
         </section>
 
         <EstadoDaTela

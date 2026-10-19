@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.arquivo;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.DominioException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -213,6 +214,6 @@ class GerenciarArquivosTest {
     }
 
     private static Usuario usuario(UUID id, String login) {
-        return new Usuario(id, login, login, "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        return new Usuario(id, login, login, "hash", true, Acesso.usuario(), null, null, false);
     }
 }

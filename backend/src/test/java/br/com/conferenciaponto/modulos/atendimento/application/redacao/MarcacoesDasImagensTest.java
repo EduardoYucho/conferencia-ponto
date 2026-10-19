@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.redacao;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -102,7 +103,7 @@ class MarcacoesDasImagensTest {
     @BeforeEach
     void preparar() throws Exception {
         gerenciar = comMarcacoes(true);
-        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER),
+        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Acesso.usuario(),
                 null, null, false);
         atendimento = UUID.randomUUID();
         jdbc.sql("""
@@ -254,7 +255,7 @@ class MarcacoesDasImagensTest {
         assertThatThrownBy(() -> semMarcacoes.marcar(maria, atendimento, saida, print, true))
                 .isInstanceOf(RegraNegocioException.class).extracting("codigo").isEqualTo("MARCACOES_DESLIGADAS");
 
-        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "hash", true, Set.of(Perfil.ROLE_USER),
+        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "hash", true, Acesso.usuario(),
                 null, null, false);
         assertThatThrownBy(() -> gerenciar.marcar(joao, atendimento, saida, print, true))
                 .isInstanceOf(RecursoNaoEncontradoException.class);

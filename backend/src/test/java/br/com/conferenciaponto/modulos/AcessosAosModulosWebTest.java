@@ -1,19 +1,18 @@
 package br.com.conferenciaponto.modulos;
 
-import br.com.conferenciaponto.domain.model.Perfil;
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
 import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.espaco.EspacoDosAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.web.AcessoAoGeradorController;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.web.WebDoGerador;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
-import br.com.conferenciaponto.modulos.conhecimento.domain.acesso.AcessoABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.infrastructure.security.SegurancaDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.infrastructure.web.AcessoABaseController;
 import br.com.conferenciaponto.modulos.conhecimento.infrastructure.web.WebDaBase;
@@ -22,7 +21,6 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
 import org.springframework.context.annotation.Import;
-import org.springframework.http.MediaType;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -32,31 +30,26 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.Optional;
-import java.util.Set;
 import java.util.UUID;
 
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Quem entra nas rotas dos módulos: o mesmo login do ponto, a liberação de cada módulo (não o perfil do ponto),
- * a tela de acessos só para o administrador, e as regras do ponto sem mudança nenhuma.
+ * Quem entra nas rotas dos módulos: o mesmo login do ponto e as permissões de cada módulo (atendimentos.usar,
+ * base.pesquisar), que vêm dos perfis ou de um ajuste só da pessoa; o espaço em disco só com atendimentos.espaco;
+ * e as regras do ponto sem mudança nenhuma.
  */
 @WebMvcTest(controllers = {AcessoAoGeradorController.class, AcessoABaseController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, AcessoUsuarios.class, SegurancaDoGerador.class,
         SegurancaDaBase.class, WebDoGerador.class, WebDaBase.class, AcessosAosModulosWebTest.RotasDeTeste.class})
 class AcessosAosModulosWebTest {
 
-    /** Rotas comuns de cada módulo (as das próximas etapas nascem assim: protegidas pela liberação). */
+    /** Rotas comuns de cada módulo (as das próximas etapas nascem assim: protegidas pela permissão). */
     @RestController
     static class RotasDeTeste {
         @GetMapping("/api/v1/atendimentos/rota-de-teste")
@@ -85,10 +78,6 @@ class AcessosAosModulosWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador gerador;
-    @MockitoBean
-    private GerenciarAcessosABase base;
-    @MockitoBean
     private EspacoDosAtendimentos espaco;
 
     private Usuario admin;
@@ -97,10 +86,10 @@ class AcessosAosModulosWebTest {
 
     @BeforeEach
     void cadastrar() {
-        admin = usuario("admin", Perfil.ROLE_ADMIN, true, false);
-        maria = usuario("maria", Perfil.ROLE_USER, true, false);
-        coordenacao = usuario("coordenacao", Perfil.ROLE_VIEWER, true, false);
-        when(base.acessoDe(any())).thenAnswer(i -> AcessoABase.semAcesso(((Usuario) i.getArgument(0)).id()));
+        admin = usuario("admin", Acesso.administrador().com(PermissoesDoAtendimento.USAR, PermissoesDoAtendimento.ESPACO,
+                PermissoesDaBase.PESQUISAR, PermissoesDaBase.CURAR), true, false);
+        maria = usuario("maria", Acesso.usuario(), true, false);
+        coordenacao = usuario("coordenacao", Acesso.coordenador(), true, false);
     }
 
     @Test
@@ -113,48 +102,61 @@ class AcessosAosModulosWebTest {
     }
 
     @Test
-    void soOAdministradorVeOEspacoOcupadoPelosAtendimentos() throws Exception {
+    void soQuemTemAPermissaoVeOEspacoOcupadoPelosAtendimentos() throws Exception {
         when(espaco.consultar(admin)).thenReturn(new EspacoDosAtendimentos.EspacoView(1024, 4096, 0));
 
-        mvc.perform(get("/api/v1/atendimentos/acessos/espaco").with(como(admin)))
+        mvc.perform(get("/api/v1/atendimentos/espaco").with(como(admin)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.ocupado").value(1024))
                 .andExpect(jsonPath("$.dados.livre").value(4096));
-        mvc.perform(get("/api/v1/atendimentos/acessos/espaco").with(como(maria)))
+        Usuario soOGerador = usuario("ana", Acesso.usuario().com(PermissoesDoAtendimento.USAR), true, false);
+        mvc.perform(get("/api/v1/atendimentos/espaco").with(como(soOGerador)))
                 .andExpect(status().isForbidden());
+        // a tela de acessos dos módulos saiu: os acessos ficam nos perfis do ponto
+        mvc.perform(get("/api/v1/atendimentos/acessos").with(como(admin))).andExpect(status().isNotFound());
     }
 
     @Test
-    void qualquerPerfilConsultaOProprioAcesso() throws Exception {
-        when(gerador.liberado(coordenacao)).thenReturn(true);
+    void qualquerPessoaConsultaOProprioAcesso() throws Exception {
+        coordenacao = usuario("coordenacao", Acesso.coordenador().com(PermissoesDoAtendimento.USAR), true, false);
 
         mvc.perform(get("/api/v1/atendimentos/meu-acesso").with(como(coordenacao)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.gerador").value(true))
-                .andExpect(jsonPath("$.dados.administrador").value(false));
+                .andExpect(jsonPath("$.dados.espaco").value(false));
         mvc.perform(get("/api/v1/conhecimento/meu-acesso").with(como(maria)))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.dados.pesquisar").value(false));
+                .andExpect(jsonPath("$.dados.pesquisar").value(false))
+                .andExpect(jsonPath("$.dados.curar").value(false));
+        mvc.perform(get("/api/v1/conhecimento/meu-acesso").with(como(admin)))
+                .andExpect(jsonPath("$.dados.curar").value(true));
     }
 
     @Test
-    void oGeradorSoAbreParaQuemFoiLiberadoInclusiveOAdministrador() throws Exception {
-        for (Usuario semLiberacao : new Usuario[] {maria, admin}) {
-            mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(semLiberacao)))
-                    .andExpect(status().isForbidden())
-                    .andExpect(jsonPath("$.erros[0].codigo").value("MODULO_NAO_LIBERADO"))
-                    .andExpect(jsonPath("$.protocolo").exists());
-        }
-        when(gerador.liberado(maria)).thenReturn(true);
+    void oGeradorSoAbreParaQuemTemAPermissao() throws Exception {
+        mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(maria)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.erros[0].codigo").value("MODULO_NAO_LIBERADO"))
+                .andExpect(jsonPath("$.protocolo").exists());
+        maria = usuario("maria", Acesso.usuario().com(PermissoesDoAtendimento.USAR), true, false);
         mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(maria)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados").value("gerador"));
     }
 
     @Test
-    void aCoordenacaoLiberadaGravaNoModulo() throws Exception {
-        when(gerador.liberado(coordenacao)).thenReturn(true);
-        when(base.acessoDe(coordenacao)).thenReturn(new AcessoABase(coordenacao.id(), true, false, "admin", null));
+    void retirarAPermissaoValeNaHora() throws Exception {
+        mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(admin))).andExpect(status().isOk());
+        admin = usuario("admin", admin.acesso().sem(PermissoesDoAtendimento.USAR), true, false);
+        mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(admin)))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.erros[0].codigo").value("MODULO_NAO_LIBERADO"));
+    }
+
+    @Test
+    void quemSoConsultaOPontoGravaNoModuloSeTemAPermissao() throws Exception {
+        coordenacao = usuario("coordenacao", Acesso.coordenador().com(PermissoesDoAtendimento.USAR, PermissoesDaBase.PESQUISAR),
+                true, false);
 
         mvc.perform(post("/api/v1/atendimentos/rota-de-teste").with(como(coordenacao)))
                 .andExpect(status().isOk())
@@ -168,50 +170,19 @@ class AcessosAosModulosWebTest {
         mvc.perform(get("/api/v1/conhecimento/rota-de-teste").with(como(maria)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.erros[0].codigo").value("MODULO_NAO_LIBERADO"));
-        when(base.acessoDe(maria)).thenReturn(new AcessoABase(maria.id(), true, false, "admin", null));
+        maria = usuario("maria", Acesso.usuario().com(PermissoesDaBase.PESQUISAR), true, false);
         mvc.perform(get("/api/v1/conhecimento/rota-de-teste").with(como(maria)))
                 .andExpect(status().isOk());
     }
 
     @Test
-    void soOAdministradorVeEMudaOsAcessos() throws Exception {
-        UUID id = maria.id();
-        mvc.perform(get("/api/v1/atendimentos/acessos").with(como(maria)))
-                .andExpect(status().isForbidden())
-                .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_NEGADO"));
-        mvc.perform(put("/api/v1/conhecimento/acessos/" + id).with(como(coordenacao))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"pesquisar\":true,\"curar\":true}"))
-                .andExpect(status().isForbidden());
-        verify(base, never()).definir(any(), any(), anyBoolean(), anyBoolean());
-
-        mvc.perform(get("/api/v1/atendimentos/acessos").with(como(admin))).andExpect(status().isOk());
-        mvc.perform(put("/api/v1/atendimentos/acessos/" + id).with(como(admin))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"gerador\":true}"))
-                .andExpect(status().isOk());
-        mvc.perform(put("/api/v1/conhecimento/acessos/" + id).with(como(admin))
-                        .contentType(MediaType.APPLICATION_JSON).content("{\"pesquisar\":false,\"curar\":true}"))
-                .andExpect(status().isOk());
-        verify(gerador).definir(admin, id, true);
-        verify(base).definir(admin, id, false, true);
-    }
-
-    @Test
-    void pedidoSemOValorEAvisadoNoCampo() throws Exception {
-        mvc.perform(put("/api/v1/atendimentos/acessos/" + maria.id()).with(como(admin))
-                        .contentType(MediaType.APPLICATION_JSON).content("{}"))
-                .andExpect(status().isBadRequest())
-                .andExpect(jsonPath("$.erros[0].campo").value("gerador"));
-    }
-
-    @Test
     void senhaProvisoriaOuAcessoDesativadoBarramOsModulos() throws Exception {
-        Usuario provisoria = usuario("nova", Perfil.ROLE_USER, true, true);
-        when(gerador.liberado(provisoria)).thenReturn(true);
+        Usuario provisoria = usuario("nova", Acesso.usuario().com(PermissoesDoAtendimento.USAR), true, true);
         mvc.perform(get("/api/v1/atendimentos/rota-de-teste").with(como(provisoria)))
                 .andExpect(status().isForbidden())
                 .andExpect(jsonPath("$.erros[0].codigo").value("TROCAR_SENHA"));
 
-        Usuario desativado = usuario("antigo", Perfil.ROLE_USER, false, false);
+        Usuario desativado = usuario("antigo", Acesso.usuario().com(PermissoesDaBase.PESQUISAR), false, false);
         mvc.perform(get("/api/v1/conhecimento/rota-de-teste").with(como(desativado)))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_DESATIVADO"));
@@ -219,7 +190,7 @@ class AcessosAosModulosWebTest {
 
     @Test
     void asRegrasDoPontoContinuamAsMesmas() throws Exception {
-        when(gerador.liberado(any())).thenReturn(true);
+        coordenacao = usuario("coordenacao", Acesso.coordenador().com(PermissoesDoAtendimento.USAR), true, false);
 
         mvc.perform(post("/api/v1/jornadas/batidas").with(como(coordenacao)))
                 .andExpect(status().isForbidden())
@@ -232,15 +203,15 @@ class AcessosAosModulosWebTest {
 
     // --------------------------------------------------------------------------------------------- apoio
 
-    private Usuario usuario(String login, Perfil perfil, boolean ativo, boolean trocarSenha) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", ativo, Set.of(perfil), null, null,
-                trocarSenha);
+    private Usuario usuario(String login, Acesso acesso, boolean ativo, boolean trocarSenha) {
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", ativo, acesso, null, null, trocarSenha);
         when(usuarios.buscarPorLogin(login)).thenReturn(Optional.of(usuario));
         return usuario;
     }
 
+    /** As authorities do token são as permissões da pessoa (o conversor de verdade as relê do banco). */
     private static RequestPostProcessor como(Usuario usuario) {
-        String perfil = usuario.perfis().iterator().next().name();
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority(perfil));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
     }
 }

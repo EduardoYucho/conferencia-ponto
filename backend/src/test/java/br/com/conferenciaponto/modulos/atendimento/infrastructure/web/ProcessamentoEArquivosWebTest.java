@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -8,7 +9,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.arquivo.ArquivoView;
 import br.com.conferenciaponto.modulos.atendimento.application.arquivo.GerenciarArquivos;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
@@ -67,8 +68,6 @@ class ProcessamentoEArquivosWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private ProcessarAtendimentos processamento;
     @MockitoBean
     private GerenciarArquivos arquivos;
@@ -79,12 +78,20 @@ class ProcessamentoEArquivosWebTest {
 
     @BeforeEach
     void cadastrar() {
-        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Acesso.usuario(), null, null, false);
         when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(maria));
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 
     @Test
@@ -102,7 +109,7 @@ class ProcessamentoEArquivosWebTest {
 
     @Test
     void processarCancelarRetomarETentarDeNovo() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(processamento.processar(maria, ID, Set.of())).thenReturn(PROGRESSO);
         when(processamento.processar(maria, ID, Set.of(TipoDeSaida.RESUMO))).thenReturn(PROGRESSO);
         when(processamento.cancelar(maria, ID)).thenReturn(PROGRESSO);
@@ -132,7 +139,7 @@ class ProcessamentoEArquivosWebTest {
 
     @Test
     void atendimentoDeOutraPessoaVem404() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(processamento.processar(maria, ID, Set.of())).thenThrow(new RecursoNaoEncontradoException("ATENDIMENTO_NAO_ENCONTRADO", "x"));
 
         mvc.perform(post("/api/v1/atendimentos/" + ID + "/processar").with(como(maria)))
@@ -142,7 +149,7 @@ class ProcessamentoEArquivosWebTest {
 
     @Test
     void enviaUmExtraEmFluxoComOsParametros() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         byte[][] lido = new byte[1][];
         when(arquivos.enviarExtra(eq(maria), eq(ID), eq("print_extra"), eq("Captura de tela.png"), eq("1760011000000"), any(),
                 eq((long) PNG.length))).thenAnswer(chamada -> {
@@ -162,7 +169,7 @@ class ProcessamentoEArquivosWebTest {
 
     @Test
     void envioAMaoTirarERenovarOPdf() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(arquivos.enviarConteudo(eq(maria), eq(ID), eq(ARQUIVO), eq("foto do celular.jpg"), any(), anyLong()))
                 .thenReturn(new ArquivoView(ARQUIVO, "anexo_conversa", 1, "1.jpeg", "imagem", "pronto", 3L, null, null));
         doThrow(new RecursoNaoEncontradoException("ARQUIVO_NAO_ENCONTRADO", "x")).when(arquivos).tirar(maria, ID, UUID.fromString(
@@ -186,7 +193,7 @@ class ProcessamentoEArquivosWebTest {
 
     @Test
     void oCanalDeEventosAbreParaQuemTemOGerador() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
 
         mvc.perform(get("/api/v1/atendimentos/eventos").with(como(maria)).accept(MediaType.TEXT_EVENT_STREAM))
                 .andExpect(status().isOk());
