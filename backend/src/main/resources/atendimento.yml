@@ -65,7 +65,8 @@ atendimento:
         caracteres: 40000                    # o máximo do texto do documento
       placa:
         esperar-livre: true                  # placa de vídeo ocupada (um jogo aberto): o atendimento espera ela ficar livre
-        memoria-necessaria: 8GB              # livre na placa para a IA (sem contar o que ela mesma usa)
+        memoria-necessaria: 8GB              # com o modelo fora da placa: o que precisa estar livre para ele entrar
+        uso-maximo: 60                       # com o modelo na placa e a IA parada: acima disso (%), outro programa está usando
         intervalo: 2m                        # de quanto em quanto tempo confere de novo
         nvidia-smi: nvidia-smi               # vem com o driver da NVIDIA; sem ele, a IA não espera
   gemini:

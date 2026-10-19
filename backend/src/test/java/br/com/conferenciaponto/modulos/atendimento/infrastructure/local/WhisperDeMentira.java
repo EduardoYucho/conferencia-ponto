@@ -11,7 +11,7 @@ import java.util.List;
 /**
  * Um programa que faz as vezes do whisper-cli e do nvidia-smi nos testes (roda num processo à parte, como os de
  * verdade). Como whisper: grava {@code <-of>.json} com dois trechos (e um "[Música]", que o sistema descarta); o áudio
- * com "falha" no nome sai com erro. Como nvidia-smi ({@code --query-gpu}): imprime "12288, 10240".
+ * com "falha" no nome sai com erro. Como nvidia-smi ({@code --query-gpu}): imprime "12288, 10240, 35".
  */
 public final class WhisperDeMentira {
 
@@ -25,7 +25,7 @@ public final class WhisperDeMentira {
     public static void main(String[] args) throws IOException {
         List<String> a = List.of(args);
         if (a.stream().anyMatch(x -> x.startsWith("--query-gpu"))) {
-            System.out.println("12288, 10240");
+            System.out.println("12288, 10240, 35");
             return;
         }
         Path audio = Path.of(a.get(a.indexOf("-f") + 1));

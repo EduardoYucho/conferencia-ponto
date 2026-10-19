@@ -53,6 +53,7 @@ class ModeloLocalTest {
     private volatile List<Transcritor.Trecho> fala = List.of(new Transcritor.Trecho(0, "Oi, o sistema travou."),
             new Transcritor.Trecho(65_500, "Já reiniciei e continua."));
     private volatile Optional<MemoriaDaPlaca.Uso> usoDaPlaca = Optional.empty();
+    private volatile int utilizacaoDaPlaca;
     private volatile boolean semAudio;
 
     @AfterEach
@@ -64,7 +65,7 @@ class ModeloLocalTest {
         return new IaLocalProperties(url, "gemma4:12b", "embeddinggemma", 24576, Duration.ofSeconds(2), Duration.ofSeconds(5),
                 Duration.ofMinutes(2), new IaLocalProperties.Whisper("", "", "pt", Duration.ofMinutes(1)),
                 new IaLocalProperties.Video(4), new IaLocalProperties.Pdf(2, 1000),
-                new IaLocalProperties.Placa(esperarPlaca, DataSize.ofGigabytes(8), Duration.ofMinutes(2), "nvidia-smi"));
+                new IaLocalProperties.Placa(esperarPlaca, DataSize.ofGigabytes(8), 60, Duration.ofMinutes(2), "nvidia-smi"));
     }
 
     private ModeloLocal modelo() {
@@ -89,6 +90,11 @@ class ModeloLocalTest {
             @Override
             Optional<Uso> agora() {
                 return usoDaPlaca;
+            }
+
+            @Override
+            java.util.OptionalInt menorUtilizacao(int leituras, long intervaloMs) {
+                return usoDaPlaca.isEmpty() ? java.util.OptionalInt.empty() : java.util.OptionalInt.of(utilizacaoDaPlaca);
             }
         };
         ExtratorQuadros quadros = new ExtratorQuadros() {
@@ -172,7 +178,7 @@ class ModeloLocalTest {
         assertThat(corpo.path("keep_alive").asLong()).isEqualTo(120);
         assertThat(corpo.path("format").path("required").get(0).asText()).isEqualTo("descricao");
         assertThat(corpo.path("options").path("num_ctx").asInt()).isEqualTo(24576);
-        assertThat(corpo.path("options").path("num_predict").asInt()).isEqualTo(8192);
+        assertThat(corpo.path("options").path("num_predict").asInt()).isEqualTo(4096);
         assertThat(corpo.path("messages").get(0).path("role").asText()).isEqualTo("system");
         assertThat(corpo.path("messages").get(0).path("content").asText()).isEqualTo("regras comuns");
         JsonNode usuario = corpo.path("messages").get(1);
@@ -285,22 +291,37 @@ class ModeloLocalTest {
 
     // ------------------------------------------------------------------------------------------------ placa
 
+    private static final long GB = 1024L * 1024 * 1024;
+
     @Test
-    void comAPlacaOcupadaPorOutroProgramaNemPedeETiraOModeloDaPlaca() {
-        ollama.memoriaDoModelo(9L * 1024 * 1024 * 1024);
-        // 12 GB na placa, 11,5 em uso: 9 da IA e 2,5 de um jogo → sobram 9,5 para a IA... ainda dá
-        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12L * 1024 * 1024 * 1024, 11_776L * 1024 * 1024));
+    void comOModeloForaDaPlacaValeAMemoriaLivreENaoPrecisaTirarNada() {
+        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12 * GB, 2 * GB + GB / 2, 5)); // 9,5 GB livres
         modelo().gerar("ia-local", pedido(null, ESQUEMA));
         assertThat(ollama.pedidos("/api/chat")).hasSize(1);
 
-        // o jogo passa a usar 10 GB: sobram 2 para a IA
-        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12L * 1024 * 1024 * 1024, 19L * 1024 * 1024 * 1024));
+        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12 * GB, 10 * GB, 98)); // um jogo com 10 GB
         assertThatThrownBy(() -> modelo().gerar("ia-local", pedido(null, ESQUEMA)))
                 .isInstanceOfSatisfying(FalhaDoModelo.class, f -> {
                     assertThat(f.tipo()).isEqualTo(FalhaDoModelo.Tipo.PLACA_OCUPADA);
                     assertThat(f.esperar()).isEqualTo(Duration.ofMinutes(2));
                 });
         assertThat(ollama.pedidos("/api/chat")).as("nem pediu").hasSize(1);
+        assertThat(ollama.pedidos("/api/generate")).as("o modelo não estava na placa").isEmpty();
+    }
+
+    @Test
+    void comOModeloNaPlacaAMemoriaNaoContaEValeOUsoComAIaParada() {
+        // o caso real: o modelo ocupa quase toda a placa e o Ollama informa só 1,4 GB dele
+        ollama.memoriaDoModelo(GB + GB / 2);
+        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12 * GB, 10 * GB, 4));
+        utilizacaoDaPlaca = 4;
+        modelo().gerar("ia-local", pedido(null, ESQUEMA));
+        assertThat(ollama.pedidos("/api/chat")).as("a placa está parada: é o próprio modelo").hasSize(1);
+
+        utilizacaoDaPlaca = 95; // um jogo abriu
+        assertThatThrownBy(() -> modelo().gerar("ia-local", pedido(null, ESQUEMA)))
+                .isInstanceOfSatisfying(FalhaDoModelo.class, f -> assertThat(f.tipo()).isEqualTo(FalhaDoModelo.Tipo.PLACA_OCUPADA));
+        assertThat(ollama.pedidos("/api/chat")).hasSize(1);
         assertThat(ollama.pedidos("/api/generate")).singleElement()
                 .satisfies(p -> assertThat(p.corpo()).contains("\"keep_alive\":0").contains("gemma4:12b"));
     }
@@ -310,22 +331,67 @@ class ModeloLocalTest {
         usoDaPlaca = Optional.empty();
         modelo().gerar("ia-local", pedido(null, ESQUEMA));
 
-        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12L * 1024 * 1024 * 1024, 11L * 1024 * 1024 * 1024));
+        usoDaPlaca = Optional.of(new MemoriaDaPlaca.Uso(12 * GB, 11 * GB, 99));
         modelo(ollama.base(), false).gerar("ia-local", pedido(null, ESQUEMA));
 
         assertThat(ollama.pedidos("/api/chat")).hasSize(2);
     }
 
     @Test
-    void livreParaAIaContaOQueElaMesmaUsa() {
-        MemoriaDaPlaca placa = new MemoriaDaPlaca(List.of("nvidia-smi")) {
-            @Override
-            Optional<Uso> agora() {
-                return Optional.of(new Uso(12_000, 11_000));
-            }
-        };
-        assertThat(placa.livreParaAIa(9_000).getAsLong()).isEqualTo(10_000);
-        assertThat(placa.livreParaAIa(0).getAsLong()).isEqualTo(1_000);
+    void aMemoriaLivreEOTotalMenosOUsado() {
+        assertThat(new MemoriaDaPlaca.Uso(12_000, 11_000, 0).livre()).isEqualTo(1_000);
+        assertThat(new MemoriaDaPlaca.Uso(12_000, 13_000, 0).livre()).isZero();
+    }
+
+    // ------------------------------------------------------------------------------------------------ áudio e vídeo
+
+    private static final String ESQUEMA_DO_AUDIO = "{\"type\":\"object\",\"properties\":{\"falantes\":{\"type\":\"array\"},"
+            + "\"trechos\":{\"type\":\"array\"}},\"required\":[\"falantes\",\"trechos\"]}";
+
+    @Test
+    void aAnaliseDoAudioEATranscricaoDoWhisperSemOModeloReescrever() throws IOException {
+        Path mp3 = arquivo("ligacao.mp3", new byte[]{'I', 'D', '3'});
+
+        RespostaDoModelo resposta = modelo().gerar("ia-local", pedido(PedidoAoModelo.Midia.doDisco("audio/mpeg", mp3), ESQUEMA_DO_AUDIO));
+
+        assertThat(ollama.pedidos("/api/chat")).as("o modelo não é chamado").isEmpty();
+        JsonNode lido = JSON.readTree(resposta.texto());
+        assertThat(lido.path("duracao").asText()).isEqualTo("00:40");
+        assertThat(lido.path("falantes").get(0).path("papel").asText()).isEqualTo("nao_identificado");
+        assertThat(lido.path("trechos")).hasSize(2);
+        assertThat(lido.path("trechos").get(1).path("inicio").asText()).isEqualTo("01:05");
+        assertThat(lido.path("trechos").get(1).path("texto").asText()).isEqualTo("Já reiniciei e continua.");
+        assertThat(lido.path("temTrechoInaudivel").asBoolean(true)).isFalse();
+    }
+
+    @Test
+    void aNarracaoDoVideoVemDoWhisperNoLugarDaDoModelo() throws IOException {
+        Path mp4 = arquivo("gravacao.mp4", new byte[]{0, 0, 0, 24});
+        ollama.responder(200, OllamaDeMentira.conversa("{\"descricao\":\"Tela\",\"passos\":[],\"narracao\":"
+                + "[{\"inicio\":\"00:00\",\"falante\":\"x\",\"texto\":\"inventado\"}]}", "stop"));
+
+        RespostaDoModelo resposta = modelo().gerar("ia-local", pedido(PedidoAoModelo.Midia.doDisco("video/mp4", mp4),
+                "{\"type\":\"object\",\"properties\":{\"narracao\":{\"type\":\"array\"}}}"));
+
+        JsonNode narracao = JSON.readTree(resposta.texto()).path("narracao");
+        assertThat(narracao).hasSize(2);
+        assertThat(narracao.get(0).path("texto").asText()).isEqualTo("Oi, o sistema travou.");
+        assertThat(ultimaConversa().path("messages").get(1).path("content").asText()).contains("deixe a narração vazia");
+    }
+
+    @Test
+    void respostaCortadaFazAProximaVezDoMesmoPedidoTerMaisVariacao() throws IOException {
+        ollama.responder(200, OllamaDeMentira.conversa("{\"descricao\":\"Tela Tela Tela", "length"));
+        ModeloLocal modelo = modelo();
+        assertThatThrownBy(() -> modelo.gerar("ia-local", pedido(null, ESQUEMA)))
+                .isInstanceOfSatisfying(FalhaDoModelo.class, f -> assertThat(f.tipo()).isEqualTo(FalhaDoModelo.Tipo.RESPOSTA_INVALIDA));
+        assertThat(ultimaConversa().path("options").path("repeat_penalty").asDouble()).isEqualTo(1.1);
+
+        modelo.gerar("ia-local", pedido(null, ESQUEMA));
+
+        JsonNode opcoes = ultimaConversa().path("options");
+        assertThat(opcoes.path("temperature").asDouble()).isEqualTo(0.6);
+        assertThat(opcoes.path("repeat_penalty").asDouble()).isEqualTo(1.3);
     }
 
     // ------------------------------------------------------------------------------------------------ falhas

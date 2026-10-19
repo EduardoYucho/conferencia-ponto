@@ -64,12 +64,11 @@ class TranscritorEPlacaTest {
     @Test
     void oUsoDaPlacaVemDoNvidiaSmiESemEleNaoDaParaSaber() {
         MemoriaDaPlaca placa = new MemoriaDaPlaca(WhisperDeMentira.comando());
-        assertThat(placa.agora()).hasValue(new MemoriaDaPlaca.Uso(12288L * 1024 * 1024, 10240L * 1024 * 1024));
-        // 10 GB em uso, 8 deles da IA: sobram 10 GB para ela
-        assertThat(placa.livreParaAIa(8L * 1024 * 1024 * 1024).getAsLong()).isEqualTo(10L * 1024 * 1024 * 1024);
+        assertThat(placa.agora()).hasValue(new MemoriaDaPlaca.Uso(12288L * 1024 * 1024, 10240L * 1024 * 1024, 35));
+        assertThat(placa.menorUtilizacao(2, 10)).hasValue(35);
 
         MemoriaDaPlaca semPrograma = new MemoriaDaPlaca(List.of(pasta.resolve("nvidia-smi-que-nao-existe").toString()));
         assertThat(semPrograma.agora()).isEmpty();
-        assertThat(semPrograma.livreParaAIa(0)).isEmpty();
+        assertThat(semPrograma.menorUtilizacao(2, 10)).isEmpty();
     }
 }

@@ -66,24 +66,20 @@ class ClienteOllama {
         return lido(postar("/api/embed", corpo, tempoLimite), "vetor");
     }
 
-    /** Quanto da placa de vídeo os modelos carregados ocupam agora, em bytes (0 se nenhum, ou se não deu para saber). */
-    long memoriaEmUso() {
+    /**
+     * Algum modelo está carregado agora ({@code /api/ps}). Não dá para usar o {@code size_vram} daqui como a memória
+     * que ele ocupa: com o gemma4 o Ollama informa só uma parte.
+     */
+    boolean algumCarregado() {
         try {
             HttpRequest pedido = HttpRequest.newBuilder(base.resolve("/api/ps")).timeout(Duration.ofSeconds(10)).GET().build();
             HttpResponse<String> resposta = http.send(pedido, HttpResponse.BodyHandlers.ofString());
-            if (resposta.statusCode() != 200) {
-                return 0;
-            }
-            long total = 0;
-            for (JsonNode modelo : json.readTree(resposta.body()).path("models")) {
-                total += modelo.path("size_vram").asLong(0);
-            }
-            return total;
+            return resposta.statusCode() == 200 && !json.readTree(resposta.body()).path("models").isEmpty();
         } catch (IOException e) {
-            return 0;
+            return false;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            return 0;
+            return false;
         }
     }
 

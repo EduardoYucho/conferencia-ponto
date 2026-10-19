@@ -38,7 +38,11 @@ import java.util.Base64;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
-import java.util.OptionalLong;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Stream;
 
 /**
@@ -55,7 +59,9 @@ import java.util.stream.Stream;
 public class ModeloLocal implements ModeloDeIA {
 
     private static final Logger log = LoggerFactory.getLogger(ModeloLocal.class);
-    private static final int SAIDA_MAXIMA = 8192;
+    /** Uma análise ou um texto cabem com folga; acima disso, é o modelo repetindo a mesma coisa. */
+    private static final int SAIDA_MAXIMA = 4096;
+    private static final String FALANTE = "Falante";
 
     private final IaLocalProperties propriedades;
     private final ObjectMapper json;
@@ -64,6 +70,10 @@ public class ModeloLocal implements ModeloDeIA {
     private final MemoriaDaPlaca placa;
     private final ExtratorQuadros quadros;
     private final ConversorDeMidia conversor;
+    /** Um pedido de cada vez na placa de vídeo (e a conferência dela sem um pedido nosso rodando). */
+    private final ReentrantLock vez = new ReentrantLock(true);
+    /** Pedidos cuja resposta já saiu cortada (o modelo repetindo): na próxima vez, com mais variação. */
+    private final Set<Integer> cortados = ConcurrentHashMap.newKeySet();
 
     @Autowired
     public ModeloLocal(IaLocalProperties propriedades, ObjectMapper json, ExtratorQuadros quadros, ConversorDeMidia conversor) {
@@ -115,8 +125,21 @@ public class ModeloLocal implements ModeloDeIA {
 
     @Override
     public RespostaDoModelo gerar(String chave, PedidoAoModelo pedido) {
-        esperarPlacaLivre();
+        vez.lock();
+        try {
+            esperarPlacaLivre();
+            if (transcricaoPronta(pedido)) {
+                return transcricaoDoAudio(pedido); // o Whisper já faz a análise do áudio: o modelo não precisa reescrever
+            }
+            return gerarNoOllama(pedido);
+        } finally {
+            vez.unlock();
+        }
+    }
+
+    private RespostaDoModelo gerarNoOllama(PedidoAoModelo pedido) {
         Path temporaria = pastaTemporaria();
+        int marca = marca(pedido);
         try {
             Conteudo conteudo = conteudo(pedido.midia(), temporaria);
             ObjectNode corpo = json.createObjectNode();
@@ -135,11 +158,15 @@ public class ModeloLocal implements ModeloDeIA {
             if (comEsquema) {
                 corpo.set("format", esquema(pedido.esquemaJson()));
             }
+            boolean jaCortou = cortados.contains(marca);
             ObjectNode opcoes = corpo.putObject("options");
-            opcoes.put("temperature", pedido.temperatura() != null ? pedido.temperatura() : comEsquema ? 0.2 : 0.3);
+            opcoes.put("temperature", jaCortou ? 0.6 : pedido.temperatura() != null ? pedido.temperatura() : comEsquema ? 0.2 : 0.3);
             opcoes.put("num_ctx", propriedades.contexto());
             opcoes.put("num_predict", pedido.maxTokensSaida() > 0 ? Math.min(pedido.maxTokensSaida(), SAIDA_MAXIMA) : SAIDA_MAXIMA);
-            opcoes.put("repeat_penalty", 1.1);
+            opcoes.put("repeat_penalty", jaCortou ? 1.3 : 1.1);
+            if (jaCortou) {
+                opcoes.put("repeat_last_n", 256);
+            }
             corpo.put("keep_alive", ClienteOllama.segundos(propriedades.manterCarregado()));
 
             JsonNode resposta = ollama.conversar(corpo);
@@ -148,7 +175,12 @@ public class ModeloLocal implements ModeloDeIA {
                 throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "a IA local devolveu uma resposta vazia");
             }
             if ("length".equals(resposta.path("done_reason").asText(""))) {
+                cortados.add(marca);
                 throw new FalhaDoModelo(Tipo.RESPOSTA_INVALIDA, "a resposta da IA local foi cortada no limite de tamanho");
+            }
+            cortados.remove(marca);
+            if (comEsquema && conteudo.fala() != null && pedido.esquemaJson().contains("\"narracao\"")) {
+                texto = comANarracao(texto, conteudo.fala()); // a fala do vídeo vem do Whisper, não do modelo
             }
             return new RespostaDoModelo(texto, resposta.path("prompt_eval_count").asInt(0), resposta.path("eval_count").asInt(0));
         } finally {
@@ -187,33 +219,126 @@ public class ModeloLocal implements ModeloDeIA {
     // ------------------------------------------------------------------------------------------ placa de vídeo
 
     /**
-     * Com a placa ocupada por outro programa, o modelo não cabe (ou divide a placa com o jogo e fica lento): tira o
-     * modelo da placa, se ele estava lá, e avisa para a tarefa esperar.
+     * A placa está ocupada por outro programa (um jogo)? Com o modelo fora dela, pela memória livre: o modelo precisa
+     * caber. Com o modelo carregado, a memória não diz nada (o Ollama não informa direito a parte dele, e o nvidia-smi
+     * não separa por programa no Windows): vale o uso da placa com a IA parada (esta conferência roda sem pedido nosso
+     * em andamento). Ocupada: tira o modelo da placa e avisa para a tarefa esperar.
      */
     void esperarPlacaLivre() {
         IaLocalProperties.Placa config = propriedades.placa();
         if (!config.esperarLivre()) {
             return;
         }
-        long daIa = ollama.memoriaEmUso();
-        OptionalLong livre = placa.livreParaAIa(daIa);
-        long necessaria = config.memoriaNecessaria().toBytes();
-        if (livre.isPresent() && livre.getAsLong() < necessaria) {
-            if (daIa > 0) {
+        Optional<MemoriaDaPlaca.Uso> uso = placa.agora();
+        if (uso.isEmpty()) {
+            return;
+        }
+        boolean carregado = ollama.algumCarregado();
+        String motivo = null;
+        if (!carregado) {
+            long necessaria = config.memoriaNecessaria().toBytes();
+            if (uso.get().livre() < necessaria) {
+                motivo = (uso.get().livre() / (1024 * 1024)) + " MB livres; o modelo precisa de " + (necessaria / (1024 * 1024));
+            }
+        } else {
+            OptionalInt menor = placa.menorUtilizacao(3, 400);
+            if (menor.isPresent() && menor.getAsInt() >= config.usoMaximo()) {
+                motivo = "em uso a " + menor.getAsInt() + "% com a IA parada";
+            }
+        }
+        if (motivo != null) {
+            if (carregado) {
                 ollama.descarregar(propriedades.modelo());
             }
-            log.info("IA local: placa de vídeo ocupada ({} MB livres para a IA; precisa de {} MB): esperando",
-                    livre.getAsLong() / (1024 * 1024), necessaria / (1024 * 1024));
+            log.info("IA local: placa de vídeo ocupada por outro programa ({}): esperando", motivo);
             throw new FalhaDoModelo(Tipo.PLACA_OCUPADA, "a placa de vídeo está ocupada", config.intervalo(), 0);
         }
+    }
+
+    // ------------------------------------------------------------------------------------- áudio: só o Whisper
+
+    /** A análise de um áudio (o esquema com os trechos falados): a transcrição do Whisper já é a resposta. */
+    private static boolean transcricaoPronta(PedidoAoModelo pedido) {
+        PedidoAoModelo.Midia midia = pedido.midia();
+        return midia != null && midia.uri() != null && midia.tipoDeMidia() != null
+                && midia.tipoDeMidia().toLowerCase(Locale.ROOT).startsWith("audio/")
+                && pedido.esquemaJson() != null && pedido.esquemaJson().contains("\"trechos\"")
+                && pedido.esquemaJson().contains("\"falantes\"");
+    }
+
+    /**
+     * O JSON da análise do áudio montado com os trechos do Whisper, sem o modelo reescrever a transcrição (numa
+     * ligação longa, ele começava a repetir trechos e a resposta saía cortada). Quem fala não é separado: os trechos
+     * ficam com "Falante" (a mensagem da conversa já diz quem mandou o áudio).
+     */
+    private RespostaDoModelo transcricaoDoAudio(PedidoAoModelo pedido) {
+        Path temporaria = pastaTemporaria();
+        try {
+            Path arquivo = doDisco(pedido.midia().uri());
+            List<Transcritor.Trecho> trechos = transcrever(arquivo, temporaria.resolve("audio.wav"));
+            long duracao = conversor.duracaoMs(arquivo).filter(d -> d > 0).orElse(0L);
+            ObjectNode lido = json.createObjectNode();
+            lido.put("idioma", "pt-BR");
+            lido.put("duracao", duracao > 0 ? minutos(duracao) : "não identificado");
+            ArrayNode falantes = lido.putArray("falantes");
+            if (!trechos.isEmpty()) {
+                falantes.addObject().put("rotulo", FALANTE).put("papel", "nao_identificado");
+            }
+            ArrayNode lista = lido.putArray("trechos");
+            for (Transcritor.Trecho t : trechos) {
+                lista.addObject().put("inicio", minutos(t.inicioMs())).put("falante", FALANTE).put("texto", t.texto());
+            }
+            lido.put("temTrechoInaudivel", false);
+            return new RespostaDoModelo(json.writeValueAsString(lido), 0, 0);
+        } catch (IOException e) {
+            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "não foi possível montar a transcrição");
+        } finally {
+            apagarPasta(temporaria);
+        }
+    }
+
+    private List<Transcritor.Trecho> transcrever(Path arquivo, Path wav) {
+        try {
+            conversor.paraWav(arquivo, wav);
+        } catch (FalhaNoQuadro falha) {
+            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "o áudio não abriu no ffmpeg");
+        }
+        return transcritor.transcrever(wav);
+    }
+
+    /** A narração do vídeo trocada pela fala do Whisper (o modelo só descreve os passos). */
+    private String comANarracao(String texto, List<Transcritor.Trecho> fala) {
+        try {
+            JsonNode lido = json.readTree(texto);
+            if (!(lido instanceof ObjectNode objeto)) {
+                return texto;
+            }
+            ArrayNode narracao = objeto.putArray("narracao");
+            for (Transcritor.Trecho t : fala) {
+                narracao.addObject().put("inicio", minutos(t.inicioMs())).put("falante", FALANTE).put("texto", t.texto());
+            }
+            return json.writeValueAsString(objeto);
+        } catch (IOException e) {
+            return texto; // fora do JSON: quem chama confere e pede de novo
+        }
+    }
+
+    private static int marca(PedidoAoModelo pedido) {
+        return java.util.Objects.hash(pedido.instrucao(), pedido.esquemaJson(),
+                pedido.midia() == null ? null : pedido.midia().uri(),
+                pedido.midia() == null || pedido.midia().dados() == null ? 0 : java.util.Arrays.hashCode(pedido.midia().dados()));
     }
 
     // --------------------------------------------------------------------------------- o conteúdo de cada mídia
 
     /** O que vai junto da instrução: texto (transcrição, texto do PDF, legenda dos quadros) e imagens em base64. */
-    record Conteudo(String texto, List<String> imagens) {
+    record Conteudo(String texto, List<String> imagens, List<Transcritor.Trecho> fala) {
 
-        static final Conteudo NADA = new Conteudo("", List.of());
+        static final Conteudo NADA = new Conteudo("", List.of(), null);
+
+        Conteudo(String texto, List<String> imagens) {
+            this(texto, imagens, null);
+        }
     }
 
     Conteudo conteudo(PedidoAoModelo.Midia midia, Path temporaria) {
@@ -277,13 +402,7 @@ public class ModeloLocal implements ModeloDeIA {
     }
 
     private Conteudo audio(Path arquivo, Path temporaria) {
-        Path wav = temporaria.resolve("audio.wav");
-        try {
-            conversor.paraWav(arquivo, wav);
-        } catch (FalhaNoQuadro falha) {
-            throw new FalhaDoModelo(Tipo.ARQUIVO_FALHOU, "o áudio não abriu no ffmpeg");
-        }
-        List<Transcritor.Trecho> trechos = transcritor.transcrever(wav);
+        List<Transcritor.Trecho> trechos = transcrever(arquivo, temporaria.resolve("audio.wav"));
         return new Conteudo("O áudio já foi transcrito por um programa de transcrição (a transcrição pode ter erros "
                 + "em nomes e números). Use esta transcrição como o conteúdo do áudio; o início de cada trecho está entre "
                 + "colchetes, em minutos e segundos:\n" + transcricao(trechos, "(o programa não encontrou fala neste áudio)"),
@@ -315,10 +434,12 @@ public class ModeloLocal implements ModeloDeIA {
                     + "necessário para a IA local ver os vídeos)");
         }
         String fala;
+        List<Transcritor.Trecho> trechos = List.of();
         Path wav = temporaria.resolve("audio-do-video.wav");
         try {
             conversor.paraWav(arquivo, wav);
-            fala = transcricao(transcritor.transcrever(wav), "(sem fala no vídeo)");
+            trechos = transcritor.transcrever(wav);
+            fala = transcricao(trechos, "(sem fala no vídeo)");
         } catch (FalhaNoQuadro falha) {
             fala = "(o vídeo não tem áudio)";
         } catch (FalhaDoModelo falha) {
@@ -329,7 +450,8 @@ public class ModeloLocal implements ModeloDeIA {
         }
         return new Conteudo("O vídeo tem " + minutos(duracao) + ". As imagens são quadros tirados dele, em ordem ("
                 + String.join("; ", instantes) + "): use esses instantes nos passos. A fala do vídeo, transcrita por um "
-                + "programa (pode ter erros em nomes e números), com o início de cada trecho:\n" + fala, imagens);
+                + "programa (pode ter erros em nomes e números), com o início de cada trecho:\n" + fala
+                + "\nNa resposta, deixe a narração vazia ([]): o sistema põe a fala transcrita no lugar.", imagens, trechos);
     }
 
     private Conteudo pdf(Path arquivo) throws IOException {

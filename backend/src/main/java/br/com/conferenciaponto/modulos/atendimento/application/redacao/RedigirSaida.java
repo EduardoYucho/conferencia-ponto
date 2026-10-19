@@ -459,7 +459,7 @@ public class RedigirSaida implements ExecutorDeTarefa {
                 if (falha.tipo() != FalhaDoModelo.Tipo.RESPOSTA_INVALIDA || vez >= 2) {
                     throw falha;
                 }
-                log.info("Resposta do Gemini fora do formato ({}): tentando de novo", falha.getMessage());
+                log.info("Resposta do modelo fora do formato ({}): tentando de novo", falha.getMessage());
             }
         }
     }

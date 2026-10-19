@@ -74,12 +74,15 @@ public record IaLocalProperties(
     /**
      * @param esperarLivre      com a placa ocupada (um jogo aberto), o atendimento espera ela ficar livre, em vez de
      *                          rodar devagar e pesar no jogo
-     * @param memoriaNecessaria quanto precisa estar livre na placa (sem contar o que a própria IA usa)
+     * @param memoriaNecessaria com o modelo fora da placa: quanto precisa estar livre nela para ele entrar
+     * @param usoMaximo         com o modelo na placa e a IA parada: acima deste uso (0 a 100), outro programa está
+     *                          usando a placa (um jogo), e a IA espera
      * @param intervalo         de quanto em quanto tempo confere de novo
      * @param nvidiaSmi         o programa que diz quanto da placa está em uso (vem com o driver da NVIDIA)
      */
     public record Placa(@DefaultValue("true") boolean esperarLivre, @DefaultValue("8GB") DataSize memoriaNecessaria,
-                        @DefaultValue("2m") Duration intervalo, @DefaultValue("nvidia-smi") String nvidiaSmi) {
+                        @DefaultValue("60") int usoMaximo, @DefaultValue("2m") Duration intervalo,
+                        @DefaultValue("nvidia-smi") String nvidiaSmi) {
     }
 
     /** A pasta ia-local, ao lado das outras da Conferência de Ponto. */
