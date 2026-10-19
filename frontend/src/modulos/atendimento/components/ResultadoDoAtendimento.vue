@@ -11,6 +11,7 @@ import {
   TIPOS_DE_SAIDA,
 } from '@/modulos/atendimento/formato'
 import CamposDoChamado from './CamposDoChamado.vue'
+import PeloAppDoGemini from './PeloAppDoGemini.vue'
 import SaidaDoAtendimento from './SaidaDoAtendimento.vue'
 
 /**
@@ -199,5 +200,12 @@ async function gerarDeNovo(tipo) {
     </div>
 
     <p v-if="mensagem" role="alert" class="mt-3 text-sm text-carimbo">{{ mensagem }}</p>
+
+    <PeloAppDoGemini
+      :atendimento="atendimento"
+      :tipo-atual="atual?.tipo ?? null"
+      @progresso="emit('progresso', $event)"
+      @usado="aba = $event"
+    />
   </section>
 </template>

@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.video;
 
+import br.com.conferenciaponto.modulos.atendimento.domain.video.ConversorDeMidia;
 import br.com.conferenciaponto.modulos.atendimento.domain.video.ExtratorQuadros;
 import br.com.conferenciaponto.modulos.atendimento.domain.video.FalhaNoQuadro;
 import br.com.conferenciaponto.modulos.atendimento.domain.video.InstanteDoVideo;
@@ -42,7 +43,7 @@ import java.util.stream.Stream;
  * erro do ffmpeg, nunca o conteúdo do vídeo.
  */
 @Component
-public class ExtratorQuadrosFfmpeg implements ExtratorQuadros {
+public class ExtratorQuadrosFfmpeg implements ExtratorQuadros, ConversorDeMidia {
 
     private static final Logger log = LoggerFactory.getLogger(ExtratorQuadrosFfmpeg.class);
     private static final Pattern VERSAO = Pattern.compile("(?im)^ffmpeg version (\\S+)");
@@ -127,6 +128,85 @@ public class ExtratorQuadrosFfmpeg implements ExtratorQuadros {
             log.warn("Quadro de {} não gravado: {}", InstanteDoVideo.texto(instanteMs), ex.getClass().getSimpleName());
             throw new FalhaNoQuadro(FalhaNoQuadro.FFMPEG_FALHOU, "Não foi possível gravar o quadro de "
                     + InstanteDoVideo.texto(instanteMs) + " no servidor.");
+        } finally {
+            if (temporario != null) {
+                try {
+                    Files.deleteIfExists(temporario);
+                } catch (IOException ignorada) {
+                    // fica o temporário (começa com ponto e some na retenção)
+                }
+            }
+        }
+    }
+
+    // ---------------------------------------------------------------------------------------------- áudio
+
+    private static final Pattern DURACAO = Pattern.compile("Duration:\\s*(\\d+):(\\d{2}):(\\d{2})(?:\\.(\\d+))?");
+
+    @Override
+    public boolean disponivel() {
+        return atual() != null;
+    }
+
+    @Override
+    public void paraWav(Path origem, Path destino) {
+        converter(origem, destino, List.of("-vn", "-ac", "1", "-ar", "16000", "-c:a", "pcm_s16le", "-f", "wav"), ".wav");
+    }
+
+    @Override
+    public boolean paraMp3(Path wav, Path destino) {
+        try {
+            converter(wav, destino, List.of("-c:a", "libmp3lame", "-b:a", "48k", "-f", "mp3"), ".mp3");
+            return true;
+        } catch (FalhaNoQuadro falha) {
+            return false;
+        }
+    }
+
+    @Override
+    public Optional<Long> duracaoMs(Path midia) {
+        Encontrado e = atual();
+        if (e == null) {
+            return Optional.empty();
+        }
+        List<String> comando = new ArrayList<>(e.comando());
+        comando.addAll(List.of("-hide_banner", "-nostdin", "-i", midia.toAbsolutePath().toString()));
+        try {
+            Matcher m = DURACAO.matcher(rodar(comando, tempoLimite).texto()); // sem saída, o ffmpeg só descreve o arquivo
+            if (!m.find()) {
+                return Optional.empty();
+            }
+            String fracao = m.group(4) == null ? "0" : (m.group(4) + "00").substring(0, 3);
+            return Optional.of(((Long.parseLong(m.group(1)) * 60 + Long.parseLong(m.group(2))) * 60
+                    + Long.parseLong(m.group(3))) * 1000 + Long.parseLong(fracao));
+        } catch (IOException ex) {
+            return Optional.empty();
+        }
+    }
+
+    private void converter(Path origem, Path destino, List<String> saida, String extensao) {
+        Encontrado e = atual();
+        if (e == null) {
+            throw new FalhaNoQuadro(FalhaNoQuadro.FFMPEG_AUSENTE, "O ffmpeg não está instalado no servidor.");
+        }
+        Path temporario = null;
+        try {
+            Files.createDirectories(destino.getParent());
+            temporario = Files.createTempFile(destino.getParent(), ".conversao-", extensao);
+            List<String> comando = new ArrayList<>(e.comando());
+            comando.addAll(List.of("-hide_banner", "-loglevel", "error", "-nostdin", "-i", origem.toAbsolutePath().toString()));
+            comando.addAll(saida);
+            comando.addAll(List.of("-y", temporario.toAbsolutePath().toString()));
+            Saida resultado = rodar(comando, tempoLimite.multipliedBy(5));
+            if (resultado.codigo() != 0 || !Files.isRegularFile(temporario) || Files.size(temporario) == 0) {
+                log.warn("ffmpeg saiu com {} ao converter um áudio para {}: {}", resultado.codigo(), extensao,
+                        resultado.ultimaLinha());
+                throw new FalhaNoQuadro(FalhaNoQuadro.FFMPEG_FALHOU, "O ffmpeg não conseguiu converter o arquivo.");
+            }
+            mover(temporario, destino);
+            temporario = null;
+        } catch (IOException ex) {
+            throw new FalhaNoQuadro(FalhaNoQuadro.FFMPEG_FALHOU, "Não foi possível gravar o arquivo convertido no servidor.");
         } finally {
             if (temporario != null) {
                 try {

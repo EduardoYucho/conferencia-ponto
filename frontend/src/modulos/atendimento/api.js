@@ -135,6 +135,19 @@ export const atendimentoApi = {
   imagensZip: (id, saidaId) =>
     http.get(`/atendimentos/${id}/saidas/${saidaId}/imagens.zip`, { responseType: 'blob', timeout: 120000 }),
 
+  /**
+   * O texto pelo app do Gemini (sem a cota da API): monta o pedido { tipo, pedido, arquivos: [{ nome, tamanho,
+   * conteudo }], avisos, audioMs, videoMs } (junta as imagens num PDF e os áudios num MP3: pode demorar).
+   */
+  pedidoParaOApp: (id, tipo) => http.post(`/atendimentos/${id}/app-gemini/${tipo}/pedido`, null, { timeout: 300000 }),
+  /** Um arquivo do pedido (resposta inteira, para salvar). */
+  arquivoParaOApp: (id, nome) =>
+    http.get(`/atendimentos/${id}/app-gemini/arquivos/${encodeURIComponent(nome)}`, { responseType: 'blob', timeout: 600000 }),
+  /** Todos os arquivos do pedido num .zip (resposta inteira, para salvar). */
+  arquivosParaOAppZip: (id) => http.get(`/atendimentos/${id}/app-gemini/arquivos.zip`, { responseType: 'blob', timeout: 900000 }),
+  /** A resposta colada do app vira o texto. Devolve o progresso (com os textos). */
+  respostaDoApp: (id, tipo, resposta) => http.post(`/atendimentos/${id}/app-gemini/${tipo}/resposta`, { resposta }, { timeout: 120000 }),
+
   /** Administrador: { ocupado, livre, pausados } (bytes). */
   espaco: () => http.get('/atendimentos/acessos/espaco'),
 }
