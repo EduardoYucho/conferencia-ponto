@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.retencao;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
@@ -50,11 +51,11 @@ class LimpezaDosAtendimentosTest {
 
     @Test
     void osArquivosSaemDepoisDoPrazoEOAtendimentoInteiroDepoisDosTextos() {
-        Usuario maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "h", true, Set.of(Perfil.ROLE_USER),
+        Usuario maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "h", true, Acesso.usuario(),
                 null, null, false);
         Instant criado = Instant.now().plus(Duration.ofDays(4000)); // depois do que os outros testes criaram
         UUID id = criar(maria, criado);
-        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "h", true, Set.of(Perfil.ROLE_USER),
+        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "h", true, Acesso.usuario(),
                 null, null, false);
         UUID recente = criar(joao, criado.plus(Duration.ofDays(20)));
         Path pdf = raiz.resolve(id.toString()).resolve("conversa.pdf");

@@ -35,6 +35,7 @@ class MigracoesPostgresTest {
     private static JdbcTemplate jdbc;
     private static TransactionTemplate transacao;
     private static List<String> pontoDepoisDaV13;
+    private static List<String> pontoDepoisDosModulos;
 
     @BeforeAll
     static void subirOBancoEAplicarAsMigracoes() throws Exception {
@@ -51,6 +52,8 @@ class MigracoesPostgresTest {
 
         flyway().target("13").load().migrate();
         pontoDepoisDaV13 = estruturaDoPonto();
+        flyway().target("15").load().migrate();
+        pontoDepoisDosModulos = estruturaDoPonto();
         flyway().load().migrate();
     }
 
@@ -70,9 +73,10 @@ class MigracoesPostgresTest {
         assertThat(flyway().load().info().pending()).isEmpty();
     }
 
+    /** As migrações dos módulos (V14 e V15) não mexem no ponto; as seguintes são do ponto (V16: perfis de acesso). */
     @Test
     void nadaDoPontoMudou() {
-        assertThat(estruturaDoPonto()).containsExactlyElementsOf(pontoDepoisDaV13);
+        assertThat(pontoDepoisDosModulos).containsExactlyElementsOf(pontoDepoisDaV13);
     }
 
     @Test

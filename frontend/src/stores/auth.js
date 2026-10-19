@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { authApi } from '@/api/authApi'
 import { pontoApi } from '@/api/pontoApi'
+import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 
 const CHAVE = 'conferencia-ponto.sessao'
 
@@ -18,9 +19,10 @@ function lerSessaoSalva() {
 /**
  * Sessão do usuário (JWT) e de quem são os dados em tela.
  *
- * Cada pessoa vê e altera os próprios dados. Administrador e coordenação podem consultar os dados de
- * qualquer pessoa ("ver como"): nesse caso as telas ficam somente leitura — ninguém altera o ponto de outra
- * pessoa. O token vale 8 h por padrão e fica no localStorage para sobreviver a um recarregamento da página.
+ * Cada pessoa vê e altera os próprios dados. Quem consulta o ponto da equipe pode ver os dados de qualquer
+ * pessoa ("ver como"): nesse caso as telas ficam somente leitura — ninguém altera o ponto de outra pessoa. O que
+ * cada um pode fazer vem das permissões (a soma dos perfis com os ajustes só dele), que o servidor confere em
+ * toda requisição. O token vale 8 h por padrão e fica no localStorage para sobreviver a um recarregamento.
  */
 export const useAuthStore = defineStore('auth', () => {
   const salva = lerSessaoSalva()
@@ -39,12 +41,22 @@ export const useAuthStore = defineStore('auth', () => {
   let aoExpirar = () => {}
 
   const autenticado = computed(() => !!token.value && new Date(expiraEm.value) > new Date())
+  /** O nome dos perfis da pessoa. */
   const perfis = computed(() => usuario.value?.perfis ?? [])
-  const ehAdmin = computed(() => perfis.value.includes('ROLE_ADMIN'))
-  /** Tem os próprios dados de ponto (ADMIN/USER). */
-  const ehTitular = computed(() => usuario.value?.titular ?? usuario.value?.podeEscrever === true)
-  /** ADMIN e coordenação: escolhem de quem são os dados em tela. */
-  const podeVerTodos = computed(() => usuario.value?.podeVerTodos ?? (ehAdmin.value || perfis.value.includes('ROLE_VIEWER')))
+  const permissoes = computed(() => new Set(usuario.value?.permissoes ?? []))
+  /** Uma sessão salva por uma versão anterior ainda não tem as permissões (até reler o usuário). */
+  const conhecePermissoes = computed(() => Array.isArray(usuario.value?.permissoes))
+  /** A pessoa tem esta permissão (ex.: 'ponto.lancar'). */
+  function pode(codigo) {
+    return permissoes.value.has(codigo)
+  }
+  function podeAlgum(...codigos) {
+    return codigos.some(pode)
+  }
+  /** Tem os próprios dados de ponto. */
+  const ehTitular = computed(() => usuario.value?.titular === true)
+  /** Consulta o ponto da equipe: escolhe de quem são os dados em tela. */
+  const podeVerTodos = computed(() => usuario.value?.podeVerTodos === true)
   const precisaTrocarSenha = computed(() => usuario.value?.trocarSenha === true)
 
   /** Os dados em tela são do próprio usuário. */
@@ -59,16 +71,11 @@ export const useAuthStore = defineStore('auth', () => {
   /** Id da pessoa em tela (filtra os eventos em tempo real de outras pessoas). */
   const idEmTela = computed(() => pessoaEmTela.value?.id ?? null)
 
-  /** ADMIN/USER vendo os próprios dados: escrita liberada. */
+  /** Lança no próprio ponto e está vendo os próprios dados: escrita liberada. */
   const podeEscrever = computed(() => usuario.value?.podeEscrever === true && vendoOsProprios.value)
-  /** Coordenação, ou admin consultando outra pessoa: sem botões de edição/inserção/exclusão. */
+  /** Só consulta, ou está vendo os dados de outra pessoa: sem botões de edição/inserção/exclusão. */
   const somenteLeitura = computed(() => autenticado.value && !podeEscrever.value)
-  const rotuloPerfil = computed(() => {
-    if (ehAdmin.value) return 'Administrador'
-    if (perfis.value.includes('ROLE_USER')) return 'Usuário'
-    if (perfis.value.includes('ROLE_VIEWER')) return 'Coordenação (leitura)'
-    return ''
-  })
+  const rotuloPerfil = computed(() => perfis.value.join(', ') || 'Sem perfil')
 
   function persistir() {
     try {
@@ -176,16 +183,35 @@ export const useAuthStore = defineStore('auth', () => {
     return vendoOsProprios.value ? null : visto.value
   }
 
-  /** Rota inicial conforme o perfil: coordenação cai direto na auditoria. */
+  /** A primeira tela que a pessoa pode abrir: o painel; quem só consulta a equipe, a auditoria; e assim por diante. */
   function rotaInicial() {
     if (precisaTrocarSenha.value) return { name: 'trocar-senha' }
-    return ehTitular.value ? { name: 'painel' } : { name: 'auditoria' }
+    if (ehTitular.value || !conhecePermissoes.value) return { name: 'painel' }
+    if (podeVerTodos.value) return { name: 'auditoria' }
+    if (pode('atendimentos.usar')) return { name: 'atendimentos' }
+    if (pode('base.pesquisar')) return { name: 'base-conhecimento' }
+    if (podeAlgum(USUARIOS, ACESSOS, INTEGRACOES)) return { name: 'usuarios' }
+    if (pode(LOGS)) return { name: 'logs' }
+    return { name: 'conta' }
+  }
+
+  /**
+   * A tela pode ser aberta com o acesso de agora? (`meta.permissao`: 'ponto' = o próprio ponto ou o da
+   * equipe; um código ou uma lista de códigos = basta ter um.) Sem as permissões ainda (sessão antiga), deixa
+   * abrir: o servidor confere de qualquer jeito.
+   */
+  function podeAbrir(rota) {
+    const exige = rota?.meta?.permissao
+    if (!exige || !conhecePermissoes.value) return true
+    if (exige === 'ponto') return ehTitular.value || podeVerTodos.value
+    return [].concat(exige).some(pode)
   }
 
   return {
     token, expiraEm, usuario, visto, titulares, erroTitulares, avisoDeSaida,
-    autenticado, perfis, ehAdmin, ehTitular, podeVerTodos, precisaTrocarSenha, vendoOsProprios, pessoaEmTela,
-    idEmTela, podeEscrever, somenteLeitura, rotuloPerfil,
+    autenticado, perfis, permissoes, pode, podeAlgum, ehTitular, podeVerTodos, precisaTrocarSenha, vendoOsProprios,
+    pessoaEmTela, idEmTela, podeEscrever, somenteLeitura, rotuloPerfil,
     definirAoExpirar, login, logout, atualizarUsuario, alterarSenha, carregarTitulares, verComo, loginConsultado, rotaInicial,
+    podeAbrir,
   }
 })

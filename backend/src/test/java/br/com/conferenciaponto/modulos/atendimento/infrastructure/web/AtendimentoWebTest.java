@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -7,7 +8,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.AtendimentoView;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.LeituraView;
@@ -69,8 +70,6 @@ class AtendimentoWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private GerenciarAtendimentos atendimentos;
 
     private Usuario maria;
@@ -101,7 +100,7 @@ class AtendimentoWebTest {
 
     @Test
     void enviaOPdfEmFluxoComONomeCodificado() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         ArgumentCaptor<InputStream> corpo = ArgumentCaptor.forClass(InputStream.class);
         byte[][] lido = new byte[1][];
         when(atendimentos.receberPdf(eq(maria), corpo.capture(), eq((long) PDF.length), eq("Conversa do cliente (1).pdf")))
@@ -123,7 +122,7 @@ class AtendimentoWebTest {
 
     @Test
     void chamadoQueJaTemAtendimentoResponde200ComOExistente() throws Exception {
-        when(acessos.liberado(coordenacao)).thenReturn(true);
+        coordenacao = liberar(coordenacao);
         when(atendimentos.receberPdf(eq(coordenacao), any(), anyLong(), any())).thenReturn(new ResultadoDoEnvio(false, RESUMO, LEITURA, 0));
 
         mvc.perform(post("/api/v1/atendimentos").with(como(coordenacao)).contentType(MediaType.APPLICATION_OCTET_STREAM).content(PDF))
@@ -134,7 +133,7 @@ class AtendimentoWebTest {
 
     @Test
     void pdfRecusadoNaLeituraVem422ComOCodigoEOProtocolo() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(atendimentos.receberPdf(eq(maria), any(), anyLong(), any())).thenThrow(LeituraDoPdfException.naoEDigisac());
 
         mvc.perform(post("/api/v1/atendimentos").with(como(maria)).contentType(MediaType.APPLICATION_PDF).content(PDF))
@@ -145,7 +144,7 @@ class AtendimentoWebTest {
 
     @Test
     void outroFormatoDeEnvioERecusado() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
 
         mvc.perform(post("/api/v1/atendimentos").with(como(maria)).contentType(MediaType.APPLICATION_JSON).content("{}"))
                 .andExpect(status().isUnsupportedMediaType())
@@ -155,7 +154,7 @@ class AtendimentoWebTest {
 
     @Test
     void listaEAbreOsProprios() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(atendimentos.listar(maria)).thenReturn(List.of(RESUMO));
         when(atendimentos.detalhe(maria, ID)).thenReturn(new AtendimentoView(ID, "20261009000001", "Loja Exemplo", null, null,
                 "novo", null, 100, Instant.parse("2026-10-09T15:00:00Z"), Instant.parse("2026-11-08T15:00:00Z"), null, null,
@@ -173,7 +172,7 @@ class AtendimentoWebTest {
 
     @Test
     void atendimentoDeOutraPessoaVem404() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         RecursoNaoEncontradoException naoEncontrado = new RecursoNaoEncontradoException("ATENDIMENTO_NAO_ENCONTRADO",
                 "Atendimento não encontrado. Ele pode ter sido apagado.");
         when(atendimentos.detalhe(maria, ID)).thenThrow(naoEncontrado);
@@ -188,7 +187,7 @@ class AtendimentoWebTest {
 
     @Test
     void apagaOProprio() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
 
         mvc.perform(delete("/api/v1/atendimentos/" + ID).with(como(maria))).andExpect(status().isOk());
 
@@ -197,7 +196,7 @@ class AtendimentoWebTest {
 
     @Test
     void camposDosChamadosVaoParaOServicoEVoltamLimpos() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         CamposInformados pedido = new CamposInformados("01/10/2026", false, "Z:\\Bases\\Loja", null);
         when(atendimentos.salvarCampos(maria, ID, pedido)).thenReturn(pedido);
 
@@ -213,7 +212,7 @@ class AtendimentoWebTest {
 
     @Test
     void idQueNaoEUuidNaoChegaAoServico() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
 
         mvc.perform(get("/api/v1/atendimentos/abc").with(como(maria))).andExpect(status().is4xxClientError());
 
@@ -223,13 +222,20 @@ class AtendimentoWebTest {
     // --------------------------------------------------------------------------------------------- apoio
 
     private Usuario usuario(String login, Perfil perfil) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, Set.of(perfil), null, null, false);
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, Acesso.de(perfil), null, null, false);
         when(usuarios.buscarPorLogin(login)).thenReturn(Optional.of(usuario));
         return usuario;
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        String perfil = usuario.perfis().iterator().next().name();
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority(perfil));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 }

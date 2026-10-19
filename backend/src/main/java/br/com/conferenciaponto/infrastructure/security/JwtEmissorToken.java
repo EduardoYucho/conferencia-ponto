@@ -1,6 +1,5 @@
 package br.com.conferenciaponto.infrastructure.security;
 
-import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.EmissorToken;
 import org.springframework.security.oauth2.jose.jws.MacAlgorithm;
@@ -14,7 +13,10 @@ import java.time.Clock;
 import java.time.Instant;
 import java.util.UUID;
 
-/** Emite o JWT de acesso: sub = login, claims "nome" e "roles" (perfis). */
+/**
+ * Emite o JWT de acesso: sub = login e a claim "nome". As permissões não vão no token: são relidas do banco a
+ * cada requisição (ver SecurityConfig), para uma mudança de acesso valer na hora.
+ */
 @Component
 public class JwtEmissorToken implements EmissorToken {
 
@@ -39,7 +41,6 @@ public class JwtEmissorToken implements EmissorToken {
                 .expiresAt(expira)
                 .subject(usuario.login())
                 .claim(SecurityConfig.CLAIM_NOME, usuario.nome())
-                .claim(SecurityConfig.CLAIM_PERFIS, usuario.perfis().stream().map(Perfil::name).sorted().toList())
                 .build();
         JwsHeader cabecalho = JwsHeader.with(MacAlgorithm.HS256).build();
         String token = encoder.encode(JwtEncoderParameters.from(cabecalho, claims)).getTokenValue();

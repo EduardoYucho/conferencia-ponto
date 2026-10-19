@@ -8,7 +8,7 @@ do RH** (com segundos, tolerância por horário da grade, até 6 batidas; horár
 **banco de horas semestral** com botão de fechamento e avisos de prazo, **lançamentos no banco** (abater ou
 creditar horas), **feriados, férias, folgas, atestados e abonos**,
 **importação automática dos comprovantes em PDF** com atualização em tempo real (SSE), **arquivo seguro dos
-PDFs**, **acesso por perfil (JWT)** com auditoria para a coordenação, **conciliação com o relatório de
+PDFs**, **controle de acessos por perfis e permissões (JWT)** com auditoria para a coordenação, **conciliação com o relatório de
 banco de horas do RH** (tela dividida conferência × RH) e **planilha de conferência** — em Excel ou numa
 planilha do **Google Sheets atualizada sozinha**, para compartilhar com quem confere.
 
@@ -30,9 +30,9 @@ conferencia-ponto/
 └── frontend/                   Vue 3 · Vite · Pinia · Axios · Tailwind 4
     └── src/
         ├── api/                http.js (Bearer), eventos.js (SSE autenticado), pontoApi, authApi
-        ├── stores/             auth.js (sessão, perfil, "dados de") · ponto.js (usePontoStore, tempo real)
+        ├── stores/             auth.js (sessão, permissões, "dados de") · ponto.js (usePontoStore, tempo real)
         ├── views/              Login · TrocarSenha · Dashboard · Auditoria · Conciliacao · Ausencias ·
-        │                       MinhaConta (senha, pasta, horário, planilha) · Usuarios (administrador)
+        │                       MinhaConta (senha, pasta, horário, planilha) · Usuarios · Perfis (acessos)
         └── components/         TimelineDiaria, CartaoMensal, EditorHorario, EditorPasta, EditorPlanilha,
                                 IntegracaoGoogle, EnvioComprovantes, ...
 ```
@@ -87,12 +87,13 @@ do projeto. É o lugar da pasta dos comprovantes (ex.: a pasta de rede, veja aba
 como o 27 — o Maven lê isso do `pom.xml`, o Eclipse não); em *Environment*, as mesmas variáveis do
 `ambiente.local.ps1`. Use o **mesmo** `PONTO_JWT_SEGREDO` nos dois lugares para o login valer em ambos.
 
-Usuários iniciais: `admin` (perfil `ADMIN`) e `coordenacao` (perfil `VIEWER`), criados na primeira subida.
+Usuários iniciais: `admin` (perfil *Administrador*, `ROLE_ADMIN` na configuração) e `coordenacao` (perfil
+*Coordenador*, `ROLE_VIEWER`), criados na primeira subida.
 Para usar outros logins e nomes, redefina a lista `ponto.seguranca.usuarios-iniciais` em
 `backend/config/application.yml`. As senhas `PONTO_ADMIN_SENHA` e `PONTO_VIEWER_SENHA` só são usadas quando o
 usuário ainda não existe no banco. Se não forem definidas, a senha gerada aparece **uma única vez** no log
-(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). As demais pessoas são cadastradas pelo
-administrador na tela **Usuários** (veja [Vários usuários](#vários-usuários)).
+(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). As demais pessoas são cadastradas na tela
+**Usuários** (veja [Vários usuários](#vários-usuários) e [Controle de acessos](#controle-de-acessos)).
 
 > Para usar o `mvnw.cmd` diretamente, crie uma vez o arquivo do Maven Wrapper (a ferramenta que gerou o
 > projeto não pode gravar em pastas `.mvn`):
@@ -211,7 +212,8 @@ atrapalham o ponto e são reaproveitadas.
 As telas ficam num **menu lateral**, agrupadas por área: **Ponto** (Painel, Auditoria, Conciliação RH, Folgas e
 feriados, Equipe), **Atendimentos** (Meus atendimentos, Novo atendimento; Minha chave do Gemini só com o motor
 `gemini`), **Base de
-conhecimento** (Pesquisar) e **Administração** (Usuários, Acessos, Logs; só para o administrador). Cada grupo abre
+conhecimento** (Pesquisar) e **Administração** (Usuários, Perfis de acesso, Logs). Cada item só aparece para quem
+tem a permissão da tela (veja [Controle de acessos](#controle-de-acessos)). Cada grupo abre
 e fecha, e o botão no pé do menu o **recolhe** para uma faixa só com os ícones (aí o grupo abre os itens ao lado,
 e *Esc* ou um clique fora fecha). O navegador lembra o menu recolhido e os grupos fechados. No alto fica uma barra
 fina com o caminho da tela (*Ponto › Painel*), o "Dados de", o nome (*Minha conta*), o sino e *Sair*. No celular o
@@ -222,19 +224,20 @@ menu vira uma gaveta, aberta pelo botão ☰.
 Cada pessoa tem o próprio acesso e os próprios dados: batidas, horário, banco de horas (ciclo), ausências,
 lançamentos, notificações, relatórios do RH e divergências. **Feriados valem para todos.**
 
-- **Cadastro (administrador, tela *Usuários*):** nome, login, perfil e uma **senha provisória** (gerada na
-  tela). No primeiro acesso a pessoa cria a própria senha. Usuários não são excluídos — são **desativados**
-  (não entram mais, a pasta deixa de ser monitorada e o histórico fica). Sempre sobra um administrador ativo.
-- **Perfis:** *Usuário* registra e confere o próprio ponto; *Administrador* também cadastra usuários e
-  feriados e consulta o ponto de todos; *Coordenação* só consulta o ponto de todos.
-- **"Dados de" (administrador e coordenação):** escolhe de quem são os dados em tela. Vendo outra pessoa,
+- **Cadastro (tela *Usuários*, permissão "Cadastrar usuários"):** nome, login, perfis e uma **senha
+  provisória** (gerada na tela). No primeiro acesso a pessoa cria a própria senha. Usuários não são excluídos —
+  são **desativados** (não entram mais, a pasta deixa de ser monitorada e o histórico fica). Ninguém se desativa.
+- **Perfis:** cada pessoa tem um ou mais (veja [Controle de acessos](#controle-de-acessos)). De fábrica:
+  *Usuário* registra e confere o próprio ponto; *Coordenador* só consulta o ponto de todos; *Administrador* tem
+  tudo.
+- **"Dados de" (quem consulta o ponto da equipe):** escolhe de quem são os dados em tela. Vendo outra pessoa,
   todas as telas ficam **somente leitura** — ninguém altera o ponto de outra pessoa. Na API, as leituras
   aceitam `?usuario=login`; as alterações são sempre do usuário do token.
 - **Horário de trabalho (*Minha conta*):** cada dia da semana com até 3 períodos (dia sem período = sem
   expediente, todo o tempo é crédito) e a tolerância por marcação. Mudar o horário vale **a partir de uma
   data**: os dias dali em diante são recalculados e os anteriores continuam com o horário que valia para eles.
-  Quem trabalha de terça a sábado, por exemplo, tem o sábado como dia útil. O próprio usuário ou o
-  administrador alteram; o horário não muda dentro de um ciclo do banco já fechado.
+  Quem trabalha de terça a sábado, por exemplo, tem o sábado como dia útil. A própria pessoa ou quem configura o
+  ponto da equipe alteram; o horário não muda dentro de um ciclo do banco já fechado.
 - **Comprovantes (*Minha conta*):** cada pessoa escolhe a **pasta** onde os PDFs chegam — no computador onde
   o sistema roda, uma pasta compartilhada na rede (`\\NOME-DO-PC\Ponto`) ou uma pasta sincronizada da
   nuvem. O botão *Testar acesso* confere se o servidor enxerga a pasta, e duas pessoas não podem usar a mesma.
@@ -244,9 +247,47 @@ lançamentos, notificações, relatórios do RH e divergências. **Feriados vale
   o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
   passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
 
+## Controle de acessos
+
+O que cada pessoa pode fazer vem de **permissões**, uma por tela e por ação, juntadas em **perfis**:
+
+- **Permissões** (a lista fica no código; cada módulo declara as dele): *Ponto* — ter o próprio ponto, lançar no
+  próprio ponto (requer o anterior), consultar o ponto da equipe, configurar o ponto da equipe (horário, pasta e
+  planilha de outras pessoas; requer consultar), cadastrar feriados; *Atendimentos* — usar os atendimentos, ver o
+  espaço em disco; *Base de conhecimento* — pesquisar, curar (requer pesquisar); *Administração* — cadastrar
+  usuários, perfis e acessos, integração com o Google, logs. Uma permissão sem o requisito não vale.
+- **Perfis** (tela *Perfis de acesso*): um nome, uma descrição e as permissões que libera. Vêm três de fábrica:
+  *Administrador* (tudo, inclusive o que vier depois; não muda), *Usuário* e *Coordenador* (podem ser editados,
+  não excluídos). Dá para criar outros (ex.: *Atendente*). Mudar um perfil vale na hora para todos que o têm.
+- **Cada pessoa** (tela *Usuários* → *Acesso*): um ou mais perfis — ela pode a **soma** do que eles liberam — e
+  **ajustes só dela**, permissão por permissão: *pelo perfil*, *liberar* (a mais) ou *retirar* (mesmo que um perfil
+  dê). A tela mostra na hora o que vale e por quê ("pelo perfil Usuário", "liberada só para esta pessoa", "não vale
+  sem Pesquisar na base").
+- **Vale na hora:** o token leva só o login; a cada requisição o servidor relê a pessoa e confere as permissões dela
+  (rotas do ponto e dos módulos). As telas abertas de quem mudou se atualizam sozinhas; quem ganhou o próprio ponto
+  recebe o horário padrão e o ciclo do banco.
+- **Proteções:** sempre sobra pelo menos uma pessoa ativa com *Perfis e acessos* e ninguém tira essa permissão de si
+  mesmo (`SEM_QUEM_CUIDE_DOS_ACESSOS`, `ALTERAR_PROPRIO_ACESSO`). Desativar ou trocar a senha de alguém só pode quem
+  tem pelo menos os mesmos acessos que a pessoa (`ACESSO_MAIOR_QUE_O_SEU`). Quem tem *Perfis e acessos* consegue dar
+  a si mesmo qualquer outra permissão: é só para quem administra o sistema.
+- **Histórico:** cada mudança (perfil criado, editado ou excluído; perfis e ajustes de uma pessoa) fica em
+  `tb_historico_acesso` com quem fez e quando, e aparece em *Perfis de acesso* e no acesso de cada pessoa.
+- **Migração `V16`:** cria os perfis e passa cada pessoa para o perfil equivalente ao que tinha (ADMIN →
+  Administrador, USER → Usuário, VIEWER → Coordenador); as liberações antigas dos módulos viram ajustes (menos para o
+  administrador, que já tem tudo). Ninguém ganha nem perde acesso. As tabelas antigas (`tb_role`, `tb_usuario_role`,
+  `atendimento.acesso`, `conhecimento.acesso`) ficam como estavam, sem uso.
+
+| Método | Rota (`/api/v1/acessos`, com *Perfis e acessos*) | |
+|--------|------|---|
+| GET | `/permissoes` | as permissões, em grupos: `[{nome, permissoes: [{codigo, nome, descricao, requer}]}]` |
+| GET · POST | `/perfis` | lista (com quem tem cada um) · cria `{nome, descricao?, permissoes}` |
+| PUT · DELETE | `/perfis/{id}` | altera `{nome, descricao?, permissoes}` · exclui (sai de quem tinha) |
+| GET · PUT | `/usuarios/{id}` | perfis, ajustes e o que vale (e por quê) · troca `{perfis: [id], ajustes: [{permissao, liberada}]}` |
+| GET | `/historico?usuario=&limite=` | as últimas mudanças |
+
 ## Equipe agora (quem está online)
 
-A tela **Equipe** (`/equipe`, para todos os perfis) lista **todos os usuários ativos** e diz quem está
+A tela **Equipe** (`/equipe`, para quem tem o próprio ponto ou consulta o da equipe) lista **todos os usuários ativos** e diz quem está
 trabalhando agora. A regra fica no servidor (`ConsultarPresencaUseCase`); a tela só mostra:
 
 | Situação hoje | Aparece como |
@@ -257,11 +298,11 @@ trabalhando agora. A regra fica no servidor (`ConsultarPresencaUseCase`); a tela
 | Saída do último período (ou depois do fim do horário) | Offline · "Encerrou o expediente às 17:50" |
 | Sem batida: feriado · dia sem expediente · antes do horário | Offline · "Feriado: …" · "Sem expediente hoje" · "O expediente começa às 08:00" |
 | Sem batida com o horário já começado · já terminado | Offline, em destaque · "Ainda não bateu o ponto" · "Não registrou ponto hoje" |
-| Coordenação (perfil `VIEWER`) | Offline · "não registra ponto" |
+| Sem o próprio ponto (ex.: só a coordenação) | Offline · "não registra ponto aqui" |
 
 Todos veem a situação de todos. O detalhe é reservado: para colegas, **atestado e abono aparecem só como
-"Ausência justificada"**; a justificativa, as batidas e o atalho "ver o ponto de…" ficam com o administrador, a
-coordenação e a própria pessoa. A tela se atualiza sozinha quando alguém bate o ponto (evento
+"Ausência justificada"**; a justificativa, as batidas e o atalho "ver o ponto de…" ficam com quem consulta o ponto
+da equipe e com a própria pessoa. A tela se atualiza sozinha quando alguém bate o ponto (evento
 `presenca-atualizada`, que não carrega dado nenhum) e a cada minuto. Quem importa o ponto por comprovante (PDF)
 aparece online assim que o comprovante da entrada chega ao sistema.
 
@@ -271,7 +312,7 @@ Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador 
 PDF da conversa do Digisac, analisa os anexos com a IA e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
 regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
-deles. Chegam em etapas; por enquanto existem os acessos, a chave do Gemini, a leitura do PDF do Digisac, o
+deles. Chegam em etapas; por enquanto existem as permissões dos módulos, a chave do Gemini, a leitura do PDF do Digisac, o
 download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini (inclusive os
 passos e os quadros dos vídeos), a redação do resumo e dos chamados para o desenvolvimento e a base de conhecimento
 com a pesquisa exata:
@@ -300,11 +341,13 @@ com a pesquisa exata:
   manifesto); o whisper.cpp para Windows com CUDA (`whisper-cublas-12.4.0-bin-x64.zip`, das versões do
   ggml-org/whisper.cpp) em `ia-local\whisper\` e o `ggml-large-v3-turbo.bin` (huggingface.co/ggerganov/whisper.cpp)
   em `ia-local\modelos\`. Para voltar à API do Gemini: `atendimento.ia.motor: gemini` no `config/application.yml`.
-- **Acessos** (grupo Administração do menu): quem usa o gerador e quem pesquisa ou cura a base (curar = editar
-  qualquer registro e mudar a situação; inclui pesquisar). Vale pessoa por pessoa e **não depende do perfil do
-  ponto**: a coordenação pode ser liberada, e o administrador também precisa se liberar.
-- Os grupos **Atendimentos** e **Base de conhecimento** só aparecem no menu lateral de quem foi liberado. Toda rota dos
-  módulos confere a liberação a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar o acesso vale na hora.
+- **Acesso**: as permissões *Usar os atendimentos*, *Ver o espaço em disco dos atendimentos*, *Pesquisar na base*
+  e *Curar a base* (editar qualquer registro e mudar a situação; requer pesquisar), dadas por um perfil ou por um
+  ajuste da pessoa (veja [Controle de acessos](#controle-de-acessos)). Não dependem das permissões do ponto: quem só
+  consulta o ponto pode usar os atendimentos. Os módulos declaram as permissões deles (`PermissoesDoAtendimento`,
+  `PermissoesDaBase`), que aparecem na tela de perfis do ponto.
+- Os grupos **Atendimentos** e **Base de conhecimento** só aparecem no menu lateral de quem tem a permissão. Toda rota
+  dos módulos confere a permissão a cada requisição (`403 MODULO_NAO_LIBERADO`); retirar vale na hora.
 - **Minha chave do Gemini** (só com `atendimento.ia.motor: gemini`; botão na tela Atendimentos): cada pessoa cadastra a própria chave da API do Gemini
   (Google AI Studio, projeto com faturamento) e confirma que ela é do nível pago — no gratuito o Google pode usar
   o conteúdo enviado. O servidor testa a chave com o Google antes de guardar (listando um modelo, sem gastar cota),
@@ -510,14 +553,12 @@ com a pesquisa exata:
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
   — e o atendimento inteiro, 180 dias depois.
-- **Espaço em disco**: a tela Acessos mostra ao administrador quanto os arquivos dos atendimentos ocupam, quanto
-  sobra no disco e quantos atendimentos estão pausados por falta de espaço.
+- **Espaço em disco**: em *Meus atendimentos*, quem tem *Ver o espaço em disco dos atendimentos* vê quanto os
+  arquivos dos atendimentos ocupam, quanto sobra no disco e quantos atendimentos estão pausados por falta de espaço.
 
 | Método | Rota | Descrição |
 |---|---|---|
-| GET | `/atendimentos/meu-acesso` · `/conhecimento/meu-acesso` | Qualquer perfil: `{gerador, administrador}` · `{pesquisar, curar, administrador}` |
-| GET | `/atendimentos/acessos` · `/conhecimento/acessos` | (ADMIN) usuários ativos com o acesso de cada um |
-| PUT | `/atendimentos/acessos/{usuarioId}` · `/conhecimento/acessos/{usuarioId}` | (ADMIN) `{gerador}` · `{pesquisar, curar}` |
+| GET | `/atendimentos/meu-acesso` · `/conhecimento/meu-acesso` | Quem tem sessão: `{gerador, espaco, iaLocal}` · `{pesquisar, curar}` |
 | GET | `/atendimentos/chave-gemini` | A minha chave: `{cadastrada, ultimosCaracteres, nivelPagoConfirmado, situacao, testadaEm, atualizadaEm, exigirNivelPago}` |
 | PUT | `/atendimentos/chave-gemini` | `{chave, nivelPagoConfirmado}`: testa com o Google e guarda cifrada (`CHAVE_GEMINI_RECUSADA`, `NIVEL_PAGO_NAO_CONFIRMADO`, `GEMINI_INDISPONIVEL`, `SEM_INTERNET`...) |
 | POST · DELETE | `/atendimentos/chave-gemini/testar` · `/atendimentos/chave-gemini` | Testa de novo (situação: `valida`, `sem_cota`, `recusada`) · apaga |
@@ -553,7 +594,7 @@ com a pesquisa exata:
 | PUT | `/atendimentos/{id}/arquivos/{arquivoId}/conteudo` | Envio à mão do arquivo de um anexo da conversa (cabeçalho `X-Nome-Arquivo`) |
 | DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |
 | PUT | `/atendimentos/{id}/pdf` | PDF novo do mesmo chamado: renova os links dos anexos que faltam (`CHAMADO_DIFERENTE`) |
-| GET | `/atendimentos/acessos/espaco` | (ADMIN) `{ocupado, livre, pausados}` em bytes |
+| GET | `/atendimentos/espaco` | (com `atendimentos.espaco`) `{ocupado, livre, pausados}` em bytes |
 
 ## Erros, protocolo e logs
 
@@ -584,7 +625,7 @@ e é relatado ao servidor (`POST /erros-de-tela`), caindo no log do usuário.
 | Console | Ao vivo: `ponto logs [usuario] [-Erros]` (serviço) ou a própria saída do `.\iniciar.ps1` / Eclipse |
 | `logs/conferencia-ponto.log` | Tudo, com `[usuario\|protocolo]` em cada linha |
 | `logs/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log` | **Um arquivo por usuário e por hora** (`sistema` = o que não é de uma pessoa: subida, tarefas agendadas); guardados por `ponto.logs.dias` (30) dias |
-| Tela **Logs** (ADMIN) | "Ao vivo" (atualiza a cada 2 s; filtros por pessoa, gravidade e texto/protocolo; pausar) e "Arquivos por pessoa e hora" |
+| Tela **Logs** (`logs.ver`) | "Ao vivo" (atualiza a cada 2 s; filtros por pessoa, gravidade e texto/protocolo; pausar) e "Arquivos por pessoa e hora" |
 
 Cada requisição da API vira uma linha de acesso (`GET /api/v1/jornadas?ano=…  -> 200 (12 ms)`) no arquivo de
 quem a fez; entradas no sistema e tentativas de login recusadas também ficam registradas (a senha, nunca). O
@@ -667,14 +708,14 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 
 | Método | Rota | Descrição |
 |---|---|---|
-| POST | `/auth/login` | `{login, senha}` → `{token, tipo, expiraEm, usuario{login, nome, perfis}}` |
-| GET | `/auth/me` | Usuário da sessão (`titular`, `podeVerTodos`, `admin`, `trocarSenha`, `pastaComprovantes`) |
-| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer perfil; encerra a senha provisória |
+| POST | `/auth/login` | `{login, senha}` → `{token, tipo, expiraEm, usuario{login, nome, perfis, permissoes}}` |
+| GET | `/auth/me` | Usuário da sessão (`perfis`, `permissoes`, `titular`, `podeVerTodos`, `podeEscrever`, `trocarSenha`, `pastaComprovantes`) |
+| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer pessoa; encerra a senha provisória |
 | GET | `/usuarios/titulares` | Pessoas com dados de ponto que o usuário pode consultar |
-| GET/POST | `/usuarios` | (ADMIN) lista · cria `{login, nome, perfil, senhaProvisoria, pastaComprovantes?}` |
-| PUT | `/usuarios/{id}` · `/{id}/senha` · `/{id}/pasta` | (ADMIN) `{nome, perfil, ativo}` · `{senhaProvisoria}` · `{pasta}` |
+| GET/POST | `/usuarios` | lista (`usuarios.gerenciar` ou `acessos.gerenciar`) · cria `{login, nome, perfis?, senhaProvisoria, pastaComprovantes?}` (`usuarios.gerenciar`; os perfis, só com `acessos.gerenciar`) |
+| PUT | `/usuarios/{id}` · `/{id}/senha` · `/{id}/pasta` | `{nome, ativo}` · `{senhaProvisoria}` (`usuarios.gerenciar`) · `{pasta}` (`ponto.equipe.configurar`) |
 | PUT | `/conta/pasta` · POST `/conta/pasta/verificar` | Pasta dos meus comprovantes `{pasta}` (vazia = sem monitoramento) · só confere o acesso |
-| GET/POST | `/horarios` | Vigências do horário · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}}` (ADMIN: `?usuario=login`) |
+| GET/POST | `/horarios` | Vigências do horário · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}}` (outra pessoa, com `ponto.equipe.configurar`: `?usuario=login`) |
 | DELETE | `/horarios/{id}` | Remove uma vigência (os dias voltam ao horário anterior) |
 | GET | `/configuracao` | Horário da pessoa que vale hoje (grade, tolerância, jornada), data/hora do servidor |
 | GET | `/jornadas?ano=&mes=` | Dias do mês + resumo (saldo mensal e anual acumulado) |
@@ -702,46 +743,52 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | GET | `/auditoria?ano=&mes=` | Dias do mês + comprovantes de cada batida (com `urlDownload`) + resumo + `bancoDeHoras` no fim do mês pelo ciclo `{saldoSegundos, cicloInicio, cicloFim, cicloAberto}` (null fora dos ciclos) |
 | GET | `/planilha/exportar` | Planilha de conferência em Excel (`.xlsx`): resumo + uma aba por mês |
 | GET | `/planilha` | Planilha do Google da pessoa: `{situacao, emailServico, url, titulo, sincronizadaEm, erro}` |
-| PUT | `/planilha` | `{link}` vincula a planilha do Google e grava tudo nela (ADMIN: `?usuario=login`) |
-| POST | `/planilha/sincronizar` · DELETE `/planilha` | Regrava agora · deixa de gravar (ADMIN: `?usuario=login`) |
-| GET/PUT/DELETE | `/integracoes/google` | (ADMIN) conta de serviço: consulta · envia a chave `{chave: "<conteúdo do .json>"}` · desliga |
+| PUT | `/planilha` | `{link}` vincula a planilha do Google e grava tudo nela (outra pessoa, com `ponto.equipe.configurar`: `?usuario=login`) |
+| POST | `/planilha/sincronizar` · DELETE `/planilha` | Regrava agora · deixa de gravar (idem) |
+| GET/PUT/DELETE | `/integracoes/google` | (`integracoes.gerenciar`) conta de serviço: consulta · envia a chave `{chave: "<conteúdo do .json>"}` · desliga |
 | GET | `/comprovantes/{id}/download` | PDF original (`attachment`); também em `/api/comprovantes/{id}/download` |
 | GET | `/presenca` | Equipe agora: todos os usuários ativos com `{online, situacao, situacaoRotulo, motivo, desde, horario, ...}` |
-| GET | `/logs/ao-vivo?depois=&nivel=&login=&texto=&semConsultas=` | (ADMIN) últimas linhas de log, para a tela consultar a cada 2 s |
-| GET | `/logs/arquivos` · `/logs/arquivo?login=&data=&hora=` | (ADMIN) pastas por usuário → dias → horas · o log daquela hora |
-| POST | `/erros-de-tela` | `{mensagem, tela, detalhe}` — a tela relata um defeito dela (qualquer perfil) → `202` |
+| GET | `/logs/ao-vivo?depois=&nivel=&login=&texto=&semConsultas=` | (`logs.ver`) últimas linhas de log, para a tela consultar a cada 2 s |
+| GET | `/logs/arquivos` · `/logs/arquivo?login=&data=&hora=` | (`logs.ver`) pastas por usuário → dias → horas · o log daquela hora |
+| POST | `/erros-de-tela` | `{mensagem, tela, detalhe}` — a tela relata um defeito dela (qualquer pessoa com sessão) → `202` |
 | GET | `/eventos` | Stream SSE (`text/event-stream`) com as atualizações em tempo real |
 | GET | `/importacoes?limite=` | Monitor da pasta da pessoa (`situacao`: ATIVO, INDISPONIVEL, SEM_PASTA...) + últimos comprovantes |
 | POST | `/importacoes/reprocessar` | Relê a pasta da pessoa (`202 Accepted`, roda em segundo plano) |
 | POST | `/importacoes/enviar` | Comprovantes PDF enviados pela tela (multipart, campo `arquivos`, até 50) |
 
-Nos `GET`, `?usuario=login` consulta outra pessoa (ADMIN e coordenação). Dias, mês e saldos trazem a grade
+Nos `GET`, `?usuario=login` consulta outra pessoa (com `ponto.equipe`). Dias, mês e saldos trazem a grade
 (`grade` do dia e `expedientes` do mês) pelo horário da pessoa.
 
 Erros: `400` validação/formato · `401` sem sessão/credenciais inválidas (`ACESSO_DESATIVADO` quando o
-administrador desativou o usuário) · `403` perfil sem permissão (`ACESSO_NEGADO`, `ALTERAR_DADOS_DE_OUTRO`,
-`TROCAR_SENHA`) · `404` não encontrado · `409` conflito (`REGISTRO_REPETIDO`, `REGISTRO_JA_ALTERADO`,
+usuário foi desativado) · `403` sem a permissão (`ACESSO_NEGADO`, `SOMENTE_CONSULTA`, `SEM_PONTO`,
+`ALTERAR_DADOS_DE_OUTRO`, `ACESSO_MAIOR_QUE_O_SEU`, `TROCAR_SENHA`) · `404` não encontrado · `409` conflito (`REGISTRO_REPETIDO`, `REGISTRO_JA_ALTERADO`,
 `SISTEMA_OCUPADO`) · `422` regra de negócio · `503 BANCO_INDISPONIVEL` · `500 ERRO_INTERNO` (com o protocolo na
 mensagem) e `500 COMPROVANTE_CORROMPIDO` (arquivo alterado em disco). Ver "Erros, protocolo e logs".
 
-## Perfis de acesso (RBAC)
+## Permissões nas rotas
 
-Autenticação **stateless** com JWT HS256 (claims `sub`, `nome`, `roles`; validade de 8 h), senhas com
-BCrypt. As regras ficam em `SecurityConfig` e são decididas **pelo método HTTP**, então uma rota nova de
-escrita já nasce protegida:
+Autenticação **stateless** com JWT HS256 (claims `sub` e `nome`; validade de 8 h), senhas com BCrypt. O token não
+leva as permissões: a cada requisição o conversor do Spring Security relê a pessoa e as authorities são as
+permissões que valem para ela agora (veja [Controle de acessos](#controle-de-acessos)); pessoa desativada ou
+apagada recebe `401 ACESSO_DESATIVADO` com o mesmo token. As regras ficam em `SecurityConfig`; a escrita é
+decidida **pelo método HTTP**, então uma rota nova de escrita já nasce protegida:
 
-| Perfil | Leitura (`GET`) | Escrita (`POST`/`PUT`/`PATCH`/`DELETE`) | Tela inicial |
-|---|---|---|---|
-| `ROLE_ADMIN` | ✔ os próprios dados e os de todos, e os **logs** | ✔ os próprios dados + usuários, feriados, conta do Google e horário, pasta e planilha de qualquer pessoa | Painel |
-| `ROLE_USER` | ✔ só os próprios dados | ✔ os próprios dados | Painel |
-| `ROLE_VIEWER` | ✔ os de todos, inclusive download dos PDFs | ✘ `403 ACESSO_NEGADO` | Auditoria |
+| Rota | Exige |
+|---|---|
+| `GET /api/**` (leitura, SSE, download) | sessão; de quem são os dados é decidido em `AcessoUsuarios` (os próprios com `ponto.proprio`; os de qualquer pessoa com `ponto.equipe`) |
+| `POST/PUT/PATCH/DELETE /api/**` (o resto) | `ponto.lancar` (e sempre nos próprios dados) |
+| horários e planilha | `ponto.lancar` (os próprios) ou `ponto.equipe.configurar` (`?usuario=` de outra pessoa) |
+| feriados (gravar) · usuários · acessos · integrações · logs | `ponto.feriados` · `usuarios.gerenciar` · `acessos.gerenciar` · `integracoes.gerenciar` · `logs.ver` |
+
+Tela inicial: o Painel para quem tem o próprio ponto; a Auditoria para quem só consulta a equipe; senão a primeira
+tela liberada (Atendimentos, Base, Usuários, Logs ou Minha conta).
 
 Fora de `/api/**`, só `GET`/`HEAD` são liberados: são as telas empacotadas no jar (HTML/JS/CSS, sem dados —
-`FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, o perfil `VIEWER` vê o selo "somente leitura" e
-os botões de bater ponto, lançamento manual e exclusão nem são renderizados — mas a garantia é do
-back-end, não da tela.
+`FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, quem só consulta vê o
+selo "somente leitura" e os botões de bater ponto, lançamento manual e exclusão nem são renderizados — mas a
+garantia é do back-end, não da tela.
 
-**Tela de auditoria (`/auditoria`).** Pensada para a coordenação (perfil `VIEWER`):
+**Tela de auditoria (`/auditoria`).** Pensada para a coordenação (quem consulta o ponto da equipe):
 filtro por mês/ano, tipo de dia e situação (débito, crédito, fora da tolerância, em andamento,
 com/sem comprovante);
 para cada batida, o horário real e o considerado, minutos abonados pela tolerância, trabalhado,

@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -8,7 +9,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProcessarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.ProgressoView;
@@ -75,8 +76,6 @@ class SaidasWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private GerenciarSaidas saidas;
     @MockitoBean
     private ProcessarAtendimentos processamento;
@@ -85,12 +84,20 @@ class SaidasWebTest {
 
     @BeforeEach
     void cadastrar() {
-        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Acesso.usuario(), null, null, false);
         when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(maria));
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 
     private static SaidaView view(String assunto) {
@@ -103,7 +110,7 @@ class SaidasWebTest {
 
     @Test
     void confirmarEnviaOFormularioRevisado() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         TextoConfirmado.Formulario formulario = new TextoConfirmado.Formulario("Erro ao gravar", "erro", "Loja", "Maria",
                 null, "Pedidos", "VEN010", "Não grava", null, null, "Acertar", "enviado_desenvolvimento", "OTRS 1");
         when(saidas.confirmar(maria, ID, SAIDA, formulario)).thenReturn(new GerenciarSaidas.ConfirmacaoView(view("x"),
@@ -131,7 +138,7 @@ class SaidasWebTest {
 
     @Test
     void abreOTextoEditaOAssuntoOTextoEAsImagens() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(saidas.detalhe(maria, ID, SAIDA)).thenReturn(view("Digisac: Maria : erro"));
         when(saidas.salvarAssunto(maria, ID, SAIDA, "Digisac: Maria : outro")).thenReturn(view("Digisac: Maria : outro"));
         when(saidas.salvarTexto(maria, ID, SAIDA, "<p>novo</p>")).thenReturn(view("x"));
@@ -164,7 +171,7 @@ class SaidasWebTest {
 
     @Test
     void ligaEDesligaAsMarcacoesDeUmaImagem() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(saidas.marcar(maria, ID, SAIDA, IMAGEM, true)).thenReturn(view("marcada"));
         when(saidas.marcar(maria, ID, SAIDA, IMAGEM, false)).thenReturn(view("sem marcação"));
         when(saidas.marcar(maria, ID, UUID.fromString("2a7e1c3d-0000-4000-8000-0000000000dd"), IMAGEM, true))
@@ -184,8 +191,8 @@ class SaidasWebTest {
                         + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON).content("{\"ligada\":true}"))
                 .andExpect(status().isUnprocessableEntity())
                 .andExpect(jsonPath("$.erros[0].codigo").value("SEM_AREAS"));
-
-        when(acessos.liberado(maria)).thenReturn(false);
+        // retiraram os atendimentos da Maria: vale na hora
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(maria.comAcesso(Acesso.usuario())));
         mvc.perform(put(ROTA + "/imagens/" + IMAGEM + "/marcacao").with(como(maria)).contentType(MediaType.APPLICATION_JSON)
                         .content("{\"ligada\":true}"))
                 .andExpect(status().isForbidden());
@@ -193,7 +200,7 @@ class SaidasWebTest {
 
     @Test
     void gerarDeNovoECopiaNosTresModos() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(processamento.gerar(maria, ID, TipoDeSaida.RESUMO))
                 .thenReturn(new ProgressoView(ID, "processando", null, 100, List.of()));
         when(saidas.copia(maria, ID, SAIDA, ModoDeCopia.COM_IMAGENS))
@@ -215,7 +222,7 @@ class SaidasWebTest {
 
     @Test
     void aImagemEOZipComOsArquivosNumerados() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         Path png = Files.write(pasta.resolve("001_print.png"), new byte[]{(byte) 0x89, 'P', 'N', 'G', 1, 2, 3});
         Path jpeg = Files.write(pasta.resolve("002_foto.jpeg"), new byte[]{(byte) 0xFF, (byte) 0xD8, 9});
         when(saidas.imagem(maria, ID, SAIDA, IMAGEM)).thenReturn(new GerenciarSaidas.ArquivoDaImagem(png, "image/png", "Imagem_01.png"));
@@ -244,7 +251,7 @@ class SaidasWebTest {
 
     @Test
     void textoDeOutraPessoaVem404ESemTextoAvisa() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(saidas.detalhe(maria, ID, SAIDA))
                 .thenThrow(new RecursoNaoEncontradoException("SAIDA_NAO_ENCONTRADA", "Texto não encontrado."));
         when(saidas.imagensParaOZip(maria, ID, SAIDA))

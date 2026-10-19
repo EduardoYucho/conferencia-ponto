@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.processamento;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -97,7 +98,7 @@ class ProcessamentoDasAnalisesTest {
     void preparar() {
         PostgresDeTeste.jdbc().sql("DELETE FROM atendimento.tarefa").update();
         cofre = new CofreAesGcm(new ChaveMestraProperties(raiz.resolve("chave-mestra")));
-        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER),
+        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Acesso.usuario(),
                 null, null, false);
         servidor.arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011620000.jpeg"), JPEG)
                 .arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011680000.oga"), OGG)
@@ -325,7 +326,7 @@ class ProcessamentoDasAnalisesTest {
         assertThat(view.atual()).isTrue();
         assertThat(view.resultado().at("/tela/codigo").asText()).isEqualTo("VEN010");
         assertThat(view.tokensEntrada()).isEqualTo(1000);
-        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "hash", true, Set.of(Perfil.ROLE_USER),
+        Usuario joao = new Usuario(PostgresDeTeste.novoUsuario(true), "joao", "joao", "hash", true, Acesso.usuario(),
                 null, null, false);
         assertThatThrownBy(() -> consultar.doArquivo(joao, id, jpeg)).isInstanceOf(RecursoNaoEncontradoException.class);
         assertThat(view.quadros()).isEmpty();

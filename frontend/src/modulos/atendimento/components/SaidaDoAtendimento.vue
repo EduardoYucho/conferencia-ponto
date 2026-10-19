@@ -648,7 +648,7 @@ function copiarAgora() {
             </button>
           </div>
           <p v-if="!modulos.pesquisar" class="mt-1 text-xs font-semibold text-carimbo">
-            A base de conhecimento não está liberada para você: peça ao administrador para poder enviar.
+            A base de conhecimento não está liberada para você: peça a quem cuida dos acessos para poder enviar.
           </p>
           <p v-if="saida.naBase" class="mt-1 text-xs text-carimbo">
             A versão {{ saida.naBase.versao }} deste texto já foi para a base em {{ dataHoraDaBase(saida.naBase.confirmadaEm) }}:

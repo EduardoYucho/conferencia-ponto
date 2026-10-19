@@ -7,6 +7,7 @@ import { conhecimentoApi } from '@/modulos/conhecimento/api'
 import { data, porcentagem, SITUACOES_DO_REGISTRO, situacaoDoRegistro, TIPOS_DO_REGISTRO } from '@/modulos/conhecimento/formato'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import TextoDestacado from '@/modulos/conhecimento/components/TextoDestacado.vue'
+import { ACESSOS } from '@/utils/permissoes'
 
 /**
  * A base de conhecimento: a pesquisa exata (palavras sem diferença de acento, código de tela ou um pedaço dele,
@@ -128,9 +129,9 @@ const situacao = (codigo) => situacaoDoRegistro(codigo) ?? { rotulo: codigo, cla
         <section v-if="!modulos.pesquisar" class="cartao px-5 py-4">
           <p class="font-semibold">A base de conhecimento não está liberada para você.</p>
           <p class="mt-1 text-sm text-tinta-suave">
-            {{ auth.ehAdmin ? 'Libere em Acessos (inclusive para você mesmo).' : 'Peça ao administrador para liberar.' }}
+            {{ auth.pode(ACESSOS) ? 'Libere em Usuários, no acesso da pessoa ou num perfil (inclusive para você mesmo).' : 'Peça a quem cuida dos acessos para liberar.' }}
           </p>
-          <RouterLink v-if="auth.ehAdmin" :to="{ name: 'acessos-modulos' }" class="botao-secundario mt-3 inline-block">Abrir Acessos</RouterLink>
+          <RouterLink v-if="auth.pode(ACESSOS)" :to="{ name: 'usuarios' }" class="botao-secundario mt-3 inline-block">Abrir Usuários</RouterLink>
         </section>
 
         <template v-else>

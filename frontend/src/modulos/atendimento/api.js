@@ -2,14 +2,8 @@ import { http } from '@/api/http'
 
 /** Rotas do gerador de atendimentos (todas devolvem o conteúdo de "dados"). */
 export const atendimentoApi = {
-  /** O que a pessoa logada pode: { gerador, administrador }. */
+  /** O que a pessoa logada pode: { gerador, espaco, iaLocal }. */
   meuAcesso: () => http.get('/atendimentos/meu-acesso'),
-
-  /** Administrador: todos os usuários ativos com o acesso de cada um ao gerador. */
-  acessos: () => http.get('/atendimentos/acessos'),
-
-  /** Administrador: libera (true) ou retira (false) o gerador de uma pessoa. */
-  definirAcesso: (usuarioId, gerador) => http.put(`/atendimentos/acessos/${usuarioId}`, { gerador }),
 
   /** A chave do Gemini da pessoa logada: { cadastrada, ultimosCaracteres, situacao, testadaEm, ... } (nunca a chave). */
   chaveGemini: () => http.get('/atendimentos/chave-gemini'),
@@ -148,6 +142,6 @@ export const atendimentoApi = {
   /** A resposta colada do Gemini vira o texto. Devolve o progresso (com os textos). */
   respostaDoApp: (id, tipo, resposta) => http.post(`/atendimentos/${id}/app-gemini/${tipo}/resposta`, { resposta }, { timeout: 120000 }),
 
-  /** Administrador: { ocupado, livre, pausados } (bytes). */
-  espaco: () => http.get('/atendimentos/acessos/espaco'),
+  /** Com "Ver o espaço em disco dos atendimentos": { ocupado, livre, pausados } (bytes). */
+  espaco: () => http.get('/atendimentos/espaco'),
 }

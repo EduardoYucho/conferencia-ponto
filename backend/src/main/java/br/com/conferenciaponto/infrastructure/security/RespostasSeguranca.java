@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.security.web.access.AccessDeniedHandler;
@@ -19,6 +20,9 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class RespostasSeguranca implements AuthenticationEntryPoint, AccessDeniedHandler {
 
+    /** O token é válido, mas o usuário foi desativado (ou não existe mais). */
+    public static final String ACESSO_DESATIVADO = "ACESSO_DESATIVADO";
+
     private final ObjectMapper objectMapper;
 
     public RespostasSeguranca(ObjectMapper objectMapper) {
@@ -29,6 +33,11 @@ public class RespostasSeguranca implements AuthenticationEntryPoint, AccessDenie
     public void commence(HttpServletRequest request, HttpServletResponse response,
                          AuthenticationException ex) throws IOException {
         response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+        if (ex instanceof DisabledException) {
+            escrever(response, HttpServletResponse.SC_UNAUTHORIZED, ACESSO_DESATIVADO,
+                    "Seu acesso ao sistema foi desativado. Procure o administrador.");
+            return;
+        }
         escrever(response, HttpServletResponse.SC_UNAUTHORIZED, "NAO_AUTENTICADO",
                 "Sessão ausente ou expirada. Faça login novamente.");
     }
@@ -37,7 +46,7 @@ public class RespostasSeguranca implements AuthenticationEntryPoint, AccessDenie
     public void handle(HttpServletRequest request, HttpServletResponse response,
                        AccessDeniedException ex) throws IOException {
         escrever(response, HttpServletResponse.SC_FORBIDDEN, "ACESSO_NEGADO",
-                "Seu perfil não tem permissão para esta operação.");
+                "Seu acesso não libera esta operação. Peça a quem cuida dos acessos.");
     }
 
     private void escrever(HttpServletResponse response, int status, String codigo, String mensagem) throws IOException {

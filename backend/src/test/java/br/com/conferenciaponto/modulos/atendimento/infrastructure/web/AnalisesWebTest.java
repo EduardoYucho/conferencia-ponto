@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
@@ -7,7 +8,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.atendimento.application.acesso.GerenciarAcessosAoGerador;
+import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.AnaliseView;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.ConsultarAnalise;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.security.SegurancaDoGerador;
@@ -50,20 +51,26 @@ class AnalisesWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosAoGerador acessos;
-    @MockitoBean
     private ConsultarAnalise analises;
 
     private Usuario maria;
 
     @BeforeEach
     void cadastrar() {
-        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        maria = new Usuario(UUID.randomUUID(), "maria", "maria", "hash", true, Acesso.usuario(), null, null, false);
         when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(maria));
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
+    }
+
+    /** Libera os atendimentos para a pessoa (como um ajuste só dela): o "banco" passa a devolvê-la com a permissão. */
+    private Usuario liberar(Usuario usuario) {
+        Usuario liberado = usuario.comAcesso(usuario.acesso().com(PermissoesDoAtendimento.USAR));
+        when(usuarios.buscarPorLogin(usuario.login())).thenReturn(Optional.of(liberado));
+        return liberado;
     }
 
     @Test
@@ -77,7 +84,7 @@ class AnalisesWebTest {
 
     @Test
     void devolveAAnaliseComOResultadoEmJson() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(analises.doArquivo(maria, ID, ARQUIVO)).thenReturn(new AnaliseView(ARQUIVO, "audio", 1, "gemini-3.8-flash", true,
                 Instant.parse("2026-10-10T15:00:00Z"), 1000, 200, 3200,
                 new ObjectMapper().readTree("{\"trechos\":[{\"inicio\":\"00:00\",\"falante\":\"Falante 1\",\"texto\":\"Bom dia\"}]}")));
@@ -92,7 +99,7 @@ class AnalisesWebTest {
 
     @Test
     void arquivoSemAnaliseOuDeOutraPessoaVem404() throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         when(analises.doArquivo(maria, ID, ARQUIVO))
                 .thenThrow(new RecursoNaoEncontradoException("ANALISE_NAO_ENCONTRADA", "Este arquivo ainda não foi analisado."));
 
@@ -103,7 +110,7 @@ class AnalisesWebTest {
 
     @Test
     void quadroDoVideoVemComoPngEOQueNaoExisteVem404(@org.junit.jupiter.api.io.TempDir java.nio.file.Path pasta) throws Exception {
-        when(acessos.liberado(maria)).thenReturn(true);
+        maria = liberar(maria);
         java.nio.file.Path png = java.nio.file.Files.write(pasta.resolve("000012000.png"),
                 new byte[]{(byte) 0x89, 'P', 'N', 'G', 13, 10, 26, 10});
         when(analises.quadro(maria, ID, ARQUIVO, 12_000)).thenReturn(png);

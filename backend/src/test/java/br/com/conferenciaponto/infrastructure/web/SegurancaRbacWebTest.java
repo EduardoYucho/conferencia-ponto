@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.view.AuditoriaMesView;
 import br.com.conferenciaponto.application.view.CicloBancoView;
@@ -106,8 +107,10 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 /**
- * Regras do SecurityFilterChain (leitura para todos os perfis, escrita só para ADMIN/USER, cadastro de usuários e
- * feriados só ADMIN) e de AcessoUsuarios (cada um vê os seus dados; ADMIN e coordenação veem os de todos).
+ * Regras do SecurityFilterChain (leitura para quem tem sessão, escrita só com ponto.lancar, cadastro de usuários,
+ * feriados, integrações e logs pela permissão de cada um) e de AcessoUsuarios (cada um vê os seus dados; com
+ * ponto.equipe, os de todos). Os testes com {@code jwt()} dão as permissões do perfil do sistema; os com token de
+ * verdade passam pelo conversor, que relê o usuário (e as permissões) a cada requisição.
  */
 @WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
@@ -188,10 +191,10 @@ class SegurancaRbacWebTest {
     private static Usuario doBanco(String login) {
         UUID id = idDe(login);
         return switch (login) {
-            case "coordenacao" -> new Usuario(id, login, "Coordenação", "x", true, Set.of(Perfil.ROLE_VIEWER), null);
-            case "maria" -> new Usuario(id, login, "Maria", "x", true, Set.of(Perfil.ROLE_USER), null);
-            case "provisoria" -> new Usuario(id, login, "Nova", "x", true, Set.of(Perfil.ROLE_USER), null, null, true);
-            default -> new Usuario(id, login, "Eduardo", "x", true, Set.of(Perfil.ROLE_ADMIN), null);
+            case "coordenacao" -> new Usuario(id, login, "Coordenação", "x", true, Acesso.coordenador(), null);
+            case "maria" -> new Usuario(id, login, "Maria", "x", true, Acesso.usuario(), null);
+            case "provisoria" -> new Usuario(id, login, "Nova", "x", true, Acesso.usuario(), null, null, true);
+            default -> new Usuario(id, login, "Eduardo", "x", true, Acesso.administrador(), null);
         };
     }
 
@@ -205,8 +208,9 @@ class SegurancaRbacWebTest {
         when(usuarios.listar()).thenReturn(List.of(doBanco("eduardo"), doBanco("maria"), doBanco("coordenacao")));
     }
 
-    private static SimpleGrantedAuthority perfil(Perfil p) {
-        return new SimpleGrantedAuthority(p.name());
+    /** As permissões do perfil do sistema, como authorities (o que o conversor daria para quem só tem esse perfil). */
+    private static SimpleGrantedAuthority[] perfil(Perfil p) {
+        return Acesso.de(p).permissoes().stream().map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new);
     }
 
     private void mesVazio() {
@@ -223,7 +227,12 @@ class SegurancaRbacWebTest {
 
     /** Emite com o relógio real: o decoder confere a validade (exp) contra a hora atual, não a do teste. */
     private String tokenReal(Perfil perfil) {
-        Usuario u = Usuario.novo(perfil == Perfil.ROLE_VIEWER ? "coordenacao" : "eduardo", "Teste", "x", Set.of(perfil));
+        return tokenDe(perfil == Perfil.ROLE_VIEWER ? "coordenacao" : "eduardo");
+    }
+
+    /** O token leva só o login: as permissões vêm do "banco" (doBanco) a cada requisição. */
+    private String tokenDe(String login) {
+        Usuario u = Usuario.novo(login, "Teste", "x", Acesso.NENHUM);
         JwtEmissorToken emissor = new JwtEmissorToken(jwtEncoder, segurancaProperties, Clock.systemUTC());
         return "Bearer " + emissor.emitir(u).valor();
     }
@@ -391,7 +400,7 @@ class SegurancaRbacWebTest {
     @Test
     @DisplayName("Login é público")
     void loginPublico() throws Exception {
-        Usuario leitora = Usuario.novo("coordenacao", "Coordenação", "hash", Set.of(Perfil.ROLE_VIEWER));
+        Usuario leitora = Usuario.novo("coordenacao", "Coordenação", "hash", Acesso.coordenador());
         when(autenticar.autenticar(any(), any())).thenReturn(new SessaoView("token", Instant.now(), leitora));
 
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
@@ -403,7 +412,7 @@ class SegurancaRbacWebTest {
     }
 
     @Test
-    @DisplayName("JWT real emitido pela aplicação: claim 'roles' vira perfil; assinatura inválida = 401")
+    @DisplayName("JWT real emitido pela aplicação: as permissões vêm do usuário relido do banco; assinatura inválida = 401")
     void tokenReal() throws Exception {
         mesVazio();
         when(lancarManual.executar(any(), any(), any())).thenReturn(sabadoManual());
@@ -420,6 +429,63 @@ class SegurancaRbacWebTest {
         String adulterado = viewer.substring(0, viewer.length() - 4) + "AAAA";
         mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, adulterado))
                 .andExpect(status().isUnauthorized());
+    }
+
+    @Test
+    @DisplayName("Mudar o acesso vale na hora, com o mesmo token; desativado ou apagado: 401 ACESSO_DESATIVADO")
+    void acessoValeNaHora() throws Exception {
+        when(lancarManual.executar(any(), any(), any())).thenReturn(sabadoManual());
+        String token = tokenDe("maria");
+        mvc.perform(post("/api/v1/jornadas/manual").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(MANUAL))
+                .andExpect(status().isCreated());
+
+        // tiraram "Lançar no próprio ponto" da Maria: o mesmo token não grava mais
+        Usuario soConsulta = new Usuario(idDe("maria"), "maria", "Maria", "x", true,
+                Acesso.usuario().sem(br.com.conferenciaponto.domain.acesso.PermissoesDoPonto.LANCAR), null);
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(soConsulta));
+        mvc.perform(post("/api/v1/jornadas/manual").header(HttpHeaders.AUTHORIZATION, token)
+                        .contentType(MediaType.APPLICATION_JSON).content(MANUAL))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_NEGADO"));
+
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(new Usuario(idDe("maria"), "maria", "Maria", "x",
+                false, Acesso.usuario(), null)));
+        mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_DESATIVADO"));
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.empty());
+        mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_DESATIVADO"));
+        verify(lancarManual, org.mockito.Mockito.times(1)).executar(any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Sem o próprio ponto: a pessoa só com acesso aos módulos não vê nem grava ponto nenhum")
+    void semPontoNenhum() throws Exception {
+        Usuario soModulos = new Usuario(idDe("atendente"), "atendente", "Atendente", "x", true,
+                new Acesso(List.of("Atendente"), Set.of("atendimentos.usar")), null);
+        when(usuarios.buscarPorLogin("atendente")).thenReturn(Optional.of(soModulos));
+        String token = tokenDe("atendente");
+
+        mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isForbidden())
+                .andExpect(jsonPath("$.erros[0].codigo").value("SEM_PONTO"));
+        mvc.perform(get("/api/v1/jornadas").param("usuario", "maria").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/jornadas/batidas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isForbidden());
+        when(gerenciarUsuarios.titulares()).thenReturn(List.of(doBanco("eduardo"), doBanco("maria")));
+        mvc.perform(get("/api/v1/usuarios/titulares").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.length()").value(0));
+        when(autenticar.usuarioAtual("atendente")).thenReturn(soModulos);
+        mvc.perform(get("/api/v1/auth/me").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.titular").value(false))
+                .andExpect(jsonPath("$.dados.perfis[0]").value("Atendente"))
+                .andExpect(jsonPath("$.dados.permissoes[0]").value("atendimentos.usar"));
     }
 
     @Test
@@ -515,7 +581,8 @@ class SegurancaRbacWebTest {
         mvc.perform(get("/api/v1/usuarios").with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.length()").value(2))
-                .andExpect(jsonPath("$.dados[1].perfil").value("ROLE_USER"))
+                .andExpect(jsonPath("$.dados[1].perfis[0]").value("Usuário"))
+                .andExpect(jsonPath("$.dados[1].permissoes.length()").value(2))
                 .andExpect(jsonPath("$.dados[1].situacaoMonitor").value("SEM_PASTA"));
 
         mvc.perform(get("/api/v1/usuarios/titulares")

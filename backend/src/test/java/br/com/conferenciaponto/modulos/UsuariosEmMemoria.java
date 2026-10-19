@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
@@ -18,13 +19,13 @@ public class UsuariosEmMemoria implements UsuarioRepository {
     private final Map<UUID, Usuario> porId = new LinkedHashMap<>();
 
     public Usuario novo(String login, String nome, Perfil perfil) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, nome, "hash", true, Set.of(perfil), null);
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, nome, "hash", true, Acesso.de(perfil), null);
         salvar(usuario);
         return usuario;
     }
 
     public Usuario desativado(String login, String nome) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, nome, "hash", false, Set.of(Perfil.ROLE_USER), null);
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, nome, "hash", false, Acesso.usuario(), null);
         salvar(usuario);
         return usuario;
     }

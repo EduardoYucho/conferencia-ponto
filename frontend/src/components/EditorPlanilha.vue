@@ -6,6 +6,7 @@ import { useAuthStore } from '@/stores/auth'
 import { usePontoStore } from '@/stores/ponto'
 import { mensagemDe } from '@/utils/erros'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
+import { INTEGRACOES } from '@/utils/permissoes'
 
 /**
  * Planilha do Google da pessoa em tela: o sistema reescreve as abas (resumo + um mês por aba) a cada mudança no
@@ -117,7 +118,7 @@ async function copiarEmail() {
     <!-- Integração ainda não configurada pelo administrador -->
     <p v-if="semIntegracao && !vinculada" class="text-sm text-tinta-suave">
       A integração com o Google Sheets ainda não foi configurada.
-      <RouterLink v-if="auth.ehAdmin" :to="{ name: 'usuarios', hash: '#google' }" class="font-semibold text-tinta underline underline-offset-4">
+      <RouterLink v-if="auth.pode(INTEGRACOES)" :to="{ name: 'usuarios', hash: '#google' }" class="font-semibold text-tinta underline underline-offset-4">
         Configurar agora
       </RouterLink>
       <template v-else>Peça ao administrador do sistema.</template>

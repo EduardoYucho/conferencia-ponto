@@ -11,6 +11,6 @@ public class ExemploQueUsaSoOPermitido {
         if (usuario == null) {
             throw new RegraNegocioException("SEM_USUARIO", "Sem usuário.");
         }
-        return ApiResponse.ok(usuario.login() + " " + usuario.perfis());
+        return ApiResponse.ok(usuario.login() + " " + usuario.pode("atendimentos.usar"));
     }
 }

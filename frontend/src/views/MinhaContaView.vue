@@ -10,11 +10,12 @@ import EnvioComprovantes from '@/components/EnvioComprovantes.vue'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { dataBR, dataISO } from '@/utils/tempo'
 import { mensagemDe } from '@/utils/erros'
+import { ACESSOS, PONTO_CONFIGURAR_EQUIPE, USUARIOS } from '@/utils/permissoes'
 
 /**
- * Minha conta: senha, pasta dos comprovantes, horário de trabalho e planilha no Google. O administrador
- * consultando outra pessoa ("Dados de") vê e altera a pasta, o horário e a planilha dela por aqui; a senha é
- * sempre a do próprio usuário.
+ * Minha conta: senha, pasta dos comprovantes, horário de trabalho e planilha no Google. Quem configura o ponto da
+ * equipe, consultando outra pessoa ("Dados de"), vê e altera a pasta, o horário e a planilha dela por aqui; a
+ * senha é sempre a do próprio usuário.
  */
 const auth = useAuthStore()
 const ponto = usePontoStore()
@@ -23,8 +24,8 @@ const pessoa = computed(() => auth.pessoaEmTela)
 /** Pasta e horário: da pessoa em tela, se ela tem dados de ponto. */
 const temPonto = computed(() => auth.ehTitular || !auth.vendoOsProprios)
 const outraPessoa = computed(() => !auth.vendoOsProprios)
-/** O próprio titular, ou o administrador alterando outra pessoa. */
-const podeEditar = computed(() => (auth.vendoOsProprios ? auth.ehTitular : auth.ehAdmin))
+/** Quem lança no próprio ponto, ou quem configura o ponto da equipe alterando outra pessoa. */
+const podeEditar = computed(() => (auth.vendoOsProprios ? auth.podeEscrever : auth.pode(PONTO_CONFIGURAR_EQUIPE)))
 
 const vigencias = ref([])
 const pasta = ref(null)
@@ -55,7 +56,7 @@ async function carregar() {
     recentes.value = lista
     if (!outraPessoa.value) {
       pasta.value = auth.usuario?.pastaComprovantes ?? null
-    } else if (auth.ehAdmin) {
+    } else if (auth.podeAlgum(USUARIOS, ACESSOS)) {
       const lista = await pontoApi.usuarios()
       pasta.value = lista.find((u) => u.login === pessoa.value?.login)?.pastaComprovantes ?? null
     } else {

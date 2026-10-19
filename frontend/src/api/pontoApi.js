@@ -101,9 +101,10 @@ export const pontoApi = {
   verificarPasta: (pasta) => http.post('/conta/pasta/verificar', { pasta }, { timeout: 30000 }),
   titulares: () => http.get('/usuarios/titulares'),
   usuarios: () => http.get('/usuarios'),
-  /** @param {{ login, nome, perfil: 'ROLE_ADMIN'|'ROLE_USER'|'ROLE_VIEWER', senhaProvisoria, pastaComprovantes? }} usuario */
+  /** @param {{ login, nome, perfis: string[] (ids), senhaProvisoria, pastaComprovantes? }} usuario */
   criarUsuario: (usuario) => http.post('/usuarios', usuario),
-  atualizarUsuario: (id, { nome, perfil, ativo }) => http.put(`/usuarios/${id}`, { nome, perfil, ativo }),
+  /** Nome e situação (os perfis e os ajustes mudam em acessosApi.definirAcesso). */
+  atualizarUsuario: (id, { nome, ativo }) => http.put(`/usuarios/${id}`, { nome, ativo }),
   redefinirSenha: (id, senhaProvisoria) => http.put(`/usuarios/${id}/senha`, { senhaProvisoria }),
   definirPastaDe: (id, pasta) => http.put(`/usuarios/${id}/pasta`, { pasta }, { timeout: 30000 }),
 

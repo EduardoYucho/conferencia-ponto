@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.application.view.SessaoView;
 import br.com.conferenciaponto.domain.exception.CredenciaisInvalidasException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -64,7 +65,7 @@ class AutenticarUsuarioUseCaseTest {
             new AutenticarUsuarioUseCase(usuarios, codificador, emissor, Clock.fixed(AGORA, ZoneOffset.UTC));
 
     private void cadastrar(String login, String senha, Perfil perfil) {
-        usuarios.salvar(Usuario.novo(login, login, codificador.codificar(senha), Set.of(perfil)));
+        usuarios.salvar(Usuario.novo(login, login, codificador.codificar(senha), Acesso.de(perfil)));
     }
 
     @Test
@@ -83,9 +84,9 @@ class AutenticarUsuarioUseCaseTest {
     @DisplayName("Senha errada, usuário inexistente ou inativo: mesma resposta (sem revelar qual)")
     void credenciaisInvalidas() {
         cadastrar("eduardo", "senha-forte", Perfil.ROLE_ADMIN);
-        Usuario inativo = Usuario.novo("antigo", "Antigo", codificador.codificar("senha-forte"), Set.of(Perfil.ROLE_USER));
+        Usuario inativo = Usuario.novo("antigo", "Antigo", codificador.codificar("senha-forte"), Acesso.usuario());
         usuarios.salvar(new Usuario(inativo.id(), inativo.login(), inativo.nome(), inativo.senhaHash(), false,
-                inativo.perfis(), null));
+                inativo.acesso(), null));
 
         assertThatThrownBy(() -> useCase.autenticar("eduardo", "errada")).isInstanceOf(CredenciaisInvalidasException.class);
         assertThatThrownBy(() -> useCase.autenticar("ninguem", "senha-forte")).isInstanceOf(CredenciaisInvalidasException.class);

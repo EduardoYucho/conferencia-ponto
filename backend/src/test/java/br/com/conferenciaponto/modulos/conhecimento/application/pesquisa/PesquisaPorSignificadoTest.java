@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.conhecimento.application.pesquisa;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.atendimento.application.evento.FalhaNoVetor;
@@ -45,7 +46,7 @@ class PesquisaPorSignificadoTest {
     @BeforeEach
     void preparar() {
         autor = ParaOsTestesDosVetores.autor();
-        quem = new Usuario(ParaOsTestesDosVetores.autor(), "quem", "quem", "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+        quem = new Usuario(ParaOsTestesDosVetores.autor(), "quem", "quem", "hash", true, Acesso.usuario(), null, null, false);
         gerador.comChave(autor, quem.id())
                 .fixo("Documento fiscal emitido em duplicidade", direcao(1, 0.1f))
                 .fixo("Relatório de comissões lento", direcao(0, 1))

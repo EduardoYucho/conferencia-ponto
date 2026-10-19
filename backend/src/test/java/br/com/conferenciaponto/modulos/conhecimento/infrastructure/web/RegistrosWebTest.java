@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.conhecimento.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.model.Perfil;
@@ -8,7 +9,7 @@ import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.infrastructure.security.RespostasSeguranca;
 import br.com.conferenciaponto.infrastructure.security.SecurityConfig;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.CasosParecidos;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.FiltrosDaPesquisa;
 import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.PesquisarNaBase;
@@ -17,7 +18,6 @@ import br.com.conferenciaponto.modulos.conhecimento.application.pesquisa.Resulta
 import br.com.conferenciaponto.modulos.conhecimento.application.registro.EdicaoDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.application.registro.GerenciarRegistros;
 import br.com.conferenciaponto.modulos.conhecimento.application.registro.RegistroView;
-import br.com.conferenciaponto.modulos.conhecimento.domain.acesso.AcessoABase;
 import br.com.conferenciaponto.modulos.conhecimento.domain.pesquisa.Trecho;
 import br.com.conferenciaponto.modulos.conhecimento.infrastructure.security.SegurancaDaBase;
 import org.junit.jupiter.api.BeforeEach;
@@ -73,8 +73,6 @@ class RegistrosWebTest {
     @MockitoBean
     private UsuarioRepository usuarios;
     @MockitoBean
-    private GerenciarAcessosABase acessos;
-    @MockitoBean
     private PesquisarNaBase pesquisa;
     @MockitoBean
     private GerenciarRegistros registros;
@@ -86,22 +84,19 @@ class RegistrosWebTest {
 
     @BeforeEach
     void cadastrar() {
-        maria = usuario("maria");
-        joao = usuario("joao");
-        when(acessos.acessoDe(any())).thenAnswer(i -> {
-            Usuario u = i.getArgument(0);
-            return u.login().equals("maria") ? new AcessoABase(u.id(), true, false, "admin", null) : AcessoABase.semAcesso(u.id());
-        });
+        maria = usuario("maria", Acesso.usuario().com(PermissoesDaBase.PESQUISAR));
+        joao = usuario("joao", Acesso.usuario());
     }
 
-    private Usuario usuario(String login) {
-        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, Set.of(Perfil.ROLE_USER), null, null, false);
+    private Usuario usuario(String login, Acesso acesso) {
+        Usuario usuario = new Usuario(UUID.randomUUID(), login, login, "hash", true, acesso, null, null, false);
         when(usuarios.buscarPorLogin(login)).thenReturn(Optional.of(usuario));
         return usuario;
     }
 
     private static RequestPostProcessor como(Usuario usuario) {
-        return jwt().jwt(j -> j.subject(usuario.login())).authorities(new SimpleGrantedAuthority("ROLE_USER"));
+        return jwt().jwt(j -> j.subject(usuario.login())).authorities(usuario.acesso().permissoes().stream()
+                .map(SimpleGrantedAuthority::new).toArray(SimpleGrantedAuthority[]::new));
     }
 
     private static RegistroView view(int versao) {

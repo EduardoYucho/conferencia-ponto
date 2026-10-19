@@ -35,10 +35,6 @@ export const rotasDosModulos = [
     component: () => import('./conhecimento/views/RegistroView.vue'),
     props: true,
   },
-  {
-    path: '/acessos',
-    name: 'acessos-modulos',
-    component: () => import('./AcessosView.vue'),
-    meta: { admin: true },
-  },
+  // a antiga tela de acessos dos módulos: os acessos agora ficam nos perfis de cada pessoa, em Usuários
+  { path: '/acessos', redirect: '/usuarios' },
 ]

@@ -5,7 +5,7 @@ import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.application.vetor.VetoresDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.DadosDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.ImagemDoRegistro;
@@ -41,23 +41,20 @@ public class GerenciarRegistros {
 
     private final Registros registros;
     private final PastaDaBase pasta;
-    private final GerenciarAcessosABase acessos;
     private final Clock clock;
     private final VetoresDaBase vetores;
 
     @Autowired
-    public GerenciarRegistros(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos, Clock clock,
-                              VetoresDaBase vetores) {
+    public GerenciarRegistros(Registros registros, PastaDaBase pasta, Clock clock, VetoresDaBase vetores) {
         this.registros = registros;
         this.pasta = pasta;
-        this.acessos = acessos;
         this.clock = clock;
         this.vetores = vetores;
     }
 
     /** Sem a pesquisa por significado. */
-    public GerenciarRegistros(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos, Clock clock) {
-        this(registros, pasta, acessos, clock, null);
+    public GerenciarRegistros(Registros registros, PastaDaBase pasta, Clock clock) {
+        this(registros, pasta, clock, null);
     }
 
     /** Uma imagem do registro para a tela. */
@@ -181,7 +178,7 @@ public class GerenciarRegistros {
     }
 
     private boolean podeMudar(Usuario usuario, Registro registro) {
-        return registro.autorId().equals(usuario.id()) || acessos.acessoDe(usuario).curar();
+        return registro.autorId().equals(usuario.id()) || usuario.ativo() && usuario.pode(PermissoesDaBase.CURAR);
     }
 
     private Registro existente(UUID id) {

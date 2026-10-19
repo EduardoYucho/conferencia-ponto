@@ -2,6 +2,9 @@ package br.com.conferenciaponto.application.usecase;
 
 import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
+import br.com.conferenciaponto.domain.acesso.AjusteDeAcesso;
+import br.com.conferenciaponto.domain.acesso.CatalogoDePermissoes;
+import br.com.conferenciaponto.domain.acesso.PermissoesDaAdministracao;
 import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
@@ -13,6 +16,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import java.time.Clock;
+import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
@@ -27,7 +31,9 @@ class GerenciarUsuariosUseCaseTest {
 
     private static final ZoneId SP = ZoneId.of("America/Sao_Paulo");
 
-    private final UsuarioRepositoryEmMemoria usuarios = UsuarioRepositoryEmMemoria.comTitular();
+    private final AcessosEmMemoria acessos = new AcessosEmMemoria();
+    private final CatalogoDePermissoes catalogo = AcessosEmMemoria.catalogo();
+    private final UsuarioRepositoryEmMemoria usuarios = UsuarioRepositoryEmMemoria.comTitular().ligadoA(acessos, catalogo);
     private final HorarioTrabalhoRepositoryEmMemoria horarios = new HorarioTrabalhoRepositoryEmMemoria();
     private final CicloBancoRepositoryEmMemoria ciclos = new CicloBancoRepositoryEmMemoria();
     private final RegrasJornada regras = Fixtures.regras(new ClassificadorDiaService(data -> false), horarios);
@@ -49,21 +55,35 @@ class GerenciarUsuariosUseCaseTest {
                     new LancamentoBancoRepositoryEmMemoria()),
             new br.com.conferenciaponto.application.ParametrosBancoHoras(LocalDate.of(2025, 11, 25), 6), eventos::add,
             clock);
-    private final GerenciarUsuariosUseCase useCase = new GerenciarUsuariosUseCase(usuarios, codificador, horarios,
-            regras, gerenciarCiclos, eventos::add, clock);
+    private final PreparacaoDoTitular preparacao = new PreparacaoDoTitular(horarios, regras, gerenciarCiclos, clock);
+    private final GerenciarAcessosUseCase gerenciarAcessos = new GerenciarAcessosUseCase(acessos, usuarios, catalogo,
+            preparacao, eventos::add, clock);
+    private final GerenciarUsuariosUseCase useCase = new GerenciarUsuariosUseCase(usuarios, codificador, preparacao,
+            gerenciarAcessos, eventos::add);
+
+    {
+        acessos.definirPerfis(USUARIO, List.of(acessos.idDo(Perfil.ROLE_ADMIN)), "teste", Instant.EPOCH);
+    }
 
     private Usuario admin() {
         return usuarios.buscarPorId(USUARIO).orElseThrow();
     }
 
+    private List<java.util.UUID> perfil(Perfil perfil) {
+        return List.of(acessos.idDo(perfil));
+    }
+
     @Test
-    @DisplayName("Admin cria o acesso com senha provisória; o novo titular ganha horário padrão e ciclo do banco")
+    @DisplayName("Cria o acesso com senha provisória e o perfil escolhido; quem tem o próprio ponto ganha horário padrão e ciclo do banco")
     void criaTitular() {
-        Usuario maria = useCase.criar(" Maria.Souza ", "Maria Souza", Perfil.ROLE_USER, "provisoria1",
-                "\\\\SERVIDOR\\Ponto\\Maria", "eduardo");
+        Usuario maria = useCase.criar(" Maria.Souza ", "Maria Souza", perfil(Perfil.ROLE_USER), "provisoria1",
+                "\\\\SERVIDOR\\Ponto\\Maria", admin());
 
         assertThat(maria.login()).isEqualTo("maria.souza");
         assertThat(maria.trocarSenha()).isTrue();
+        assertThat(maria.acesso().perfis()).containsExactly("Usuário");
+        assertThat(maria.isTitular()).isTrue();
+        assertThat(maria.podeEscrever()).isTrue();
         assertThat(codificador.confere("provisoria1", maria.senhaHash())).isTrue();
         assertThat(maria.pastaComprovantes()).isEqualTo("\\\\SERVIDOR\\Ponto\\Maria");
         assertThat(horarios.listarPorUsuario(maria.id())).singleElement()
@@ -72,13 +92,20 @@ class GerenciarUsuariosUseCaseTest {
         assertThat(ciclos.buscarAberto(maria.id())).get()
                 .satisfies(c -> assertThat(c.dataInicio()).isEqualTo(LocalDate.of(2026, 5, 25)));
         assertThat(eventos).last().isInstanceOf(UsuarioAlteradoEvento.class);
+        assertThat(acessos.historico).last().satisfies(m -> {
+            assertThat(m.usuarioId()).isEqualTo(maria.id());
+            assertThat(m.quem()).isEqualTo("eduardo");
+            assertThat(m.descricao()).contains("Maria Souza").contains("o perfil Usuário");
+        });
     }
 
     @Test
-    @DisplayName("Coordenação (só consulta) não tem horário, ciclo nem pasta")
+    @DisplayName("Quem só consulta a equipe não tem horário, ciclo nem pasta")
     void criaCoordenacao() {
-        Usuario coord = useCase.criar("coordenacao", "Coordenação", Perfil.ROLE_VIEWER, "provisoria1", null, "eduardo");
+        Usuario coord = useCase.criar("coordenacao", "Coordenação", perfil(Perfil.ROLE_VIEWER), "provisoria1", null, admin());
 
+        assertThat(coord.podeVerTodos()).isTrue();
+        assertThat(coord.isTitular()).isFalse();
         assertThat(horarios.listarPorUsuario(coord.id())).isEmpty();
         assertThat(ciclos.buscarAberto(coord.id())).isEmpty();
         assertThatThrownBy(() -> useCase.definirPasta(coord.id(), "C:/Ponto", admin()))
@@ -86,21 +113,39 @@ class GerenciarUsuariosUseCaseTest {
     }
 
     @Test
-    @DisplayName("Login inválido ou repetido, senha curta: recusados")
-    void validacoes() {
-        assertThatThrownBy(() -> useCase.criar("a b", "X", Perfil.ROLE_USER, "provisoria1", null, "eduardo"))
-                .isInstanceOf(RegraNegocioException.class);
-        assertThatThrownBy(() -> useCase.criar("eduardo", "X", Perfil.ROLE_USER, "provisoria1", null, "eduardo"))
-                .isInstanceOf(ConflitoException.class);
-        assertThatThrownBy(() -> useCase.criar("joao", "João", Perfil.ROLE_USER, "123", null, "eduardo"))
-                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("8 caracteres");
+    @DisplayName("Sem perfil, a pessoa entra sem acesso a nada; só quem cuida dos acessos escolhe os perfis no cadastro")
+    void semPerfil() {
+        Usuario cadastrador = useCase.criar("cadastro", "Cadastro", List.of(), "provisoria1", null, admin());
+        gerenciarAcessos.definirAcesso(admin(), cadastrador.id(), List.of(),
+                List.of(new AjusteDeAcesso(PermissoesDaAdministracao.USUARIOS, true)));
+        Usuario quemCadastra = usuarios.buscarPorId(cadastrador.id()).orElseThrow();
+
+        assertThatThrownBy(() -> useCase.criar("joao", "João", perfil(Perfil.ROLE_USER), "provisoria1", null, quemCadastra))
+                .isInstanceOf(AcessoNegadoException.class).hasMessageContaining("cuida dos acessos");
+        Usuario joao = useCase.criar("joao", "João", List.of(), "provisoria1", null, quemCadastra);
+        assertThat(joao.acesso().permissoes()).isEmpty();
+        assertThat(horarios.listarPorUsuario(joao.id())).isEmpty();
+        assertThat(acessos.historico).last().satisfies(m -> assertThat(m.descricao()).contains("sem perfil"));
     }
 
     @Test
-    @DisplayName("Cada pessoa tem a sua pasta (a mesma escrita de outro jeito também conta); só o dono ou o admin trocam")
+    @DisplayName("Login inválido ou repetido, senha curta, perfil que não existe: recusados")
+    void validacoes() {
+        assertThatThrownBy(() -> useCase.criar("a b", "X", perfil(Perfil.ROLE_USER), "provisoria1", null, admin()))
+                .isInstanceOf(RegraNegocioException.class);
+        assertThatThrownBy(() -> useCase.criar("eduardo", "X", perfil(Perfil.ROLE_USER), "provisoria1", null, admin()))
+                .isInstanceOf(ConflitoException.class);
+        assertThatThrownBy(() -> useCase.criar("joao", "João", perfil(Perfil.ROLE_USER), "123", null, admin()))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("8 caracteres");
+        assertThatThrownBy(() -> useCase.criar("joao", "João", List.of(java.util.UUID.randomUUID()), "provisoria1", null,
+                admin())).hasMessageContaining("não existe mais");
+    }
+
+    @Test
+    @DisplayName("Cada pessoa tem a sua pasta (a mesma escrita de outro jeito também conta); só o dono ou quem configura a equipe trocam")
     void pastaDeCadaUm() {
         useCase.definirPasta(USUARIO, "\\\\26.0.0.1\\Ponto", admin());
-        Usuario maria = useCase.criar("maria", "Maria", Perfil.ROLE_USER, "provisoria1", null, "eduardo");
+        Usuario maria = useCase.criar("maria", "Maria", perfil(Perfil.ROLE_USER), "provisoria1", null, admin());
 
         assertThatThrownBy(() -> useCase.definirPasta(maria.id(), "//26.0.0.1/ponto/", maria))
                 .isInstanceOf(ConflitoException.class).hasMessageContaining("Eduardo");
@@ -113,17 +158,37 @@ class GerenciarUsuariosUseCaseTest {
     }
 
     @Test
-    @DisplayName("Admin não se desativa nem tira o próprio perfil; sempre sobra um administrador ativo")
-    void sempreUmAdministrador() {
-        Usuario maria = useCase.criar("maria", "Maria", Perfil.ROLE_ADMIN, "provisoria1", null, "eduardo");
+    @DisplayName("Ninguém se desativa; desativada, a pessoa sai dos titulares e não perde o histórico")
+    void desativar() {
+        assertThatThrownBy(() -> useCase.atualizar(USUARIO, "Eduardo", false, admin()))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("próprio usuário");
+        Usuario maria = useCase.criar("maria", "Maria", perfil(Perfil.ROLE_ADMIN), "provisoria1", null, admin());
+        useCase.atualizar(USUARIO, "Eduardo", false, maria);
+        assertThat(usuarios.buscarPorId(USUARIO).orElseThrow().ativo()).isFalse();
 
-        assertThatThrownBy(() -> useCase.atualizar(USUARIO, "Eduardo", Perfil.ROLE_USER, true, USUARIO, "eduardo"))
-                .isInstanceOf(RegraNegocioException.class);
-        useCase.atualizar(maria.id(), "Maria", Perfil.ROLE_USER, true, USUARIO, "eduardo");
-        assertThat(useCase.titulares()).extracting(Usuario::login).containsExactly("eduardo", "maria");
+        Usuario joao = useCase.criar("joao", "João", perfil(Perfil.ROLE_USER), "provisoria1", null, maria);
+        assertThat(useCase.titulares()).extracting(Usuario::login).containsExactly("joao", "maria");
+        useCase.atualizar(joao.id(), "João", false, maria);
+        assertThat(useCase.titulares()).extracting(Usuario::login).containsExactly("maria");
+        assertThat(useCase.listar()).extracting(Usuario::login).containsExactly("maria", "eduardo", "joao");
+    }
 
-        useCase.atualizar(maria.id(), "Maria", Perfil.ROLE_USER, false, USUARIO, "eduardo");
-        assertThat(useCase.titulares()).extracting(Usuario::login).containsExactly("eduardo");
-        assertThat(useCase.listar()).extracting(Usuario::login).containsExactly("eduardo", "maria");
+    @Test
+    @DisplayName("Desativar ou trocar a senha de alguém só pode quem tem pelo menos os mesmos acessos que a pessoa")
+    void naoMexeEmQuemTemMaisAcesso() {
+        Usuario maria = useCase.criar("maria", "Maria", perfil(Perfil.ROLE_USER), "provisoria1", null, admin());
+        Usuario cadastro = useCase.criar("cadastro", "Cadastro Geral", perfil(Perfil.ROLE_USER), "provisoria1", null, admin());
+        gerenciarAcessos.definirAcesso(admin(), cadastro.id(), perfil(Perfil.ROLE_USER),
+                List.of(new AjusteDeAcesso(PermissoesDaAdministracao.USUARIOS, true)));
+        Usuario quemCadastra = usuarios.buscarPorId(cadastro.id()).orElseThrow();
+
+        assertThatThrownBy(() -> useCase.redefinirSenha(USUARIO, "outrasenha1", quemCadastra))
+                .isInstanceOf(AcessoNegadoException.class).hasMessageContaining("Eduardo tem acessos que você não tem");
+        assertThatThrownBy(() -> useCase.atualizar(USUARIO, "Eduardo", false, quemCadastra))
+                .isInstanceOf(AcessoNegadoException.class);
+
+        assertThat(useCase.redefinirSenha(maria.id(), "outrasenha1", quemCadastra).trocarSenha()).isTrue();
+        assertThat(useCase.atualizar(maria.id(), "Maria S.", false, quemCadastra).ativo()).isFalse();
+        assertThat(useCase.atualizar(maria.id(), "Maria S.", true, quemCadastra).ativo()).isTrue();
     }
 }

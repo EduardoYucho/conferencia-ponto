@@ -95,7 +95,7 @@ public class ConsultarPresencaUseCase {
         boolean completo = euMesmo || quem.podeVerTodos();
         if (!usuario.isTitular()) {
             return new Pessoa(usuario.id(), completo ? usuario.login() : null, usuario.nome(), euMesmo,
-                    Situacao.NAO_REGISTRA_PONTO, "Coordenação: consulta os dados, não registra ponto", null, null, null,
+                    Situacao.NAO_REGISTRA_PONTO, "Não registra ponto aqui", null, null, null,
                     List.of(), false, false);
         }
 

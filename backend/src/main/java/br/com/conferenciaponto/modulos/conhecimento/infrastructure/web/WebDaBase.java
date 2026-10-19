@@ -1,7 +1,6 @@
 package br.com.conferenciaponto.modulos.conhecimento.infrastructure.web;
 
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -17,15 +16,14 @@ public class WebDaBase {
     static final String ROTAS = "/api/v1/conhecimento/**";
 
     @Bean
-    WebMvcConfigurer rotasDaBase(AcessoUsuarios acesso, GerenciarAcessosABase acessos) {
-        InterceptorDaBase interceptor = new InterceptorDaBase(acesso, acessos);
+    WebMvcConfigurer rotasDaBase(AcessoUsuarios acesso) {
+        InterceptorDaBase interceptor = new InterceptorDaBase(acesso);
         return new WebMvcConfigurer() {
             @Override
             public void addInterceptors(InterceptorRegistry registro) {
                 registro.addInterceptor(interceptor)
                         .addPathPatterns(ROTAS)
-                        .excludePathPatterns("/api/v1/conhecimento/meu-acesso", "/api/v1/conhecimento/acessos",
-                                "/api/v1/conhecimento/acessos/**");
+                        .excludePathPatterns("/api/v1/conhecimento/meu-acesso");
             }
         };
     }

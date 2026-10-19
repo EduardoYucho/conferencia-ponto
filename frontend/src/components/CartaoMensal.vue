@@ -11,7 +11,7 @@ const props = defineProps({
   selecionada: { type: String, default: null },
   /** { data, chave }: realça a linha recém-alterada (a chave reinicia a animação). */
   destacada: { type: Object, default: null },
-  /** ROLE_VIEWER: fins de semana sem registro não abrem o lançamento manual. */
+  /** Só consulta (ou vendo outra pessoa): fins de semana sem registro não abrem o lançamento manual. */
   somenteLeitura: { type: Boolean, default: false },
   /** data -> { tipo: 'ausencia' | 'feriado', rotulo }: rotula dias sem registro (férias, feriado...). */
   marcadores: { type: Object, default: () => ({}) },

@@ -227,7 +227,7 @@ function descricaoDaMudanca(m) {
       <EstadoDaTela :carregando="!modulos.carregado" :erro="modulos.erro" carregando-texto="Conferindo o seu acesso…" @tentar="modulos.carregar()">
         <section v-if="!modulos.pesquisar" class="cartao px-5 py-4">
           <p class="font-semibold">A base de conhecimento não está liberada para você.</p>
-          <p class="mt-1 text-sm text-tinta-suave">Peça ao administrador para liberar.</p>
+          <p class="mt-1 text-sm text-tinta-suave">Peça a quem cuida dos acessos para liberar.</p>
         </section>
 
         <EstadoDaTela v-else :carregando="carregando" :erro="erro" :manter="!!registro" carregando-texto="Abrindo o registro…" @tentar="carregar">

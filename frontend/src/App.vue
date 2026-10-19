@@ -36,6 +36,15 @@ watch(
   { immediate: true },
 )
 
+// O acesso mudou com a tela aberta (alguém trocou um perfil ou um ajuste da pessoa): se esta tela não vale mais,
+// vai para a primeira que vale (o menu já se ajusta sozinho)
+watch(
+  () => [...auth.permissoes].sort().join(' '),
+  () => {
+    if (auth.autenticado && !route.meta.publica && !auth.podeAbrir(route)) router.replace(auth.rotaInicial())
+  },
+)
+
 const mostrarBarra = computed(() => auth.autenticado && !route.meta.publica && !route.meta.semBarra)
 /** No celular: a gaveta do menu lateral aberta. */
 const menuAberto = ref(false)

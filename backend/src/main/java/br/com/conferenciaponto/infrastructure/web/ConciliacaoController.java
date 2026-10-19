@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.infrastructure.web;
 
+import br.com.conferenciaponto.domain.acesso.PermissoesDoPonto;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.application.usecase.ConferirConciliacaoUseCase;
 import br.com.conferenciaponto.application.usecase.ConsultarConciliacaoUseCase;
@@ -99,7 +100,7 @@ public class ConciliacaoController {
 
     @PostMapping("/divergencias/{id}/aceitar")
     public ApiResponse<DivergenciaResponse> aceitar(@PathVariable UUID id, Titular titular) {
-        resolver.aceitarRh(titular.id(), id, titular.quem(), titular.logado().isAdmin());
+        resolver.aceitarRh(titular.id(), id, titular.quem(), titular.logado().pode(PermissoesDoPonto.FERIADOS));
         return ApiResponse.ok(uma(titular, id));
     }
 
@@ -120,7 +121,7 @@ public class ConciliacaoController {
     @PostMapping("/divergencias/aceitar-lote")
     public ApiResponse<AceiteLoteResponse> aceitarLote(@Valid @RequestBody AceiteLoteRequest r, Titular titular) {
         return ApiResponse.ok(AceiteLoteResponse.de(resolver.aceitarEmLote(titular.id(), r.tipos(), r.inicio(),
-                r.fim(), titular.quem(), titular.logado().isAdmin())));
+                r.fim(), titular.quem(), titular.logado().pode(PermissoesDoPonto.FERIADOS))));
     }
 
     @PostMapping("/reconferir")

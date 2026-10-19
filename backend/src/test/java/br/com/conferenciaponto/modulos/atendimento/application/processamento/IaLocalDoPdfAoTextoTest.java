@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.atendimento.application.processamento;
 
+import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
@@ -106,7 +107,7 @@ class IaLocalDoPdfAoTextoTest {
     void preparar() {
         PostgresDeTeste.jdbc().sql("DELETE FROM atendimento.tarefa").update();
         cofre = new CofreAesGcm(new ChaveMestraProperties(raiz.resolve("chave-mestra")));
-        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Set.of(Perfil.ROLE_USER),
+        maria = new Usuario(PostgresDeTeste.novoUsuario(true), "maria", "maria", "hash", true, Acesso.usuario(),
                 null, null, false);
         servidor.arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011620000.jpeg"), JPEG)
                 .arquivo(PdfDigisacDeTeste.caminhoDoAnexo("1760011680000.oga"), OGG)

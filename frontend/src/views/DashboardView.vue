@@ -21,7 +21,7 @@ import {
 import { mensagemDe } from '@/utils/erros'
 
 const store = usePontoStore()
-/** ROLE_VIEWER: mesma tela, sem botões de edição, inserção ou exclusão. */
+/** Quem só consulta (ou vê outra pessoa): mesma tela, sem botões de edição, inserção ou exclusão. */
 const auth = useAuthStore()
 const {
   configuracao, ano, mes, resumo, carregando, salvando,

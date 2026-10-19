@@ -97,7 +97,7 @@ public class ResolverDivergenciaUseCase {
      * @return a divergência depois do aceite (ACEITO_RH, ou pendente de outro tipo se sobrou diferença)
      */
     @Transactional
-    public Divergencia aceitarRh(UUID usuarioId, UUID id, String usuario, boolean administrador) {
+    public Divergencia aceitarRh(UUID usuarioId, UUID id, String usuario, boolean cadastraFeriados) {
         Divergencia d = pendente(usuarioId, id);
         DiaVigente vigente = relatorios.vigentes(usuarioId, d.data(), d.data()).stream().findFirst()
                 .orElseThrow(() -> new ConflitoException("DIVERGENCIA_SEM_RELATORIO",
@@ -114,10 +114,10 @@ public class ResolverDivergenciaUseCase {
                 OcorrenciaRh ocorrencia = vigente.dia().tipoOcorrencia().orElseThrow(() -> new RegraNegocioException(
                         "DIVERGENCIA_NAO_ACEITAVEL", "O RH não indica feriado nem ausência neste dia."));
                 if (ocorrencia == OcorrenciaRh.FERIADO) {
-                    if (!administrador) {
+                    if (!cadastraFeriados) {
                         // feriado vale para todos: mudaria o dia e o saldo das outras pessoas
                         throw new RegraNegocioException("FERIADO_SO_ADMINISTRADOR", ("O RH marca %s como feriado. Feriado "
-                                + "vale para todos: peça ao administrador para cadastrá-lo em \"Folgas e feriados\" "
+                                + "vale para todos: peça a quem cadastra feriados para cadastrá-lo em \"Folgas e feriados\" "
                                 + "(esta divergência some sozinha depois).").formatted(DATA.format(d.data())));
                     }
                     aceitarFeriado(d.data(), vigente.dia());
@@ -186,7 +186,7 @@ public class ResolverDivergenciaUseCase {
      * transação: um dia que não puder ser aceito não impede os demais).
      */
     public ResultadoLote aceitarEmLote(UUID usuarioId, Set<TipoDivergencia> tipos, LocalDate inicio, LocalDate fim,
-                                       String usuario, boolean administrador) {
+                                       String usuario, boolean cadastraFeriados) {
         List<Divergencia> alvo = divergencias.listar(usuarioId, StatusDivergencia.PENDENTE, inicio, fim).stream()
                 .filter(d -> tipos.contains(d.tipo()) && d.aceitavel())
                 .sorted(Comparator.comparing(Divergencia::data))
@@ -198,7 +198,7 @@ public class ResolverDivergenciaUseCase {
                 Boolean aceita = transacao.execute(status -> {
                     boolean aindaPendente = divergencias.buscarPorId(d.id()).map(Divergencia::isPendente).orElse(false);
                     if (aindaPendente) { // pode ter sido resolvida junto com outro dia (ex.: período de férias)
-                        aceitarRh(usuarioId, d.id(), usuario, administrador);
+                        aceitarRh(usuarioId, d.id(), usuario, cadastraFeriados);
                     }
                     return aindaPendente;
                 });

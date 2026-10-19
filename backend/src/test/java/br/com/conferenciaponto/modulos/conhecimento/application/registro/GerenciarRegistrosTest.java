@@ -55,8 +55,8 @@ class GerenciarRegistrosTest {
     @BeforeEach
     void preparar() {
         pasta = new PastaDaBaseEmDisco(raiz);
-        gerenciar = new GerenciarRegistros(registros, pasta, base.gerenciarAcessos, RELOGIO);
-        registrar = new RegistrarTextoConfirmado(registros, pasta, base.gerenciarAcessos, base.usuarios);
+        gerenciar = new GerenciarRegistros(registros, pasta, RELOGIO);
+        registrar = new RegistrarTextoConfirmado(registros, pasta, base.usuarios);
         pesquisar = new PesquisarNaBase(registros, RELOGIO);
         autora = base.pessoa("autora", true, false);
         leitor = base.pessoa("leitor", true, false);

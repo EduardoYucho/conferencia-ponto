@@ -17,15 +17,14 @@ import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.access.AccessDeniedHandler;
 
 /**
- * Segurança das rotas da base de conhecimento, separada da do ponto: o mesmo login (JWT), qualquer perfil passa,
- * e quem decide é a liberação em conhecimento.acesso ({@code InterceptorDaBase}). A tela de acessos é só do
- * administrador. As respostas 401/403 são as mesmas do ponto (com protocolo).
+ * Segurança das rotas da base de conhecimento, separada da do ponto: o mesmo login (JWT) e as mesmas permissões
+ * (relidas a cada requisição); quem decide é a permissão base.pesquisar ({@code InterceptorDaBase}). As respostas
+ * 401/403 são as mesmas do ponto (com protocolo).
  *
  * <pre>
- * Rota                                       ADMIN  USER  VIEWER  anônimo
- * GET  /api/v1/conhecimento/meu-acesso         ✓     ✓      ✓       –
- * /api/v1/conhecimento/acessos/**              ✓     –      –       –
- * /api/v1/conhecimento/** (o resto)          liberado em conhecimento.acesso (qualquer perfil)
+ * Rota                                       Exige
+ * GET  /api/v1/conhecimento/meu-acesso       sessão
+ * /api/v1/conhecimento/** (o resto)          base.pesquisar (no InterceptorDaBase); a curadoria, base.curar
  * </pre>
  */
 @Configuration
@@ -46,7 +45,6 @@ public class SegurancaDaBase {
                 .authorizeHttpRequests(regras -> regras
                         .dispatcherTypeMatchers(DispatcherType.ASYNC, DispatcherType.ERROR).permitAll()
                         .requestMatchers(HttpMethod.OPTIONS, "/**").permitAll()
-                        .requestMatchers("/api/v1/conhecimento/acessos", "/api/v1/conhecimento/acessos/**").hasRole("ADMIN")
                         .anyRequest().authenticated())
                 .oauth2ResourceServer(rs -> rs
                         .jwt(jwt -> jwt.jwtAuthenticationConverter(conversor))

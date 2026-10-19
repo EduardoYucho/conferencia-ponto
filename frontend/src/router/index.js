@@ -6,6 +6,7 @@ import DashboardView from '@/views/DashboardView.vue'
 import LoginView from '@/views/LoginView.vue'
 // telas dos módulos de atendimentos e base de conhecimento (ficam todas em src/modulos)
 import { rotasDosModulos } from '@/modulos/rotas'
+import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -13,14 +14,21 @@ export const router = createRouter({
   scrollBehavior: (destino) => (destino.hash ? { el: destino.hash, behavior: 'smooth' } : undefined),
   routes: [
     { path: '/login', name: 'login', component: LoginView, meta: { publica: true } },
-    { path: '/', name: 'painel', component: DashboardView },
-    { path: '/auditoria', name: 'auditoria', component: () => import('@/views/AuditoriaView.vue') },
-    { path: '/conciliacao', name: 'conciliacao', component: () => import('@/views/ConciliacaoView.vue') },
-    { path: '/ausencias', name: 'ausencias', component: () => import('@/views/AusenciasView.vue') },
-    { path: '/equipe', name: 'equipe', component: () => import('@/views/EquipeView.vue') },
-    { path: '/logs', name: 'logs', component: () => import('@/views/LogsView.vue'), meta: { admin: true } },
+    // meta.permissao: 'ponto' = o próprio ponto ou o da equipe; um código ou uma lista = basta ter um
+    { path: '/', name: 'painel', component: DashboardView, meta: { permissao: 'ponto' } },
+    { path: '/auditoria', name: 'auditoria', component: () => import('@/views/AuditoriaView.vue'), meta: { permissao: 'ponto' } },
+    { path: '/conciliacao', name: 'conciliacao', component: () => import('@/views/ConciliacaoView.vue'), meta: { permissao: 'ponto' } },
+    { path: '/ausencias', name: 'ausencias', component: () => import('@/views/AusenciasView.vue'), meta: { permissao: 'ponto' } },
+    { path: '/equipe', name: 'equipe', component: () => import('@/views/EquipeView.vue'), meta: { permissao: 'ponto' } },
+    { path: '/logs', name: 'logs', component: () => import('@/views/LogsView.vue'), meta: { permissao: LOGS } },
     { path: '/conta', name: 'conta', component: () => import('@/views/MinhaContaView.vue') },
-    { path: '/usuarios', name: 'usuarios', component: () => import('@/views/UsuariosView.vue'), meta: { admin: true } },
+    {
+      path: '/usuarios',
+      name: 'usuarios',
+      component: () => import('@/views/UsuariosView.vue'),
+      meta: { permissao: [USUARIOS, ACESSOS, INTEGRACOES] },
+    },
+    { path: '/perfis', name: 'perfis', component: () => import('@/views/PerfisView.vue'), meta: { permissao: ACESSOS } },
     {
       path: '/trocar-senha',
       name: 'trocar-senha',
@@ -33,8 +41,8 @@ export const router = createRouter({
 })
 
 /**
- * Toda rota exige sessão; quem já está logado não volta ao login. Senha provisória: só a troca de senha.
- * Cadastro de usuários: só o administrador.
+ * Toda rota exige sessão; quem já está logado não volta ao login. Senha provisória: só a troca de senha. Cada
+ * tela abre só com a permissão dela (meta.permissao); sem ela, a pessoa vai para a primeira tela que pode abrir.
  */
 router.beforeEach((destino) => {
   const auth = useAuthStore()
@@ -48,6 +56,6 @@ router.beforeEach((destino) => {
     return destino.name === 'trocar-senha' ? true : { name: 'trocar-senha' }
   }
   if (destino.name === 'trocar-senha') return auth.rotaInicial()
-  if (destino.meta.admin && !auth.ehAdmin) return auth.rotaInicial()
+  if (!auth.podeAbrir(destino)) return auth.rotaInicial()
   return true
 })

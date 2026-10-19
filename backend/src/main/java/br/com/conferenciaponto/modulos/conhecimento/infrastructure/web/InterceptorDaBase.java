@@ -3,7 +3,7 @@ package br.com.conferenciaponto.modulos.conhecimento.infrastructure.web;
 import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
@@ -13,18 +13,15 @@ import org.springframework.web.cors.CorsUtils;
 import org.springframework.web.servlet.HandlerInterceptor;
 
 /**
- * Toda rota da base (menos o "meu acesso" e a tela de acessos do administrador) exige poder pesquisar
- * (conhecimento.acesso): as rotas novas já nascem protegidas. O que só a curadoria faz é conferido no caso de
- * uso. O acesso é relido a cada requisição, então retirar vale na hora.
+ * Toda rota da base (menos o "meu acesso") exige base.pesquisar: as rotas novas já nascem protegidas. O que só a
+ * curadoria faz é conferido no caso de uso. O acesso é relido a cada requisição, então retirar vale na hora.
  */
 final class InterceptorDaBase implements HandlerInterceptor {
 
     private final AcessoUsuarios acesso;
-    private final GerenciarAcessosABase acessos;
 
-    InterceptorDaBase(AcessoUsuarios acesso, GerenciarAcessosABase acessos) {
+    InterceptorDaBase(AcessoUsuarios acesso) {
         this.acesso = acesso;
-        this.acessos = acessos;
     }
 
     @Override
@@ -38,9 +35,9 @@ final class InterceptorDaBase implements HandlerInterceptor {
         if (logado.trocarSenha()) {
             throw new AcessoNegadoException("TROCAR_SENHA", "Troque a senha provisória para continuar.");
         }
-        if (!acessos.acessoDe(logado).pesquisar()) {
+        if (!logado.pode(PermissoesDaBase.PESQUISAR)) {
             throw new AcessoNegadoException("MODULO_NAO_LIBERADO",
-                    "A base de conhecimento não está liberada para você. Peça ao administrador.");
+                    "A base de conhecimento não está liberada para você. Peça a quem cuida dos acessos.");
         }
         return true;
     }

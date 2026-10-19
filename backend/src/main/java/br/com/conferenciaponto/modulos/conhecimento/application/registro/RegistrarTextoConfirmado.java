@@ -5,7 +5,7 @@ import br.com.conferenciaponto.domain.exception.RegraNegocioException;
 import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.domain.port.UsuarioRepository;
 import br.com.conferenciaponto.modulos.atendimento.application.evento.TextoConfirmado;
-import br.com.conferenciaponto.modulos.conhecimento.application.acesso.GerenciarAcessosABase;
+import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.application.vetor.VetoresDaBase;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.DadosDoRegistro;
 import br.com.conferenciaponto.modulos.conhecimento.domain.registro.ImagemDoRegistro;
@@ -44,30 +44,27 @@ public class RegistrarTextoConfirmado {
 
     private final Registros registros;
     private final PastaDaBase pasta;
-    private final GerenciarAcessosABase acessos;
     private final UsuarioRepository usuarios;
     private final VetoresDaBase vetores;
 
     @Autowired
-    public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos,
-                                    UsuarioRepository usuarios, VetoresDaBase vetores) {
+    public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, UsuarioRepository usuarios,
+                                    VetoresDaBase vetores) {
         this.registros = registros;
         this.pasta = pasta;
-        this.acessos = acessos;
         this.usuarios = usuarios;
         this.vetores = vetores;
     }
 
     /** Sem a pesquisa por significado. */
-    public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, GerenciarAcessosABase acessos,
-                                    UsuarioRepository usuarios) {
-        this(registros, pasta, acessos, usuarios, null);
+    public RegistrarTextoConfirmado(Registros registros, PastaDaBase pasta, UsuarioRepository usuarios) {
+        this(registros, pasta, usuarios, null);
     }
 
     @EventListener
     public void aoConfirmar(TextoConfirmado texto) {
         Usuario autor = usuarios.buscarPorId(texto.autorId()).orElseThrow(() -> semPermissao());
-        if (!acessos.acessoDe(autor).pesquisar()) {
+        if (!autor.ativo() || !autor.pode(PermissoesDaBase.PESQUISAR)) {
             throw semPermissao();
         }
         TextoConfirmado.Formulario f = texto.formulario();
@@ -142,6 +139,6 @@ public class RegistrarTextoConfirmado {
 
     private static AcessoNegadoException semPermissao() {
         return new AcessoNegadoException("SEM_PERMISSAO_NA_BASE", "A base de conhecimento não está liberada para você. "
-                + "Peça ao administrador o acesso à base para enviar textos para ela.");
+                + "Peça a quem cuida dos acessos para liberar a base e enviar textos para ela.");
     }
 }
