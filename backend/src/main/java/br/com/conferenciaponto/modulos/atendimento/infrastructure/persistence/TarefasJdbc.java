@@ -74,26 +74,8 @@ class TarefasJdbc implements Tarefas {
             return List.of();
         }
         List<Tarefa> pegas = transacao.execute(status -> {
-            List<Tarefa> candidatas = jdbc.sql("""
-                            SELECT t.id, t.tipo, t.atendimento_id, a.usuario_id, t.arquivo_id, t.saida_id, t.tentativas,
-                                   t.max_tentativas
-                              FROM atendimento.tarefa t
-                              JOIN atendimento.atendimento a ON a.id = t.atendimento_id
-                             WHERE t.situacao = 'pendente' AND t.executar_apos <= :agora
-                             ORDER BY t.executar_apos, t.id
-                             LIMIT :candidatas
-                               FOR UPDATE OF t SKIP LOCKED
-                            """)
-                    .param("agora", utc(agora))
-                    .param("candidatas", Math.max(50, limite * 10))
-                    .query((rs, linha) -> new Tarefa(rs.getLong("id"), TipoDeTarefa.doCodigo(rs.getString("tipo")),
-                            rs.getObject("atendimento_id", UUID.class), rs.getObject("usuario_id", UUID.class),
-                            rs.getObject("arquivo_id", UUID.class), rs.getObject("saida_id", UUID.class),
-                            rs.getInt("tentativas") + 1, rs.getInt("max_tentativas")))
-                    .list();
-            if (candidatas.isEmpty()) {
-                return List.<Tarefa>of();
-            }
+            // primeiro o que já está rodando: quem (pessoa ou tipo) já está no limite sai da consulta, senão as 50
+            // candidatas podiam ser todas de uma pessoa (ou de um tipo) cheia e a fila dos outros não andava
             Map<UUID, Integer> doUsuario = new HashMap<>();
             Map<TipoDeTarefa, Integer> doTipo = new HashMap<>();
             jdbc.sql("""
@@ -107,6 +89,42 @@ class TarefasJdbc implements Tarefas {
                         doUsuario.merge(rs.getObject("usuario_id", UUID.class), n, Integer::sum);
                         doTipo.merge(TipoDeTarefa.doCodigo(rs.getString("tipo")), n, Integer::sum);
                     });
+            List<UUID> cheios = doUsuario.entrySet().stream().filter(e -> e.getValue() >= porUsuario)
+                    .map(Map.Entry::getKey).toList();
+            List<String> saturados = doTipo.entrySet().stream()
+                    .filter(e -> porTipo.getOrDefault(e.getKey(), 0) > 0 && e.getValue() >= porTipo.get(e.getKey()))
+                    .map(e -> e.getKey().codigo()).toList();
+            var consulta = jdbc.sql("""
+                            SELECT t.id, t.tipo, t.atendimento_id, a.usuario_id, t.arquivo_id, t.saida_id, t.tentativas,
+                                   t.max_tentativas
+                              FROM atendimento.tarefa t
+                              JOIN atendimento.atendimento a ON a.id = t.atendimento_id
+                             WHERE t.situacao = 'pendente' AND t.executar_apos <= :agora
+                            """
+                            + (cheios.isEmpty() ? "" : " AND a.usuario_id NOT IN (:cheios)")
+                            + (saturados.isEmpty() ? "" : " AND t.tipo NOT IN (:saturados)")
+                            + """
+                             ORDER BY t.executar_apos, t.id
+                             LIMIT :candidatas
+                               FOR UPDATE OF t SKIP LOCKED
+                            """)
+                    .param("agora", utc(agora))
+                    .param("candidatas", Math.max(50, limite * 10));
+            if (!cheios.isEmpty()) {
+                consulta = consulta.param("cheios", cheios);
+            }
+            if (!saturados.isEmpty()) {
+                consulta = consulta.param("saturados", saturados);
+            }
+            List<Tarefa> candidatas = consulta
+                    .query((rs, linha) -> new Tarefa(rs.getLong("id"), TipoDeTarefa.doCodigo(rs.getString("tipo")),
+                            rs.getObject("atendimento_id", UUID.class), rs.getObject("usuario_id", UUID.class),
+                            rs.getObject("arquivo_id", UUID.class), rs.getObject("saida_id", UUID.class),
+                            rs.getInt("tentativas") + 1, rs.getInt("max_tentativas")))
+                    .list();
+            if (candidatas.isEmpty()) {
+                return List.<Tarefa>of();
+            }
             List<Tarefa> escolhidas = new ArrayList<>();
             for (Tarefa t : candidatas) {
                 if (escolhidas.size() >= limite) {
@@ -157,6 +175,23 @@ class TarefasJdbc implements Tarefas {
                         """)
                 .param("agora", utc(agora))
                 .update();
+    }
+
+    @Override
+    public List<Tarefa> emExecucaoNaUltimaTentativa() {
+        return jdbc.sql("""
+                        SELECT t.id, t.tipo, t.atendimento_id, a.usuario_id, t.arquivo_id, t.saida_id, t.tentativas,
+                               t.max_tentativas
+                          FROM atendimento.tarefa t
+                          JOIN atendimento.atendimento a ON a.id = t.atendimento_id
+                         WHERE t.situacao = 'executando' AND t.tentativas >= t.max_tentativas
+                         ORDER BY t.id
+                        """)
+                .query((rs, linha) -> new Tarefa(rs.getLong("id"), TipoDeTarefa.doCodigo(rs.getString("tipo")),
+                        rs.getObject("atendimento_id", UUID.class), rs.getObject("usuario_id", UUID.class),
+                        rs.getObject("arquivo_id", UUID.class), rs.getObject("saida_id", UUID.class),
+                        rs.getInt("tentativas"), rs.getInt("max_tentativas")))
+                .list();
     }
 
     @Override

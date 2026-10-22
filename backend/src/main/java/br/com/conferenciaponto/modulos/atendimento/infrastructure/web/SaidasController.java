@@ -13,7 +13,6 @@ import br.com.conferenciaponto.modulos.atendimento.application.redacao.LinhaDoTe
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.ModoDeCopia;
 import br.com.conferenciaponto.modulos.atendimento.application.redacao.SaidaView;
 import br.com.conferenciaponto.modulos.atendimento.domain.saida.TipoDeSaida;
-import org.springframework.core.io.ByteArrayResource;
 import org.springframework.core.io.FileSystemResource;
 import org.springframework.core.io.Resource;
 import org.springframework.http.CacheControl;
@@ -30,7 +29,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.io.ByteArrayOutputStream;
+import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.util.List;
 import java.util.UUID;
 
@@ -58,8 +62,9 @@ import java.util.UUID;
 @RequestMapping("/api/v1/atendimentos/{id}")
 public class SaidasController {
 
-    /** O .zip é montado na memória: acima disto, a pessoa baixa as imagens uma a uma. */
+    /** Acima disto (a soma das imagens), a pessoa baixa as imagens uma a uma. */
     private static final long LIMITE_DO_ZIP = 200L * 1024 * 1024;
+    private static final Logger log = LoggerFactory.getLogger(SaidasController.class);
 
     private final GerenciarSaidas saidas;
     private final ProcessarAtendimentos processamento;
@@ -168,20 +173,27 @@ public class SaidasController {
                 || pedido.ligada()));
     }
 
+    /**
+     * O .zip vai sendo escrito direto na resposta (até 200 MB de imagens): montado na memória, ele ocupava duas vezes
+     * o tamanho e podia derrubar o sistema inteiro.
+     */
     @GetMapping("/saidas/{saidaId}/imagens.zip")
-    public ResponseEntity<Resource> zip(@PathVariable UUID id, @PathVariable UUID saidaId) {
+    public void zip(@PathVariable UUID id, @PathVariable UUID saidaId, HttpServletResponse resposta) throws IOException {
         List<GerenciarSaidas.ArquivoDaImagem> imagens = saidas.imagensParaOZip(acesso.logado(), id, saidaId);
         long total = imagens.stream().mapToLong(i -> i.local().toFile().length()).sum();
         if (total > LIMITE_DO_ZIP) {
             throw new RegraNegocioException("ZIP_GRANDE_DEMAIS", "As imagens somam mais de 200 MB. Baixe uma a uma.");
         }
-        ByteArrayOutputStream conteudo = new ByteArrayOutputStream((int) Math.min(total + 4096, Integer.MAX_VALUE));
-        GerenciarSaidas.escreverZip(imagens, conteudo);
-        return ResponseEntity.ok()
-                .contentType(MediaType.parseMediaType("application/zip"))
-                .cacheControl(CacheControl.noStore())
-                .header(HttpHeaders.CONTENT_DISPOSITION, ContentDisposition.attachment().filename("imagens.zip").build().toString())
-                .body(new ByteArrayResource(conteudo.toByteArray()));
+        resposta.setContentType("application/zip");
+        resposta.setHeader(HttpHeaders.CACHE_CONTROL, CacheControl.noStore().getHeaderValue());
+        resposta.setHeader(HttpHeaders.CONTENT_DISPOSITION,
+                ContentDisposition.attachment().filename("imagens.zip").build().toString());
+        try {
+            GerenciarSaidas.escreverZip(imagens, resposta.getOutputStream());
+        } catch (UncheckedIOException e) {
+            // quem baixava fechou a página no meio: não há mais para quem responder
+            log.debug("Download do .zip da saída {} interrompido: {}", saidaId, e.getCause().toString());
+        }
     }
 
     static TipoDeSaida tipo(String codigo) {

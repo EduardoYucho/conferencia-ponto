@@ -354,6 +354,28 @@ class CoordenadorDaFilaTest {
     }
 
     @Test
+    void naSubidaATarefaInterrompidaNaUltimaTentativaFalhaEmVezDeDerrubarDeNovo() {
+        atendimento(2, 3);
+        List<Tarefa> pegas = tarefas.pegar(10, 10, Map.of(), Instant.now(), Duration.ofMinutes(15)); // e o processo caiu
+        long culpada = pegas.get(0).id();
+        jdbc.sql("UPDATE atendimento.tarefa SET tentativas = max_tentativas WHERE id = ?").param(culpada).update();
+        AtomicInteger vezes = new AtomicInteger();
+        CoordenadorDaFila novo = coordenador(4, 4, baixar(0, t -> {
+            vezes.incrementAndGet();
+            return ResultadoDaTarefa.concluida();
+        }));
+
+        novo.iniciar();
+
+        await().atMost(15, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        assertThat(vezes).as("só a outra rodou de novo").hasValue(1);
+        assertThat(terminadas).contains(culpada + ":FalhaDefinitiva");
+        assertThat(jdbc.sql("SELECT erro_codigo FROM atendimento.tarefa WHERE id = ?").param(culpada).query(String.class)
+                .single()).isEqualTo(CoordenadorDaFila.INTERROMPIDA);
+        assertThat(situacoes()).containsEntry("concluida", 1).containsEntry("falhou", 1);
+    }
+
+    @Test
     void esperaCrescenteComLimiteERespeitandoOPedido() {
         CoordenadorDaFila c = new CoordenadorDaFila(tarefas, List.of(), acompanhamento, Clock.systemUTC(), 1, 1,
                 Duration.ofMinutes(15), Duration.ofSeconds(2), Duration.ofSeconds(10), Duration.ofMinutes(10), false);

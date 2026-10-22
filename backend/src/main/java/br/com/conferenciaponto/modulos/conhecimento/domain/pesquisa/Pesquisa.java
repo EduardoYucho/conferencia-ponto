@@ -37,7 +37,8 @@ public record Pesquisa(ConsultaDeTexto texto, TipoDoRegistro tipo, SituacaoDoReg
         this(texto, tipo, situacao, cliente, modulo, autorId, desde, ate, soValidadas, pagina, tamanho, List.of());
     }
 
+    /** Página absurda (?pagina=200000000) dá uma lista vazia, não um OFFSET que estoura. */
     public int deslocamento() {
-        return (pagina - 1) * tamanho;
+        return (int) Math.min(Integer.MAX_VALUE, (long) (pagina - 1) * tamanho);
     }
 }

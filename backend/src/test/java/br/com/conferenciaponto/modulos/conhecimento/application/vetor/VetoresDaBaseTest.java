@@ -183,4 +183,20 @@ class VetoresDaBaseTest {
         vetores.esquecer(nota);
         assertThat(vetores.semelhantes(consulta.vetor(), 0.3, 10, null)).isEmpty();
     }
+
+    @Test
+    void consultaQueDemoraSaiSoExataEOVetorFicaGuardadoParaAProxima() throws Exception {
+        UUID quem = ParaOsTestesDosVetores.autor();
+        gerador.comChave(quem).demorar(java.time.Duration.ofMillis(500));
+        VetoresDaBase vetores = vetores(base.modelo);
+        vetores.tempoDaConsulta(java.time.Duration.ofMillis(100));
+
+        VetoresDaBase.Consulta primeira = vetores.consulta(quem, TextoDoVetor.consulta("nota lenta"));
+
+        assertThat(primeira.ativa()).isFalse();
+        assertThat(primeira.aviso()).contains("demorou para responder");
+        Thread.sleep(1_000); // o vetor chega depois e fica guardado
+        assertThat(vetores.consulta(quem, TextoDoVetor.consulta("nota lenta")).ativa()).isTrue();
+        assertThat(gerador.pedidosDe(quem)).hasSize(1);
+    }
 }

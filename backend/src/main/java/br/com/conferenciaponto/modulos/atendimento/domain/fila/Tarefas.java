@@ -32,6 +32,13 @@ public interface Tarefas {
      */
     int devolverVencidas(Instant agora);
 
+    /**
+     * Na subida, antes de devolver: as tarefas que estavam "executando" na última tentativa. Cada subida no meio de uma
+     * tarefa gasta uma tentativa; a que já gastou todas (ex.: derrubou o processo por falta de memória, vez após vez)
+     * não volta para a fila: falha, e a pessoa vê o motivo e pode tentar de novo.
+     */
+    List<Tarefa> emExecucaoNaUltimaTentativa();
+
     /** Na subida: nada está em execução de verdade, então toda tarefa "executando" volta para a fila. */
     int devolverTodasEmExecucao();
 

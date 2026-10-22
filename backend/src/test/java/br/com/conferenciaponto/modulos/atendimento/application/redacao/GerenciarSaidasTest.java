@@ -178,6 +178,18 @@ class GerenciarSaidasTest {
     }
 
     @Test
+    void asImagensDaCopiaTemUmTetoNaSoma() throws Exception {
+        Files.write(raiz.resolve(atendimento + "/arquivos/001_print.png"), new byte[1000]); // cada uma cabe (1 KB)...
+        Files.write(raiz.resolve(atendimento + "/arquivos/002_foto.jpeg"), new byte[1000]); // ...as duas, não (1,5 KB)
+
+        CopiaView com = gerenciar.copia(maria, atendimento, saida, ModoDeCopia.COM_IMAGENS);
+
+        assertThat(com.html()).contains("<img src=\"data:image/png;base64,").doesNotContain("data:image/jpeg");
+        assertThat(com.avisos()).containsExactly(
+                "A imagem 2 passou do tamanho total das imagens que vão na cópia: anexe o arquivo Imagem_02.jpeg.");
+    }
+
+    @Test
     void imagensApagadasPelaRetencaoOuGrandesDemaisAvisam() throws Exception {
         Files.write(raiz.resolve(atendimento + "/arquivos/002_foto.jpeg"), new byte[2048]); // acima de 1 KB
         Files.delete(raiz.resolve(atendimento + "/arquivos/001_print.png"));

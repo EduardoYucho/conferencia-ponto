@@ -252,6 +252,8 @@ class RegistrosJdbcTest {
         assertThat(segunda.registros()).extracting(e -> e.registro().dados().titulo()).containsExactly("Caso 2", "Caso 1");
         assertThat(registros.pesquisar(new Pesquisa(null, null, null, null, null, autor, null, null, false, 4, 2))
                 .registros()).isEmpty();
+        assertThat(registros.pesquisar(new Pesquisa(null, null, null, null, null, autor, null, null, false, 200_000_000, 20))
+                .registros()).as("página absurda: vazia, sem estourar o OFFSET").isEmpty();
     }
 
     @Test
