@@ -28,7 +28,8 @@ import java.util.List;
  *   <li>na subida, garante um ciclo aberto para cada usuário e confere os prazos (o PC pode estar desligado à
  *       01:00);</li>
  *   <li>todo dia às 01:00 ({@code ponto.banco-horas.cron-alertas}) confere de novo;</li>
- *   <li>ao fechar/corrigir o ciclo, confere na mesma transação (a nova previsão pode já estar perto).</li>
+ *   <li>ao fechar, desfazer ou corrigir o ciclo, confere depois de gravado, numa transação nova (a nova previsão
+ *       pode já estar perto, e os avisos do ciclo antigo saem do sino).</li>
  * </ul>
  */
 @Component
@@ -78,7 +79,7 @@ class PrazoCicloBancoAgendado implements ApplicationRunner {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAtualizarCiclo(CicloAtualizadoEvento evento) {
         try {
-            verificarPrazo.executar(evento.usuarioId(), LocalDate.now(clock));
+            verificarPrazo.executarAposGravar(evento.usuarioId(), LocalDate.now(clock));
         } catch (RuntimeException e) {
             log.warn("Falha ao atualizar o aviso de prazo do banco de horas", e);
         }

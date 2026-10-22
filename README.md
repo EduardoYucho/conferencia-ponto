@@ -93,8 +93,9 @@ Usuários iniciais: `admin` (perfil *Administrador*, `ROLE_ADMIN` na configuraç
 *Coordenador*, `ROLE_VIEWER`), criados na primeira subida.
 Para usar outros logins e nomes, redefina a lista `ponto.seguranca.usuarios-iniciais` em
 `backend/config/application.yml`. As senhas `PONTO_ADMIN_SENHA` e `PONTO_VIEWER_SENHA` só são usadas quando o
-usuário ainda não existe no banco. Se não forem definidas, a senha gerada aparece **uma única vez** no log
-(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). As demais pessoas são cadastradas na tela
+usuário ainda não existe no banco. Se não forem definidas, a senha é gerada, é **provisória** (precisa ser trocada
+no primeiro acesso) e aparece só no console e no log geral, `ponto logs` (`Senha provisória gerada para
+'coordenacao': ...`); ela não vai para a tela *Logs* nem para os logs por pessoa. As demais pessoas são cadastradas na tela
 **Usuários** (veja [Vários usuários](#vários-usuários) e [Controle de acessos](#controle-de-acessos)).
 
 > Para usar o `mvnw.cmd` diretamente, crie uma vez o arquivo do Maven Wrapper (a ferramenta que gerou o

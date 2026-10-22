@@ -79,4 +79,18 @@ class RegistrarBatidaUseCaseTest {
         assertThatThrownBy(() -> useCase.executar(USUARIO, DIA, LocalTime.parse("19:30")))
                 .extracting("codigo").isEqualTo("JORNADA_COMPLETA");
     }
+
+    @Test
+    @DisplayName("Clique duplo: a segunda batida a menos de 1 minuto da anterior é recusada (o mesmo limite do ajuste)")
+    void cliqueDuplo() {
+        RegistrarBatidaUseCase useCase = useCaseEm("13:30:00");
+        useCase.executar(USUARIO, DIA, LocalTime.parse("08:00:00"));
+
+        assertThatThrownBy(() -> useCase.executar(USUARIO, DIA, LocalTime.parse("08:00:02")))
+                .extracting("codigo").isEqualTo("BATIDA_SEGUIDA");
+        assertThatThrownBy(() -> useCase.executar(USUARIO, DIA, LocalTime.parse("08:00:59")))
+                .hasMessageContaining("08:00:00");
+        useCase.executar(USUARIO, DIA, LocalTime.parse("08:01:00"));
+        assertThat(repository.buscarPorData(USUARIO, DIA).orElseThrow().getBatidas().horarios()).hasSize(2);
+    }
 }

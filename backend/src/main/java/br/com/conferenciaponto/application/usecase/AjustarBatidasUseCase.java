@@ -165,8 +165,9 @@ public class AjustarBatidasUseCase {
             throw new RegraNegocioException("AJUSTE_DATA_FUTURA", "Não é possível ajustar uma data futura.");
         }
         if (data.equals(agora.toLocalDate()) && horarios != null) {
-            LocalTime limite = agora.toLocalTime().plus(TOLERANCIA_RELOGIO);
-            horarios.stream().filter(Objects::nonNull).filter(h -> h.isAfter(limite)).findFirst()
+            // data e hora juntas: perto da meia-noite, "agora + 5 min" passa para o dia seguinte (o LocalTime daria a volta)
+            LocalDateTime limite = agora.plus(TOLERANCIA_RELOGIO);
+            horarios.stream().filter(Objects::nonNull).filter(h -> data.atTime(h).isAfter(limite)).findFirst()
                     .ifPresent(h -> {
                         throw new RegraNegocioException("AJUSTE_HORARIO_FUTURO",
                                 "A batida das %s ainda não aconteceu.".formatted(HORA.format(h)));

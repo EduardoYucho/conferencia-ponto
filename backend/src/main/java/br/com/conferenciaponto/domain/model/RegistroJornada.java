@@ -69,8 +69,21 @@ public class RegistroJornada {
                 jornadaPrevistaSegundos, segundosTrabalhados, saldoDiarioSegundos);
     }
 
-    /** Registra a próxima batida do dia (Entrada 1 &rarr; Saída 1 &rarr; Entrada 2 &rarr; Saída 2). */
+    /**
+     * Registra a próxima batida do dia (Entrada 1 &rarr; Saída 1 &rarr; Entrada 2 &rarr; Saída 2). Precisa de pelo menos
+     * 1 minuto depois da anterior, como no ajuste: um clique duplo (ou duas abas) não vira "entrada 08:00:00, saída
+     * 08:00:02".
+     */
     public ApuracaoDiaria registrarBatida(LocalTime horario, MotorCalculoJornadaService motor) {
+        List<LocalTime> anteriores = batidas.horarios();
+        if (horario != null && !anteriores.isEmpty()) {
+            LocalTime ultima = anteriores.get(anteriores.size() - 1);
+            LocalTime nova = horario.truncatedTo(ChronoUnit.SECONDS);
+            if (!nova.isBefore(ultima) && ChronoUnit.SECONDS.between(ultima, nova) < 60) {
+                throw new RegraNegocioException("BATIDA_SEGUIDA", ("A batida anterior foi às %s: a próxima precisa de pelo "
+                        + "menos 1 minuto de diferença.").formatted(java.time.format.DateTimeFormatter.ofPattern("HH:mm:ss").format(ultima)));
+            }
+        }
         this.batidas = batidas.comBatida(horario);
         return recalcular(motor);
     }

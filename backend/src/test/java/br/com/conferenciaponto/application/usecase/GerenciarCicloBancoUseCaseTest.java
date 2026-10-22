@@ -165,6 +165,27 @@ class GerenciarCicloBancoUseCaseTest {
     }
 
     @Test
+    @DisplayName("Hoje só entra no fechamento com o dia completo: o que fosse batido depois não cairia em ciclo nenhum")
+    void hojeSoComODiaFechado() {
+        hoje = LocalDate.of(2026, 9, 30);
+        RegistroJornada emAndamento = RegistroJornada.novo(USUARIO, hoje, TipoDia.UTIL);
+        for (LocalTime t : List.of(LocalTime.of(8, 0), LocalTime.of(12, 0), LocalTime.of(13, 0))) {
+            emAndamento.incluirBatida(t, motor);
+        }
+        registros.salvar(emAndamento);
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, hoje, null, "eduardo"))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("feche até ontem (29/09/2026)");
+
+        hoje = LocalDate.of(2026, 10, 1); // sem registro hoje (ainda pode bater)
+        assertThatThrownBy(() -> useCase().fechar(USUARIO, hoje, null, "eduardo"))
+                .isInstanceOf(RegraNegocioException.class).hasMessageContaining("em andamento");
+
+        hoje = LocalDate.of(2026, 9, 29); // o dia de hoje já está completo: entra
+        GerenciarCicloBancoUseCase.Fechamento f = useCase().fechar(USUARIO, hoje, null, "eduardo");
+        assertThat(f.fechado().saldoSegundos()).isEqualTo(600 - 1_000 + 1_800 + 3_600);
+    }
+
+    @Test
     @DisplayName("Desfazer o fechamento devolve o ciclo anterior aberto, com a previsão original")
     void desfazer() {
         useCase().fechar(USUARIO, null, null, "eduardo");

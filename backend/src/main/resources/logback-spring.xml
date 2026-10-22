@@ -40,6 +40,13 @@
 
     <appender name="MEMORIA" class="br.com.conferenciaponto.infrastructure.log.AppenderMemoria"/>
 
+    <!-- a senha provisória gerada na primeira subida: só no console e no log geral ("ponto logs"), nunca na tela
+         "Logs" nem nos logs por pessoa -->
+    <logger name="senha-inicial" level="INFO" additivity="false">
+        <appender-ref ref="CONSOLE"/>
+        <appender-ref ref="FILE"/>
+    </logger>
+
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
         <appender-ref ref="FILE"/>

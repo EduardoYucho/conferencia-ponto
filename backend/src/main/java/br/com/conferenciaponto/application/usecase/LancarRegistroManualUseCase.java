@@ -11,6 +11,7 @@ import br.com.conferenciaponto.domain.model.Batidas;
 import br.com.conferenciaponto.domain.model.Intervalo;
 import br.com.conferenciaponto.domain.model.RegistroJornada;
 import br.com.conferenciaponto.domain.port.AjusteJornadaRepository;
+import br.com.conferenciaponto.domain.port.ComprovanteArquivadoRepository;
 import br.com.conferenciaponto.domain.port.RegistroJornadaRepository;
 import br.com.conferenciaponto.domain.service.MotorCalculoJornadaService;
 import org.springframework.context.ApplicationEventPublisher;
@@ -20,13 +21,18 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Clock;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.format.DateTimeFormatter;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
  * Lançamento manual de intervalos em fim de semana/feriado (100% crédito).
  * Relançar a mesma data substitui o lançamento manual anterior; batidas de
- * relógio existentes não são sobrescritas.
+ * relógio existentes não são sobrescritas. Um dia lançado à mão que depois recebeu batidas com PDF (a pessoa
+ * lançou a manhã e bateu no relógio à tarde) só é relançado se as batidas comprovadas continuarem iguais: sem isso,
+ * corrigir a manhã apagaria (ou arredondaria) as batidas que têm comprovante.
  *
  * <p>Cada lançamento (e cada correção dele) fica no histórico do dia, com o motivo, quem e quando: quem confere vê
  * que as horas foram lançadas à mão.
@@ -37,18 +43,23 @@ public class LancarRegistroManualUseCase {
     /** Motivo de quem não informa (ex.: chamadas antigas da API). */
     public static final String MOTIVO_PADRAO = "Lançamento manual";
 
+    private static final DateTimeFormatter DIA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+    private static final DateTimeFormatter HORA = DateTimeFormatter.ofPattern("HH:mm:ss");
+
     private final RegistroJornadaRepository repository;
     private final AjusteJornadaRepository historico;
+    private final ComprovanteArquivadoRepository arquivos;
     private final RegrasJornada regras;
     private final TravaDosMesesConferidos trava;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public LancarRegistroManualUseCase(RegistroJornadaRepository repository, AjusteJornadaRepository historico,
-                                       RegrasJornada regras, TravaDosMesesConferidos trava,
-                                       ApplicationEventPublisher eventos, Clock clock) {
+                                       ComprovanteArquivadoRepository arquivos, RegrasJornada regras,
+                                       TravaDosMesesConferidos trava, ApplicationEventPublisher eventos, Clock clock) {
         this.repository = repository;
         this.historico = historico;
+        this.arquivos = arquivos;
         this.regras = regras;
         this.trava = trava;
         this.eventos = eventos;
@@ -91,6 +102,15 @@ public class LancarRegistroManualUseCase {
                 .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regras.classificar(usuarioId, data)));
         MotorCalculoJornadaService motor = regras.motor(usuarioId, data);
         List<LocalTime> antes = registro.getBatidas().horarios();
+        Set<LocalTime> comprovadas = antes.isEmpty() ? Set.of()
+                : VinculoComprovantes.horariosComprovados(registro, arquivos.listarPorRegistro(registro.getId()));
+        if (registro.isRegistroManual() && !batidas.horarios().containsAll(comprovadas)) {
+            throw new RegraNegocioException("LANCAMENTO_MANUAL_COM_COMPROVANTE", ("%s tem batidas com comprovante em PDF "
+                    + "(%s), e o lançamento mudaria ou tiraria essas batidas. Corrija o dia em \"Ajustar batidas\": "
+                    + "lá as batidas comprovadas ficam travadas e o resto pode mudar.")
+                    .formatted(DIA.format(data), comprovadas.stream().sorted().map(HORA::format)
+                            .collect(Collectors.joining(", "))));
+        }
 
         // Regras (dia útil, não sobrescrever relógio) ficam no agregado
         registro.lancarManualmente(batidas, motor);

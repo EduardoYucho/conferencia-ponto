@@ -116,7 +116,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
         AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
         FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class,
-        PresencaController.class, LogController.class})
+        PresencaController.class, LogController.class, NotificacaoController.class})
 @Import({SecurityConfig.class, RespostasSeguranca.class, JwtEmissorToken.class, SegurancaRbacWebTest.Relogio.class,
         AcessoUsuarios.class})
 class SegurancaRbacWebTest {
@@ -141,6 +141,8 @@ class SegurancaRbacWebTest {
 
     @MockitoBean
     private ConsultarJornadaUseCase consultar;
+    @MockitoBean
+    private br.com.conferenciaponto.application.usecase.NotificacoesUseCase notificacoes;
     @MockitoBean
     private RegistrarBatidaUseCase registrarBatida;
     @MockitoBean
@@ -464,6 +466,30 @@ class SegurancaRbacWebTest {
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_DESATIVADO"));
         verify(lancarManual, org.mockito.Mockito.times(1)).executar(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    @DisplayName("Avisos: quem só consulta o próprio ponto marca os avisos como lidos; quem não tem ponto próprio não")
+    void avisosLidosSemLancar() throws Exception {
+        String token = tokenDe("maria");
+        Usuario soConsulta = new Usuario(idDe("maria"), "maria", "Maria", "x", true,
+                Acesso.usuario().sem(br.com.conferenciaponto.domain.acesso.PermissoesDoPonto.LANCAR), null);
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(soConsulta));
+        UUID aviso = UUID.randomUUID();
+        when(notificacoes.listar(any())).thenReturn(
+                new br.com.conferenciaponto.application.usecase.NotificacoesUseCase.Caixa(List.of(), 0));
+
+        mvc.perform(post("/api/v1/notificacoes/" + aviso + "/lida").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk());
+        mvc.perform(post("/api/v1/notificacoes/lidas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isOk());
+        verify(notificacoes).marcarLida(idDe("maria"), aviso);
+        verify(notificacoes).marcarTodasLidas(idDe("maria"));
+
+        // a coordenação não tem ponto próprio (nem avisos): a rota nem é dela
+        mvc.perform(post("/api/v1/notificacoes/lidas").header(HttpHeaders.AUTHORIZATION, tokenDe("coordenacao")))
+                .andExpect(status().isForbidden());
+        verify(notificacoes, never()).marcarTodasLidas(idDe("coordenacao"));
     }
 
     @Test

@@ -28,14 +28,18 @@ import java.util.UUID;
 /**
  * Cria os usuários de {@code ponto.seguranca.usuarios-iniciais} que ainda não existem, com os perfis do sistema
  * da configuração (ROLE_ADMIN = Administrador, ROLE_USER = Usuário, ROLE_VIEWER = Coordenador).
- * Nunca altera usuários existentes. Sem senha configurada, gera uma aleatória e a mostra
- * uma única vez no log (troque-a depois em PUT /api/v1/auth/senha).
+ * Nunca altera usuários existentes. Sem senha configurada, gera uma aleatória e provisória (precisa ser trocada no
+ * primeiro acesso) e a mostra só no console e no log geral ({@code ponto logs}): não vai para a tela "Logs" nem para
+ * os logs por pessoa, que outras pessoas com a permissão de ver logs consultam.
  */
 @Component
 @Order(1)
 public class InicializadorUsuarios implements ApplicationRunner {
 
     private static final Logger log = LoggerFactory.getLogger(InicializadorUsuarios.class);
+    /** Só console e log geral (logback-spring.xml): a senha gerada não aparece na tela "Logs". */
+    static final String LOG_DA_SENHA = "senha-inicial";
+    private static final Logger logDaSenha = LoggerFactory.getLogger(LOG_DA_SENHA);
     private static final SecureRandom ALEATORIO = new SecureRandom();
 
     private final SegurancaProperties properties;
@@ -70,11 +74,15 @@ public class InicializadorUsuarios implements ApplicationRunner {
 
             Usuario novo = Usuario.novo(inicial.login(), nome, codificador.codificar(senha),
                     Acesso.de(perfis.toArray(Perfil[]::new)));
+            if (gerada) {
+                novo = novo.comSenhaProvisoria(novo.senhaHash()); // quem a ler depois no log não entra com ela
+            }
             usuarios.salvar(novo);
             darPerfis(novo, perfis);
             if (gerada) {
-                log.warn("Usuário '{}' criado com perfis {}. Senha gerada: {}  (defina a senha por variável de ambiente "
-                        + "ou troque-a após o primeiro login)", inicial.login(), perfis, senha);
+                log.warn("Usuário '{}' criado com perfis {} e senha provisória gerada (veja em \"ponto logs\"; "
+                        + "ela precisa ser trocada no primeiro acesso)", inicial.login(), perfis);
+                logDaSenha.warn("Senha provisória gerada para '{}': {}", inicial.login(), senha);
             } else {
                 log.info("Usuário '{}' criado com perfis {}", inicial.login(), perfis);
             }

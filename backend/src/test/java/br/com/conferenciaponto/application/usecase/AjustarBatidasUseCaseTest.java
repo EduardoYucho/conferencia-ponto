@@ -137,6 +137,19 @@ class AjustarBatidasUseCaseTest {
     }
 
     @Test
+    @DisplayName("Às 23:57, o ajuste do dia de hoje aceita as batidas do dia (o limite de 5 min não dá a volta na meia-noite)")
+    void pertoDaMeiaNoite() {
+        Clock quaseMeiaNoite = Clock.fixed(ZonedDateTime.of(HOJE, LocalTime.of(23, 57), SP).toInstant(), SP);
+        var tarde = new AjustarBatidasUseCase(registros, arquivos, ajustes,
+                Fixtures.regras(new ClassificadorDiaService(data -> false)),
+                br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, quaseMeiaNoite);
+
+        tarde.executar(USUARIO, HOJE, List.of(t("08:00"), t("12:00"), t("13:00"), t("23:59:59")), MOTIVO, "eduardo");
+
+        assertThat(registros.buscarPorData(USUARIO, HOJE).orElseThrow().getBatidas().horarios()).hasSize(4);
+    }
+
+    @Test
     @DisplayName("Conforme RH: alinha os segundos das batidas com PDF, inclui a que faltou e só ela fica marcada")
     void conformeRhAlinhaSegundos() {
         diaImportadoComFalha(); // PDFs 08:01:11, 12:00:03, 17:42:57
