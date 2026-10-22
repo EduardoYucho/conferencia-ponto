@@ -282,8 +282,9 @@ async function excluirFeriado(f) {
       <p v-if="auth.podeEscrever && !auth.pode(PONTO_FERIADOS)" class="border-b border-dashed border-linha px-5 py-3 text-sm text-tinta-suave">
         Feriados valem para todos e são cadastrados por quem tem essa permissão.
       </p>
+      <!-- feriados valem para todos: dependem só de "Cadastrar feriados" (não do próprio ponto nem da pessoa em tela) -->
       <form
-        v-if="auth.podeEscrever && auth.pode(PONTO_FERIADOS)"
+        v-if="auth.pode(PONTO_FERIADOS)"
         class="grid gap-3 border-b border-dashed border-linha px-5 py-4 sm:grid-cols-[10rem_1fr_12rem_auto]"
         novalidate
         @submit.prevent="cadastrarFeriado"
@@ -325,7 +326,7 @@ async function excluirFeriado(f) {
           <span class="min-w-0 flex-1">{{ f.descricao }}</span>
           <span class="rounded-[2px] bg-carimbo/10 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-carimbo">{{ f.abrangenciaRotulo }}</span>
           <button
-            v-if="auth.podeEscrever && auth.pode(PONTO_FERIADOS)"
+            v-if="auth.pode(PONTO_FERIADOS)"
             type="button"
             class="rounded-[3px] px-2 py-1 text-xs font-semibold transition"
             :class="confirmandoFeriado === f.data ? 'bg-carimbo text-cartao' : 'text-tinta-suave hover:bg-papel-escuro hover:text-carimbo'"

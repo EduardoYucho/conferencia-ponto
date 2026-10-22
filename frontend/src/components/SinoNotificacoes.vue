@@ -2,11 +2,13 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { storeToRefs } from 'pinia'
+import { useAuthStore } from '@/stores/auth'
 import { useNotificacoesStore } from '@/stores/notificacoes'
 import { mensagemDe } from '@/utils/erros'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 
 /** Sino com os avisos do sistema (prazo do banco de horas, relatório do RH conferido). */
+const auth = useAuthStore()
 const notificacoes = useNotificacoesStore()
 const { lista, naoLidas, recemChegada, carregado } = storeToRefs(notificacoes)
 const router = useRouter()
@@ -73,10 +75,16 @@ function aoTeclar(evento) {
   if (evento.key === 'Escape') aberto.value = false
 }
 
+/**
+ * Os avisos são sempre de quem está logado: consultando outra pessoa, a tela volta aos próprios dados antes de abrir
+ * o link (senão o "Setembro conferido" abriria o setembro da pessoa consultada).
+ */
 async function abrirNotificacao(n) {
   aberto.value = false
   if (!n.lida) notificacoes.marcarLida(n.id).catch(() => {})
-  if (n.link) router.push(n.link)
+  if (!n.link) return
+  if (!auth.vendoOsProprios) auth.verComo(null)
+  router.push(n.link)
 }
 
 const quando = (iso) => {

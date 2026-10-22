@@ -85,13 +85,55 @@ function aplicarProgresso(progresso) {
   }
 }
 
+/**
+ * O tempo real pode cair e voltar (rede, VPN, o sistema reiniciando, o limite de tempo da conexão): o progresso que
+ * saiu nesse meio-tempo não chega por evento. A cada reconexão a tela relê o atendimento; e, enquanto ele está sendo
+ * processado, confere o progresso de tempos em tempos, porque uma conexão que morreu sem erro (o computador dormiu)
+ * pode não reconectar.
+ */
+const CONFERIR_PROGRESSO_A_CADA = 45_000
 let desligar = null
+let jaConectou = false
+let conferencia = null
+
+function aoConectar() {
+  if (jaConectou) carregar({ silencioso: true })
+  jaConectou = true
+}
+
+/** Processando, ou com um texto na fila ou sendo escrito (um "Gerar de novo" com o tempo real caído também conta). */
+const emAndamento = computed(() => {
+  const a = atendimento.value
+  return !!a && (a.situacao === 'processando'
+    || (a.saidas ?? []).some((s) => s.situacao === 'pendente' || s.situacao === 'redigindo'))
+})
+
+/** Cada evento recebido conta: a resposta de uma conferência que saiu antes de um evento mais novo é descartada. */
+let eventosRecebidos = 0
+function aoReceberProgresso(progresso) {
+  eventosRecebidos++
+  aplicarProgresso(progresso)
+}
+
+async function conferirProgresso() {
+  if (!emAndamento.value) return
+  const antes = eventosRecebidos
+  try {
+    const progresso = await atendimentoApi.progresso(props.id)
+    if (antes === eventosRecebidos) aplicarProgresso(progresso) // senão, um evento mais novo já chegou e vale
+  } catch {
+    // a próxima conferência (ou o próximo evento) corrige; a tela continua com o que já tem
+  }
+}
+
 onMounted(() => {
-  desligar = conectarEventosDoGerador({ onProgresso: aplicarProgresso })
+  desligar = conectarEventosDoGerador({ onProgresso: aoReceberProgresso, onConectado: aoConectar })
+  conferencia = setInterval(conferirProgresso, CONFERIR_PROGRESSO_A_CADA)
 })
 onUnmounted(() => {
   desligar?.()
   clearTimeout(recarga)
+  clearInterval(conferencia)
 })
 
 const situacao = computed(() => SITUACOES[atendimento.value?.situacao] ?? SITUACOES.novo)

@@ -65,6 +65,8 @@ export const usePontoStore = defineStore('ponto', () => {
   const presencaMudouEm = ref(null)
   /** Momento da última reconexão do tempo real (as telas recarregam o que podem ter perdido). */
   const reconectouEm = ref(null)
+  /** O mês virou com a tela no mês de hoje: o painel volta para o mês novo (senão o "Bater" ficaria desligado). */
+  const viradaDoMesEm = ref(null)
   /** O banco de horas da pessoa em tela mudou por fora do mês (ciclo fechado ou corrigido, lançamento no banco). */
   const bancoMudouEm = ref(null)
   let encerrarEventos = null
@@ -352,6 +354,7 @@ export const usePontoStore = defineStore('ponto', () => {
           reconectouEm.value = Date.now()
           recarregarConfiguracao()
           agendarRecargaMes()
+          if (auth.ehTitular) useNotificacoesStore().carregar().catch(() => {}) // um aviso pode ter saído na queda
         }
         jaConectou = true
       },
@@ -401,12 +404,17 @@ export const usePontoStore = defineStore('ponto', () => {
       // sessão vencida (ou senha provisória): o mesmo caminho de uma requisição recusada
       onNaoAutorizado: (status, codigo) => aoPerderSessao(status, codigo),
     })
-    // virou o dia com a aba aberta: o "hoje" (e o que dá para bater) vem do servidor de novo
+    // virou o dia com a aba aberta: o "hoje" (e o que dá para bater) vem do servidor de novo. Se a tela estava no mês
+    // de hoje e o mês virou junto, quem mostra o mês (o painel) é avisado para ir ao mês novo
     clearInterval(timerDia)
     timerDia = setInterval(() => {
       if (dataISO() === diaDoNavegador) return
       diaDoNavegador = dataISO()
-      recarregarConfiguracao().then(agendarRecargaMes)
+      const estavaNoMesDeHoje = temDados.value && ehMesAtual.value
+      recarregarConfiguracao().then(() => {
+        if (estavaNoMesDeHoje && !ehMesAtual.value) viradaDoMesEm.value = Date.now()
+        else agendarRecargaMes()
+      })
     }, 30_000)
   }
 
@@ -513,6 +521,7 @@ export const usePontoStore = defineStore('ponto', () => {
     erroPlanilha.value = null
     desatualizado.value = false
     reconectouEm.value = null
+    viradaDoMesEm.value = null
     bancoMudouEm.value = null
     ultimoEvento.value = null
     ultimaConciliacao.value = null
@@ -574,7 +583,7 @@ export const usePontoStore = defineStore('ponto', () => {
     configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, conferenciaMes, saldos,
     dataSelecionada, carregando, salvando,
     erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
-    erroPlanilha, desatualizado, reconectouEm, bancoMudouEm, presencaMudouEm,
+    erroPlanilha, desatualizado, reconectouEm, viradaDoMesEm, bancoMudouEm, presencaMudouEm,
     // getters
     hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
     saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual, temDados,

@@ -21,6 +21,7 @@
     ponto logs pasta    abre a pasta dos logs por usuário e por hora
     ponto config        abre a configuração (pasta dos PDFs, usuários...) no Bloco de Notas
     ponto atualizar     recompila a partir da pasta do projeto, faz o backup e troca a versão (-Testes roda os testes)
+    ponto voltar        volta para a versão anterior (a de antes do último "ponto atualizar"; de novo = desfaz)
     ponto backup        copia o banco (e as imagens da base de conhecimento) para a pasta de backups
     ponto backup antes-da-mudanca   o mesmo, com um motivo no nome da pasta
     ponto backup lista  mostra os backups guardados (ficam os 10 mais recentes feitos pelo comando)
@@ -29,6 +30,7 @@
 
   Instalado em %USERPROFILE%\.conferencia-ponto\servico (ao lado de comprovantes\, o arquivo dos PDFs):
     app\conferencia-ponto.jar     a aplicação
+    app\conferencia-ponto.anterior.jar   a versão de antes do último "ponto atualizar" (para "ponto voltar")
     config\application.yml        configuração desta máquina (copiada de backend\config na instalação)
     config\servico.yml            porta, segredo do login e logs (gerado)
     logs\conferencia-ponto.log    log da aplicação (e build.log da última compilação)
@@ -67,6 +69,7 @@ $PastaBin      = Join-Path $Raiz 'bin'
 $PastaConfig   = Join-Path $Raiz 'config'
 $PastaLogs     = Join-Path $Raiz 'logs'
 $Jar           = Join-Path $PastaApp 'conferencia-ponto.jar'
+$JarAnterior   = Join-Path $PastaApp 'conferencia-ponto.anterior.jar'
 $ArquivoEstado = Join-Path $Raiz 'instalacao.json'
 $ArquivoLog    = Join-Path $PastaLogs 'conferencia-ponto.log'
 $PastaLogsUsuarios = Join-Path $PastaLogs 'usuarios'
@@ -511,7 +514,31 @@ function Iniciar-Aplicacao {
     Aviso 'A aplicação não respondeu. Fim do log:'
     Mostrar-FimDoLog $ArquivoLog 30
     Aviso 'Para ver o erro completo na tela: ponto parar; ponto console'
+    if (Test-Path -LiteralPath $JarAnterior) {
+        Aviso 'Se foi depois de uma atualização: "ponto voltar" sobe a versão anterior (README, "Voltar para a versão anterior").'
+    }
     exit 1
+}
+
+# "ponto voltar": troca a versão instalada pela anterior (e a atual fica como anterior: rodar de novo desfaz).
+# O banco não volta junto: se a versão que sai aplicou uma migração, restaure o backup "antes-de-atualizar".
+function Cmd-Voltar {
+    Exigir-Instalacao
+    if (-not (Test-Path -LiteralPath $JarAnterior)) {
+        Falhar 'Não há versão anterior guardada (ela é guardada a cada "ponto atualizar", a partir desta versão do comando).'
+    }
+    Titulo 'Voltando para a versão anterior'
+    $quando = (Get-Item -LiteralPath $JarAnterior).LastWriteTime.ToString('dd/MM/yyyy HH:mm')
+    Passo "Versão anterior: compilada em $quando"
+    Parar-Aplicacao -Silencioso
+    $troca = "$Jar.troca"
+    Move-Item -LiteralPath $Jar -Destination $troca -Force
+    Move-Item -LiteralPath $JarAnterior -Destination $Jar -Force
+    Move-Item -LiteralPath $troca -Destination $JarAnterior -Force
+    Ok 'Versão trocada. A que saiu ficou guardada: "ponto voltar" de novo desfaz.'
+    Aviso ('O banco não volta junto. Se a versão que saiu aplicou uma migração, restaure o backup ' +
+           '"antes-de-atualizar" (ponto backup lista; README, seção Backup).')
+    Iniciar-Aplicacao
 }
 
 # ------------------------------------------------------------------------------------------ backup
@@ -821,7 +848,22 @@ function Cmd-Instalar([switch] $Atualizacao) {
 
     Passo "Instalando em $Raiz"
     Parar-Aplicacao -Silencioso
-    Copy-Item -LiteralPath $gerado -Destination $Jar -Force
+    # A versão que sai fica guardada ("ponto voltar"), e a nova entra inteira: copiada ao lado e só então trocada,
+    # para um disco cheio no meio da cópia não deixar a aplicação sem jar nenhum.
+    try {
+        if (Test-Path -LiteralPath $Jar) { Copy-Item -LiteralPath $Jar -Destination $JarAnterior -Force }
+        $novo = "$Jar.novo"
+        Copy-Item -LiteralPath $gerado -Destination $novo -Force
+        Move-Item -LiteralPath $novo -Destination $Jar -Force
+    } catch {
+        Aviso "A versão nova não pôde ser copiada: $($_.Exception.Message)"
+        Remove-Item -LiteralPath "$Jar.novo" -Force -ErrorAction SilentlyContinue
+        if (Test-Path -LiteralPath $Jar) {
+            Aviso 'A versão instalada continua a mesma; subindo de novo.'
+            Iniciar-Aplicacao
+        }
+        exit 1
+    }
     Copiar-Scripts $repositorio
     Preparar-Config $repositorio $porta
     Alterar-Path
@@ -1050,6 +1092,7 @@ function Cmd-Desinstalar {
 switch ($Comando.ToLowerInvariant()) {
     'instalar'    { Cmd-Instalar }
     'atualizar'   { Cmd-Instalar -Atualizacao }
+    'voltar'      { Cmd-Voltar }
     'status'      { Cmd-Status }
     'situacao'    { Cmd-Status }
     'iniciar'     { Iniciar-Aplicacao }

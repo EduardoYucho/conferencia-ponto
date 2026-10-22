@@ -25,9 +25,13 @@ const route = useRoute()
 const router = useRouter()
 
 // ------------------------------------------------------------------ mês
-const agora = new Date()
+/** O mês de hoje pelo servidor (o "hoje" do ponto acompanha a virada do dia com a aba aberta). */
+const agora = () => {
+  const [a, m] = ponto.hoje.split('-').map(Number)
+  return { ano: a, mes: m }
+}
 function mesDoEndereco() {
-  const atual = { ano: agora.getFullYear(), mes: agora.getMonth() + 1 }
+  const atual = { ano: agora().ano, mes: agora().mes }
   const a = route.query.ano === undefined ? atual.ano : Number(route.query.ano)
   const m = route.query.mes === undefined ? atual.mes : Number(route.query.mes)
   const valido = Number.isInteger(a) && a >= 2000 && a <= 2100 && Number.isInteger(m) && m >= 1 && m <= 12
@@ -43,10 +47,10 @@ function navegar(deslocamento) {
   mes.value = alvo.getMonth() + 1
 }
 function voltarParaHoje() {
-  ano.value = agora.getFullYear()
-  mes.value = agora.getMonth() + 1
+  ano.value = agora().ano
+  mes.value = agora().mes
 }
-const ehMesAtual = computed(() => ano.value === agora.getFullYear() && mes.value === agora.getMonth() + 1)
+const ehMesAtual = computed(() => ano.value === agora().ano && mes.value === agora().mes)
 
 // ------------------------------------------------------------------ aviso
 const aviso = ref(null)
