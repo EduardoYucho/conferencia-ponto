@@ -70,16 +70,23 @@ function limpar() {
   pesquisar()
 }
 
+/**
+ * Só a resposta da pesquisa mais recente vale: a pesquisa por significado demora mais que a exata, e uma resposta
+ * antiga que chegasse depois mostraria o resultado de outra pesquisa (e apagaria o "carregando" cedo demais).
+ */
+let pedido = 0
 async function carregar() {
   if (!modulos.pesquisar) return
+  const meu = ++pedido
   carregando.value = true
   erro.value = null
   try {
-    resultado.value = await conhecimentoApi.pesquisar({ ...daRota(route.query), pagina: route.query.pagina })
+    const achados = await conhecimentoApi.pesquisar({ ...daRota(route.query), pagina: route.query.pagina })
+    if (meu === pedido) resultado.value = achados
   } catch (e) {
-    erro.value = e
+    if (meu === pedido) erro.value = e
   } finally {
-    carregando.value = false
+    if (meu === pedido) carregando.value = false
   }
 }
 

@@ -45,6 +45,8 @@ export const atendimentoApi = {
   cancelar: (id) => http.post(`/atendimentos/${id}/cancelar`),
   retomar: (id) => http.post(`/atendimentos/${id}/retomar`),
   tentarDeNovo: (id, arquivoId) => http.post(`/atendimentos/${id}/arquivos/${arquivoId}/tentar-de-novo`),
+  /** O progresso de agora (o mesmo do tempo real), para conferir quando os eventos podem ter se perdido. */
+  progresso: (id) => http.get(`/atendimentos/${id}/progresso`),
 
   /**
    * Envia uma ligação, o vídeo ou um print em fluxo, com a data de modificação do arquivo (usada na linha do tempo).

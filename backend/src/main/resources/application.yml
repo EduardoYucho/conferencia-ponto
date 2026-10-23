@@ -18,6 +18,11 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
+  task:
+    scheduling:
+      pool:
+        # as tarefas agendadas (pings do tempo real, avisos, vetores da base, limpezas) não esperam umas pelas outras
+        size: 4
   servlet:
     multipart:
       max-file-size: 10MB        # por arquivo: relatório do RH (conciliação) e comprovantes enviados pela tela

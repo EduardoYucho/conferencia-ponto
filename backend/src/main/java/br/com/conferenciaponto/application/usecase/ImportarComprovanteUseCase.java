@@ -91,7 +91,8 @@ public class ImportarComprovanteUseCase {
 
     /**
      * @param usuarioId dono do comprovante (o da pasta monitorada ou quem enviou o PDF pela tela)
-     * @return vazio quando o arquivo já havia sido processado (mesmo hash).
+     * @return vazio quando o arquivo já havia sido processado para a mesma pessoa (mesmo hash); se ele está no ponto de
+     *         outra pessoa, REJEITADO (sem gravar: o hash é único no sistema)
      */
     @Transactional
     public Optional<Resultado> executar(UUID usuarioId, Comprovante comprovante) {
@@ -99,8 +100,15 @@ public class ImportarComprovanteUseCase {
         if (anterior.isPresent()) {
             if (anterior.get().usuarioId().equals(usuarioId)) {
                 arquivarRetroativamente(anterior.get(), comprovante);
+                return Optional.empty();
             }
-            return Optional.empty();
+            // o mesmo arquivo já entrou no ponto de outra pessoa (o hash vale para o sistema todo): avisa em vez de
+            // "já processado", que faria quem é dono do PDF achar que a batida dele entrou
+            String mensagem = "Este comprovante já foi importado no ponto de outra pessoa e não entrou no seu. "
+                    + "Se ele é seu, peça a quem administra o sistema para conferir.";
+            eventos.publishEvent(new ComprovanteNaoImportadoEvento(usuarioId, comprovante.nomeArquivo(),
+                    StatusImportacao.REJEITADO, comprovante.dataHoraBatida().orElse(null), mensagem));
+            return Optional.of(new Resultado(StatusImportacao.REJEITADO, mensagem, null));
         }
 
         if (comprovante.dataHoraBatida().isEmpty()) {

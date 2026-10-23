@@ -214,7 +214,8 @@ public class GerenciarSaidas {
         if (modo == ModoDeCopia.COM_IMAGENS) {
             Map<UUID, ImagemDaSaida> imagens = new HashMap<>();
             imagensQueValem(saida).forEach(i -> imagens.put(i.id(), i));
-            html = HtmlDaSaida.paraCopiar(completo, id -> embutida(imagens.get(id), avisos));
+            long[] embutidos = {0};
+            html = HtmlDaSaida.paraCopiar(completo, id -> embutida(imagens.get(id), avisos, embutidos));
         } else {
             html = HtmlDaSaida.paraCopiar(completo, null);
         }
@@ -456,7 +457,12 @@ public class GerenciarSaidas {
                 CabecalhoDoChamado.rodape(saida.tipo(), campos), texto.variantes(), saida.confirmadaEm(), registro, naBase);
     }
 
-    private Optional<String> embutida(ImagemDaSaida imagem, List<String> avisos) {
+    /**
+     * A imagem em base64, para a cópia "com imagens". Além do limite de cada uma, a soma também tem teto (uma vez e meia
+     * o limite de uma: 15 MB no padrão): o texto da cópia vira várias cópias na memória (base64, HTML, JSON), e muitas
+     * imagens grandes juntas derrubariam o sistema. Passou do teto, a imagem vai só com a legenda e o aviso para anexá-la.
+     */
+    private Optional<String> embutida(ImagemDaSaida imagem, List<String> avisos, long[] embutidos) {
         if (imagem == null) {
             return Optional.empty();
         }
@@ -472,6 +478,12 @@ public class GerenciarSaidas {
                         + " MB): anexe o arquivo " + nomeNoZip(imagem) + ".");
                 return Optional.empty();
             }
+            if (embutidos[0] + tamanho > configuracao.imagemMaximaNaCopia() * 3 / 2) {
+                avisos.add("A imagem " + imagem.numero() + " passou do tamanho total das imagens que vão na cópia: "
+                        + "anexe o arquivo " + nomeNoZip(imagem) + ".");
+                return Optional.empty();
+            }
+            embutidos[0] += tamanho;
             return Optional.of("data:" + tipoDeMidia(imagem.caminho()) + ";base64,"
                     + Base64.getEncoder().encodeToString(Files.readAllBytes(local)));
         } catch (IOException e) {

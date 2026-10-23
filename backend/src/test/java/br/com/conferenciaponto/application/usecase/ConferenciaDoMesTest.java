@@ -79,7 +79,7 @@ class ConferenciaDoMesTest {
         c.conferir.conferir(USUARIO, SETEMBRO, null, "carla");
         var t = c.trava;
         var ajustar = new AjustarBatidasUseCase(c.registros, c.arquivos, c.ajustes, c.regras, t, c.eventos::add, c.clock);
-        var manual = new LancarRegistroManualUseCase(c.registros, c.ajustes, c.regras, t, c.eventos::add, c.clock);
+        var manual = new LancarRegistroManualUseCase(c.registros, c.ajustes, c.arquivos, c.regras, t, c.eventos::add, c.clock);
         var batida = new RegistrarBatidaUseCase(c.registros, c.regras, t, c.eventos::add, c.clock);
         var excluir = new ExcluirRegistroUseCase(c.registros, c.arquivos, c.ajustes, t, c.eventos::add, c.clock);
         var banco = new GerenciarLancamentosBancoUseCase(c.lancamentos, c.ciclos, t, c.eventos::add, c.clock);

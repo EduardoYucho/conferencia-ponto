@@ -29,12 +29,13 @@ class LancarRegistroManualUseCaseTest {
 
     private final RegistroJornadaRepositoryEmMemoria repository = new RegistroJornadaRepositoryEmMemoria();
     private final AjusteJornadaRepositoryEmMemoria historico = new AjusteJornadaRepositoryEmMemoria();
+    private final ComprovanteArquivadoRepositoryEmMemoria arquivos = new ComprovanteArquivadoRepositoryEmMemoria();
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
     private final ClassificadorDiaService classificador = new ClassificadorDiaService(data -> false);
     private final Clock clock = Clock.fixed(ZonedDateTime.of(SEGUNDA, LocalTime.of(18, 0), SP).toInstant(), SP);
 
     private final LancarRegistroManualUseCase useCase =
-            new LancarRegistroManualUseCase(repository, historico, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA,
+            new LancarRegistroManualUseCase(repository, historico, arquivos, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA,
                     evento -> { }, clock);
 
     private static Intervalo intervalo(String entrada, String saida) {
@@ -116,5 +117,34 @@ class LancarRegistroManualUseCaseTest {
     void rejeitaFuturo() {
         assertThatThrownBy(() -> useCase.executar(USUARIO, LocalDate.of(2026, 10, 3), List.of(intervalo("09:00", "12:00"))))
                 .extracting("codigo").isEqualTo("LANCAMENTO_NO_FUTURO");
+    }
+
+    @Test
+    @DisplayName("Dia lançado à mão que recebeu batidas com PDF: relançar não pode mudar nem tirar as batidas comprovadas")
+    void naoApagaBatidaComComprovante() {
+        useCase.executar(USUARIO, SABADO, List.of(intervalo("08:00", "12:00")));
+        var registro = repository.buscarPorData(USUARIO, SABADO).orElseThrow();
+        for (LocalTime pdf : List.of(LocalTime.of(13, 0, 10), LocalTime.of(15, 0, 30))) {
+            registro.incluirBatida(pdf, motor);
+            arquivos.salvar(new br.com.conferenciaponto.domain.model.ComprovanteArquivado(java.util.UUID.randomUUID(),
+                    registro.getId(), "x.pdf", br.com.conferenciaponto.domain.model.TipoBatida.ENTRADA_2,
+                    java.time.Instant.EPOCH, SABADO.atTime(pdf), "x.pdf", "h" + pdf, 10));
+        }
+        repository.salvar(registro);
+
+        // a tela preenche sem os segundos: 13:00 e 15:00 não são as batidas comprovadas
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SABADO,
+                List.of(intervalo("08:30", "12:00"), intervalo("13:00", "15:00"))))
+                .isInstanceOf(RegraNegocioException.class)
+                .hasMessageContaining("13:00:10, 15:00:30").hasMessageContaining("Ajustar batidas");
+        assertThatThrownBy(() -> useCase.executar(USUARIO, SABADO, List.of(intervalo("08:30", "12:00"))))
+                .isInstanceOf(RegraNegocioException.class);
+        assertThat(repository.buscarPorData(USUARIO, SABADO).orElseThrow().getBatidas().horarios())
+                .containsExactly(LocalTime.of(8, 0), LocalTime.of(12, 0), LocalTime.of(13, 0, 10), LocalTime.of(15, 0, 30));
+
+        // mantendo as comprovadas, a manhã pode ser corrigida
+        RegistroJornadaView v = useCase.executar(USUARIO, SABADO,
+                List.of(intervalo("08:30", "12:00"), new Intervalo(LocalTime.of(13, 0, 10), LocalTime.of(15, 0, 30))));
+        assertThat(v.saldoDiarioSegundos()).isEqualTo(210 * 60 + 2 * 3600 + 20);
     }
 }

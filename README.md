@@ -93,8 +93,9 @@ Usuários iniciais: `admin` (perfil *Administrador*, `ROLE_ADMIN` na configuraç
 *Coordenador*, `ROLE_VIEWER`), criados na primeira subida.
 Para usar outros logins e nomes, redefina a lista `ponto.seguranca.usuarios-iniciais` em
 `backend/config/application.yml`. As senhas `PONTO_ADMIN_SENHA` e `PONTO_VIEWER_SENHA` só são usadas quando o
-usuário ainda não existe no banco. Se não forem definidas, a senha gerada aparece **uma única vez** no log
-(`Usuário 'coordenacao' criado com perfis [...]. Senha gerada: ...`). As demais pessoas são cadastradas na tela
+usuário ainda não existe no banco. Se não forem definidas, a senha é gerada, é **provisória** (precisa ser trocada
+no primeiro acesso) e aparece só no console e no log geral, `ponto logs` (`Senha provisória gerada para
+'coordenacao': ...`); ela não vai para a tela *Logs* nem para os logs por pessoa. As demais pessoas são cadastradas na tela
 **Usuários** (veja [Vários usuários](#vários-usuários) e [Controle de acessos](#controle-de-acessos)).
 
 > Para usar o `mvnw.cmd` diretamente, crie uma vez o arquivo do Maven Wrapper (a ferramenta que gerou o
@@ -147,6 +148,7 @@ num único processo, em **http://localhost:8080**. Depois:
 | `ponto logs pasta` | Abre a pasta dos logs por usuário e por hora |
 | `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
 | `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida) |
+| `ponto voltar` | Volta para a versão de antes do último `ponto atualizar` (rodar de novo desfaz) — veja abaixo |
 | `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados (veja [Backup](#backup)) |
 | `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
 | `ponto desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
@@ -155,6 +157,16 @@ A porta é a mesma do desenvolvimento de propósito: **não rode o serviço e o 
 importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `ponto iniciar`. Se o Eclipse
 estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
 (`npm run dev`) funciona com qualquer um dos dois.
+
+### Voltar para a versão anterior
+
+O `ponto atualizar` guarda a versão que sai em `app\conferencia-ponto.anterior.jar` e só troca o jar depois que a
+versão nova foi copiada inteira. Se a versão nova não subir (ou subir com um problema), **`ponto voltar`** põe a
+anterior no lugar e a sobe; a que saiu fica guardada, e `ponto voltar` de novo desfaz a volta.
+
+O banco não volta junto. Se a versão que saiu aplicou uma migração (o `ponto atualizar` mostra o backup
+`antes-de-atualizar` que fez), a versão anterior pode não funcionar com o banco migrado: restaure esse backup (veja
+[Backup](#backup)) antes de usar o sistema.
 
 ## Backup
 
@@ -178,21 +190,29 @@ lido não conta como feito.
   `C:\Program Files\PostgreSQL\`.
 
 **Restaurar um backup** — só por decisão sua: o banco volta a ser exatamente o do backup (o que foi feito depois
-dele se perde).
+dele se perde). A restauração é feita num banco esvaziado: as tabelas e os schemas criados depois do backup (por
+uma atualização, por exemplo) também saem. Restaurar por cima, com `pg_restore --clean`, não serve: o `--clean` só
+apaga o que está no backup, e uma tabela nova que aponta para as antigas (a `tb_conferencia_mes` aponta para
+`tb_usuario`, por exemplo) faz a restauração parar no meio.
 
 ```powershell
 ponto parar
-$env:PGPASSWORD = 'ponto'    # a senha do banco (padrão: ponto)
-& 'C:\Program Files\PostgreSQL\18\bin\pg_restore.exe' --clean --if-exists --no-owner --single-transaction `
+$env:PGPASSWORD = Read-Host 'Senha do banco (padrão: ponto)'   # digitada aqui, não fica no histórico
+$bin = 'C:\Program Files\PostgreSQL\18\bin'
+# 1. esvazia o banco (o usuário ponto é o dono dele)
+& "$bin\psql.exe" --host=localhost --username=ponto --dbname=conferencia_ponto -v ON_ERROR_STOP=1 `
+    -c 'DROP SCHEMA IF EXISTS atendimento, conhecimento CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+# 2. restaura (inteiro ou nada)
+& "$bin\pg_restore.exe" --no-owner --single-transaction --exit-on-error `
     --host=localhost --username=ponto --dbname=conferencia_ponto "$HOME\.conferencia-ponto\backups\<pasta>\banco.dump"
 Remove-Item Env:PGPASSWORD
-ponto iniciar
 ```
 
-O `--single-transaction` faz a restauração inteira ou nada. Se o backup tiver `atendimentos-base\` e
-`chave-mestra`, copie-os de volta para `%USERPROFILE%\.conferencia-ponto\atendimentos\` (`base\` e
-`chave-mestra`). Se o backup for de **antes** da migração de um módulo, desfaça o módulo primeiro (abaixo): o
-`--clean` só recria o que está no backup e deixaria os schemas do módulo para trás.
+Se o passo 2 falhar, o banco fica vazio: corrija o que a mensagem disser e rode o passo 2 de novo (o passo 1 também,
+se algo chegou a ser restaurado). Se o backup tiver `atendimentos-base\` e `chave-mestra`, copie-os de volta para
+`%USERPROFILE%\.conferencia-ponto\atendimentos\` (`base\` e `chave-mestra`). Se o backup é de antes de uma
+atualização, volte também para a versão do sistema daquela época (veja [Voltar para a versão
+anterior](#voltar-para-a-versão-anterior)) antes de `ponto iniciar`: a versão nova aplicaria de novo as migrações.
 
 **Desfazer a migração de um módulo ainda não aprovado** — apaga só os schemas dos módulos (`atendimento` e
 `conhecimento`) e as linhas dessas migrações no histórico do Flyway; nenhuma tabela do ponto é tocada:

@@ -28,6 +28,7 @@ public final class VetoresDeMentira implements VetoresDeTexto {
     private final Map<String, float[]> fixos = new ConcurrentHashMap<>();
     private final List<Pedido> pedidos = new CopyOnWriteArrayList<>();
     private final Deque<FalhaNoVetor> falhas = new ArrayDeque<>();
+    private volatile long demoraMs;
 
     public VetoresDeMentira comChave(UUID... usuarios) {
         comChave.addAll(List.of(usuarios));
@@ -42,6 +43,12 @@ public final class VetoresDeMentira implements VetoresDeTexto {
     /** Um texto que contém {@code trecho} recebe este vetor. */
     public VetoresDeMentira fixo(String trecho, float[] vetor) {
         fixos.put(trecho, vetor);
+        return this;
+    }
+
+    /** Cada vetor leva este tempo (a rede lenta, a placa ocupada). */
+    public VetoresDeMentira demorar(java.time.Duration demora) {
+        this.demoraMs = demora.toMillis();
         return this;
     }
 
@@ -60,6 +67,13 @@ public final class VetoresDeMentira implements VetoresDeTexto {
 
     @Override
     public float[] calcular(UUID usuarioId, String modelo, int dimensao, String texto) {
+        if (demoraMs > 0) {
+            try {
+                Thread.sleep(demoraMs);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
+        }
         if (!comChave.contains(usuarioId)) {
             throw new FalhaNoVetor(FalhaNoVetor.Motivo.SEM_CHAVE, "Cadastre sua chave do Gemini (Atendimentos → Minha chave "
                     + "do Gemini) para usar a pesquisa por significado.");

@@ -24,9 +24,15 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Predicate;
 
@@ -47,6 +53,7 @@ public class VetoresDaBase {
     private static final Duration ESPERA_SEM_CHAVE = Duration.ofMinutes(10);
     private static final Duration ESPERA_COTA = Duration.ofHours(1);
     private static final Duration ESPERA_MAXIMA = Duration.ofMinutes(30);
+    static final Duration TEMPO_DA_CONSULTA = Duration.ofSeconds(8);
 
     private final Vetores vetores;
     private final ObjectProvider<VetoresDeTexto> gerador;
@@ -59,6 +66,18 @@ public class VetoresDaBase {
         t.setDaemon(true);
         return t;
     });
+    /**
+     * O vetor de quem pesquisa, com tempo para responder: o Gemini ou a IA local podem levar minutos (rede caída, placa
+     * ocupada com uma análise), e a tela não fica esperando — passado o tempo, a pesquisa sai só exata, e o vetor que
+     * chegar depois fica guardado para a próxima. Fila curta: com tudo ocupado, a pesquisa também sai só exata.
+     */
+    private final ExecutorService consultor = new ThreadPoolExecutor(2, 2, 60, TimeUnit.SECONDS,
+            new ArrayBlockingQueue<>(16), r -> {
+        Thread t = new Thread(r, "base-consulta");
+        t.setDaemon(true);
+        return t;
+    });
+    private volatile Duration tempoDaConsulta = TEMPO_DA_CONSULTA;
 
     /** Quem não tem chave (ou está sem cota) espera antes de tentar de novo: não adianta chamar a cada rodada. */
     private final Map<UUID, Instant> autoresEmEspera = new ConcurrentHashMap<>();
@@ -179,18 +198,39 @@ public class VetoresDaBase {
             }
         }
         try {
-            float[] vetor = vt.calcular(usuarioId, configuracao.modelo(), configuracao.dimensao(), texto);
-            synchronized (consultas) {
-                consultas.put(chave, vetor);
+            CompletableFuture<float[]> pedido = CompletableFuture.supplyAsync(
+                    () -> vt.calcular(usuarioId, configuracao.modelo(), configuracao.dimensao(), texto), consultor);
+            pedido.thenAccept(vetor -> {
+                synchronized (consultas) {
+                    consultas.put(chave, vetor);
+                }
+            });
+            return new Consulta(pedido.get(tempoDaConsulta.toMillis(), TimeUnit.MILLISECONDS), null);
+        } catch (TimeoutException e) {
+            log.info("Pesquisa por significado de {}: o vetor não chegou em {} s; ficou só a exata", usuarioId,
+                    tempoDaConsulta.toSeconds());
+            return new Consulta(null, "Só a pesquisa exata: a pesquisa por significado demorou para responder. "
+                    + "Pesquise de novo em instantes.");
+        } catch (ExecutionException e) {
+            if (e.getCause() instanceof FalhaNoVetor falha) {
+                log.info("Pesquisa por significado indisponível para {}: {}", usuarioId, falha.motivo());
+                return new Consulta(null, avisoDaConsulta(falha));
             }
-            return new Consulta(vetor, null);
-        } catch (FalhaNoVetor falha) {
-            log.info("Pesquisa por significado indisponível para {}: {}", usuarioId, falha.motivo());
-            return new Consulta(null, avisoDaConsulta(falha));
+            log.warn("Pesquisa por significado falhou: {}", String.valueOf(e.getCause()));
+            return new Consulta(null, "A pesquisa por significado falhou agora; ficou só a pesquisa exata.");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return new Consulta(null, "A pesquisa por significado falhou agora; ficou só a pesquisa exata.");
         } catch (RuntimeException e) {
+            // inclui a fila cheia (tudo ocupado esperando o gerador)
             log.warn("Pesquisa por significado falhou: {}", e.toString());
             return new Consulta(null, "A pesquisa por significado falhou agora; ficou só a pesquisa exata.");
         }
+    }
+
+    /** Para os testes: quanto a pesquisa espera pelo vetor. */
+    void tempoDaConsulta(Duration tempo) {
+        this.tempoDaConsulta = tempo;
     }
 
     private static String avisoDaConsulta(FalhaNoVetor falha) {
@@ -212,13 +252,13 @@ public class VetoresDaBase {
     public record Rodada(int gerados, int falharam, int adiados) {
     }
 
+    /**
+     * A rodada roda na thread da base, não na do agendador: ela pode levar minutos (até 20 chamadas ao gerador), e o
+     * agendador é o mesmo dos pings do tempo real e dos avisos.
+     */
     @Scheduled(fixedDelayString = "${conhecimento.vetor.intervalo:60s}", initialDelayString = "${conhecimento.vetor.primeira-vez:30s}")
     public void agendada() {
-        try {
-            gerarPendentes();
-        } catch (RuntimeException e) {
-            log.warn("Vetores pendentes da base: a rodada falhou ({}); tenta de novo na próxima", e.toString());
-        }
+        acordar();
     }
 
     /** Pede uma rodada já (em segundo plano). */

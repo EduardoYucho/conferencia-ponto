@@ -239,6 +239,31 @@ class TarefasJdbcTest {
     }
 
     @Test
+    void quemEstaNoLimiteNaoTravaAFilaDosOutros() {
+        UUID a = novo(60);
+        assertThat(pegar(1, 1)).singleElement().extracting(Tarefa::atendimentoId).isEqualTo(a);
+
+        // as 50 candidatas mais antigas são todas de A, que já está no limite: B, criado depois, passa na frente
+        UUID b = novo(1);
+        assertThat(pegar(1, 1)).singleElement().extracting(Tarefa::atendimentoId).isEqualTo(b);
+        assertThat(pegar(1, 1)).as("A e B no limite").isEmpty();
+    }
+
+    @Test
+    void naSubidaAInterrompidaNaUltimaTentativaNaoVoltaParaAFila() {
+        UUID atendimento = novo(2);
+        List<Tarefa> pegas = pegar(10, 10);
+        long ultima = pegas.get(0).id();
+        jdbc.sql("UPDATE atendimento.tarefa SET tentativas = max_tentativas WHERE id = ?").param(ultima).update();
+
+        assertThat(tarefas.emExecucaoNaUltimaTentativa()).filteredOn(t -> t.atendimentoId().equals(atendimento))
+                .singleElement().satisfies(t -> {
+                    assertThat(t.id()).isEqualTo(ultima);
+                    assertThat(t.ultimaTentativa()).isTrue();
+                });
+    }
+
+    @Test
     void cancelarPausarERetomarOAtendimento() {
         UUID atendimento = novo(3);
         Tarefa emExecucao = pegar(1, 10).get(0);

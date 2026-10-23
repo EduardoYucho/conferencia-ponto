@@ -49,6 +49,9 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Component
 public class CoordenadorDaFila {
 
+    /** Código da tarefa que estava rodando quando o processo caiu, na última tentativa. */
+    public static final String INTERROMPIDA = "INTERROMPIDA";
+
     private static final Logger log = LoggerFactory.getLogger(CoordenadorDaFila.class);
 
     private final Tarefas tarefas;
@@ -118,6 +121,7 @@ public class CoordenadorDaFila {
             log.info("Fila do gerador desligada (atendimento.fila.ativa = false)");
             return;
         }
+        encerrarAsInterrompidasNaUltimaTentativa();
         int devolvidas = tarefas.devolverTodasEmExecucao();
         if (devolvidas > 0) {
             log.info("Fila do gerador: {} tarefa(s) que estavam em execução voltaram para a fila", devolvidas);
@@ -125,6 +129,32 @@ public class CoordenadorDaFila {
         relogio.scheduleWithFixedDelay(this::varrerSemFalhar, 1000, varredura.toMillis(), TimeUnit.MILLISECONDS);
         long manutencao = Math.max(10_000, Math.min(60_000, prazo.toMillis() / 3));
         relogio.scheduleWithFixedDelay(this::manutencaoSemFalhar, manutencao, manutencao, TimeUnit.MILLISECONDS);
+    }
+
+    /**
+     * A tarefa que estava rodando quando o processo caiu, já na última tentativa, falha em vez de voltar: se foi ela que
+     * derrubou o processo (falta de memória, por exemplo), voltar à fila faria o sistema cair de novo a cada subida.
+     */
+    private void encerrarAsInterrompidasNaUltimaTentativa() {
+        List<Tarefa> interrompidas;
+        try {
+            interrompidas = tarefas.emExecucaoNaUltimaTentativa();
+        } catch (RuntimeException e) {
+            log.warn("Fila do gerador: não foi possível conferir as tarefas interrompidas: {}", e.toString());
+            return;
+        }
+        for (Tarefa tarefa : interrompidas) {
+            ResultadoDaTarefa.FalhaDefinitiva falha = new ResultadoDaTarefa.FalhaDefinitiva(INTERROMPIDA, "O sistema foi reiniciado no meio deste item em todas as tentativas. Ele ficou de "
+                            + "fora; use \"Tentar de novo\" se quiser insistir.");
+            try {
+                tarefas.falhar(tarefa.id(), falha.codigo(), falha.mensagem(), clock.instant());
+                acompanhamento.aoTerminar(tarefa, falha);
+                log.warn("Fila do gerador: a tarefa {} ({}) do atendimento {} foi interrompida em todas as {} tentativas "
+                        + "e ficou de fora", tarefa.id(), tarefa.tipo().codigo(), tarefa.atendimentoId(), tarefa.tentativa());
+            } catch (RuntimeException e) {
+                log.warn("Fila do gerador: não foi possível encerrar a tarefa interrompida {}: {}", tarefa.id(), e.toString());
+            }
+        }
     }
 
     @PreDestroy

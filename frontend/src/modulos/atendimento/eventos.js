@@ -7,11 +7,12 @@ class ErroDefinitivo extends Error {}
 /**
  * O canal SSE do gerador (GET /api/v1/atendimentos/eventos), separado do canal do ponto: só chegam os eventos dos
  * atendimentos da própria pessoa. Como o do ponto, vai por fetch (para levar o token) e reconecta sozinho; só a
- * sessão encerrada (401) ou o gerador retirado (403) encerram a assinatura.
+ * sessão encerrada (401) ou o gerador retirado (403) encerram a assinatura. `onConectado` é chamado a cada conexão
+ * (a primeira e cada reconexão): o que saiu enquanto a conexão estava caída não chega por evento.
  *
  * @returns {() => void} encerra a assinatura
  */
-export function conectarEventosDoGerador({ onProgresso = () => {}, onStatus = () => {} } = {}) {
+export function conectarEventosDoGerador({ onProgresso = () => {}, onConectado = () => {}, onStatus = () => {} } = {}) {
   const url = `${http.defaults.baseURL.replace(/\/$/, '')}/atendimentos/eventos`
   const controle = new AbortController()
   let tentativas = 0
@@ -33,6 +34,14 @@ export function conectarEventosDoGerador({ onProgresso = () => {}, onStatus = ()
       throw new Error(`HTTP ${resposta.status}`)
     },
     onmessage(mensagem) {
+      if (mensagem.event === 'conectado') {
+        try {
+          onConectado()
+        } catch (erro) {
+          relatar(erro, 'tempo real do gerador')
+        }
+        return
+      }
       if (mensagem.event !== 'atendimento-progresso') return
       try {
         onProgresso(JSON.parse(mensagem.data))

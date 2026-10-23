@@ -201,6 +201,35 @@ class ProcessamentoDosAnexosTest {
     }
 
     @Test
+    void tentarDeNovoUmDownloadComOAtendimentoPausadoMantemAPausa() {
+        servidor.status(PdfDigisacDeTeste.CAMINHO_DO_DOCUMENTO, 404);
+        UUID id = criar(AGORA, "20261009T120000Z");
+        CoordenadorDaFila coordenador = coordenador(AGORA, DataSize.ofKilobytes(1));
+        processamento(AGORA).processar(maria, id);
+        coordenador.varrer();
+        esperarAte(id, SituacaoDoAtendimento.COM_FALHAS);
+        ArquivoDoAtendimento documento = anexo(id, "Relatório de vendas.pdf");
+
+        // a cota do Gemini acabou: uma análise ficou pausada e o atendimento, pausado
+        ArquivoDoAtendimento foto = arquivos.doAtendimento(id).stream().filter(a -> a.situacao().equals("pronto"))
+                .findFirst().orElseThrow();
+        tarefas.criar(br.com.conferenciaponto.modulos.atendimento.domain.fila.TipoDeTarefa.ANALISAR, id, foto.id(), null,
+                3, AGORA);
+        tarefas.pausarDoAtendimento(id, AGORA);
+        atendimentos.mudarSituacao(id, SituacaoDoAtendimento.PAUSADO, "A cota acabou", AGORA);
+
+        servidor.arquivo(PdfDigisacDeTeste.CAMINHO_DO_DOCUMENTO, PDF);
+        assertThat(processamento(AGORA).tentarDeNovo(maria, id, documento.id()).situacao()).isEqualTo("pausado");
+        coordenador.varrer();
+
+        await().atMost(10, TimeUnit.SECONDS).until(() -> anexo(id, "Relatório de vendas.pdf").situacao().equals("pronto"));
+        await().atMost(5, TimeUnit.SECONDS).until(() -> tarefas.ativas(id) == 0);
+        assertThat(situacao(id)).as("o texto não sai sem a análise pausada").isEqualTo(SituacaoDoAtendimento.PAUSADO);
+        assertThat(PostgresDeTeste.jdbc().sql("SELECT count(*) FROM atendimento.tarefa WHERE atendimento_id = ? "
+                + "AND situacao = 'pausada'").param(id).query(Integer.class).single()).isEqualTo(1);
+    }
+
+    @Test
     void linkVencidoNemVaiParaARede() {
         Instant depois = Instant.parse("2026-10-11T00:00:00Z");
         UUID id = criar(AGORA, "20261009T120000Z");

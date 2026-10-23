@@ -36,11 +36,15 @@ const SITUACOES = [
 ]
 
 // ------------------------------------------------------------------ filtros
-const agora = new Date()
+/** O mês de hoje pelo servidor (o "hoje" do ponto acompanha a virada do dia com a aba aberta). */
+const agora = () => {
+  const [a, m] = ponto.hoje.split('-').map(Number)
+  return { ano: a, mes: m }
+}
 
 /** Mês pedido no endereço (?ano=&mes=). Se vier algo que não é um mês de verdade, vale o mês atual. */
 function mesDoEndereco() {
-  const atual = { ano: agora.getFullYear(), mes: agora.getMonth() + 1 }
+  const atual = { ano: agora().ano, mes: agora().mes }
   const a = route.query.ano === undefined ? atual.ano : Number(route.query.ano)
   const m = route.query.mes === undefined ? atual.mes : Number(route.query.mes)
   const valido = Number.isInteger(a) && a >= 2000 && a <= 2100 && Number.isInteger(m) && m >= 1 && m <= 12
@@ -54,7 +58,7 @@ const situacao = ref('TODAS')
 const ordenacao = ref({ campo: 'data', direcao: 1 })
 
 const anos = computed(() => {
-  const atual = agora.getFullYear()
+  const atual = agora().ano
   const lista = Array.from({ length: 5 }, (_, i) => atual - 3 + i)
   // navegando com as setas (ou vindo de um link) o ano em tela pode estar fora da lista: ele entra nela
   if (!lista.includes(ano.value)) lista.push(ano.value)

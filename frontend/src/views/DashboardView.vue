@@ -73,6 +73,8 @@ async function carregar(acao = ultimaCarga) {
 }
 const irParaMes = (deslocamento) => carregar(() => store.navegarMes(deslocamento))
 const voltarParaHoje = () => carregar(() => store.fetchMesAtual())
+// o mês virou com a aba aberta no mês de hoje: vai para o mês novo (uma falha aparece como qualquer carga)
+watch(() => store.viradaDoMesEm, (quando) => quando && voltarParaHoje())
 
 onMounted(() => carregar())
 onBeforeUnmount(() => {
@@ -245,7 +247,12 @@ function fecharAviso() {
   aviso.value = null
 }
 
+/** Do clique até o mês recarregado: um clique duplo não vira duas batidas (o servidor também recusa as seguidas). */
+const batendo = ref(false)
+
 async function baterPonto() {
+  if (batendo.value) return
+  batendo.value = true
   fecharAviso() // o erro da tentativa anterior sai antes da nova
   let registro
   try {
@@ -253,6 +260,8 @@ async function baterPonto() {
   } catch (e) {
     mostrarAviso(mensagemDe(e), 'erro')
     return
+  } finally {
+    batendo.value = false
   }
   // a batida está registrada: daqui para baixo é só o texto do aviso
   const b = [...(registro?.batidas ?? [])].reverse().find((x) => x.real)
@@ -405,7 +414,7 @@ const rotuloTipoDia = { UTIL: 'Dia útil', FIM_DE_SEMANA: 'Fim de semana', FERIA
         <button
           type="button"
           class="botao-primario"
-          :disabled="salvando || jornadaCompleta || !configuracao || vendoOutroMes"
+          :disabled="salvando || batendo || jornadaCompleta || !configuracao || vendoOutroMes"
           :title="vendoOutroMes ? 'Volte para o mês atual para bater o ponto (a tela precisa saber as batidas de hoje)' : undefined"
           @click="baterPonto"
         >

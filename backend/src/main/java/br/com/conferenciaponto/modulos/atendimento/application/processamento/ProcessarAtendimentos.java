@@ -199,7 +199,12 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         }
         arquivos.aguardar(arquivoId);
         tarefas.criar(TipoDeTarefa.BAIXAR, atendimentoId, arquivoId, null, tentativasDoDownload, agora);
-        atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+        if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
+            atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+        }
+        // pausado, continua pausado: o download não usa a IA e roda; a análise dele entra pausada (analisarOBaixado) e
+        // volta com as outras no Retomar. Sem isso, a fila esvaziava, o texto saía sem as análises pausadas e elas
+        // ficavam pausadas para sempre
         publicador.publicar(atendimentoId);
         return progresso(atendimentoId);
     }

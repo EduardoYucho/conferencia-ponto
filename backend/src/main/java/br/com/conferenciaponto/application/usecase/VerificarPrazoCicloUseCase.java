@@ -6,6 +6,7 @@ import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.domain.model.Notificacao;
 import br.com.conferenciaponto.domain.model.TipoNotificacao;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
@@ -33,6 +34,15 @@ public class VerificarPrazoCicloUseCase {
     public VerificarPrazoCicloUseCase(GerenciarCicloBancoUseCase ciclos, NotificacoesUseCase notificacoes) {
         this.ciclos = ciclos;
         this.notificacoes = notificacoes;
+    }
+
+    /**
+     * Depois de fechar, desfazer ou corrigir o ciclo: o evento chega com a transação dele já confirmada, e o que se
+     * gravasse nela não iria para o banco (os avisos do ciclo antigo ficariam no sino). Por isso, uma transação nova.
+     */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
+    public Optional<Notificacao> executarAposGravar(UUID usuarioId, LocalDate hoje) {
+        return executar(usuarioId, hoje);
     }
 
     @Transactional

@@ -90,8 +90,8 @@ public class LogController {
     public ApiResponse<Void> erroDeTela(@RequestBody ErroDeTelaRequest r, HttpServletRequest requisicao) {
         String quem = requisicao.getUserPrincipal() == null ? "?" : requisicao.getUserPrincipal().getName();
         if (dentroDoLimite(quem)) {
-            log.warn("Erro na tela {}: {}{}", cortar(r.tela(), 200), cortar(r.mensagem(), 500),
-                    r.detalhe() == null || r.detalhe().isBlank() ? "" : "\n" + cortar(r.detalhe(), 4000));
+            log.warn("Erro na tela {}: {}{}", numaLinha(cortar(r.tela(), 200)), numaLinha(cortar(r.mensagem(), 500)),
+                    r.detalhe() == null || r.detalhe().isBlank() ? "" : recuado(cortar(r.detalhe(), 4000)));
         }
         return ApiResponse.ok(null);
     }
@@ -101,6 +101,16 @@ public class LogController {
         int[] contador = avisosPorMinuto.compute(quem, (k, atual) ->
                 atual == null || atual[0] != minuto ? new int[]{minuto, 1} : new int[]{minuto, atual[1] + 1});
         return contador[1] <= AVISOS_POR_MINUTO;
+    }
+
+    /** O que vem do navegador não pode começar uma linha nova no log (forjaria uma linha de outra pessoa). */
+    static String numaLinha(String texto) {
+        return texto.replaceAll("[\\r\\n\\t]", " ");
+    }
+
+    /** O detalhe (a pilha do erro) fica em várias linhas, todas recuadas: nenhuma passa por linha do próprio log. */
+    static String recuado(String texto) {
+        return "\n    | " + texto.replace("\r", "").replace("\n", "\n    | ");
     }
 
     private static String cortar(String texto, int maximo) {

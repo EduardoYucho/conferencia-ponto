@@ -126,6 +126,13 @@ public class GerenciarCicloBancoUseCase {
                     "O ciclo atual começou em %s: o fechamento não pode ser antes disso."
                             .formatted(DATA.format(aberto.dataInicio())));
         }
+        if (dia.equals(hoje) && !diaFechado(usuarioId, hoje)) {
+            // o saldo de um dia em andamento fica fora do fechamento, e o novo ciclo começa amanhã: o que for batido
+            // hoje não entraria em ciclo nenhum
+            throw new RegraNegocioException("CICLO_HOJE_EM_ANDAMENTO", ("O dia de hoje ainda está em andamento: feche "
+                    + "até ontem (%s). Para incluir hoje, feche depois da última batida do dia (ou amanhã).")
+                    .formatted(DATA.format(hoje.minusDays(1))));
+        }
         int saldo = apurar(usuarioId, aberto.dataInicio(), dia).saldo();
         CicloBanco fechado = aberto.fechar(dia, saldo, usuario, observacao, hoje, clock.instant());
         ciclos.salvar(fechado);
@@ -199,6 +206,12 @@ public class GerenciarCicloBancoUseCase {
     }
 
     private record Apuracao(int saldo, int diasRegistrados, int diasEmAberto, List<SaldoMensal> meses) {
+    }
+
+    /** O dia tem registro com o saldo apurado (todas as batidas): pode entrar num fechamento. */
+    private boolean diaFechado(UUID usuarioId, LocalDate dia) {
+        Apuracao a = apurar(usuarioId, dia, dia);
+        return a.diasRegistrados() > a.diasEmAberto();
     }
 
     private Apuracao apurar(UUID usuarioId, LocalDate inicio, LocalDate fim) {

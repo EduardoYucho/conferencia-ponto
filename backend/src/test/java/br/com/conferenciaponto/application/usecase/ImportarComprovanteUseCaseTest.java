@@ -153,6 +153,24 @@ class ImportarComprovanteUseCaseTest {
     }
 
     @Test
+    @DisplayName("O mesmo PDF já no ponto de outra pessoa: REJEITADO com o motivo (não \"já processado\") e nada muda")
+    void mesmoArquivoDeOutraPessoa() {
+        byte[] pdf = "%PDF-1.4 comprovante de alguem".getBytes();
+        Comprovante comprovante = new Comprovante("c.pdf", HashSha256.de(pdf),
+                Optional.of(LocalDateTime.of(DIA, LocalTime.of(8, 0))), pdf);
+        assertThat(useCase.executar(Fixtures.OUTRO, comprovante)).map(Resultado::status).contains(StatusImportacao.IMPORTADO);
+        eventos.clear();
+
+        Resultado meu = useCase.executar(USUARIO, comprovante).orElseThrow();
+
+        assertThat(meu.status()).isEqualTo(StatusImportacao.REJEITADO);
+        assertThat(meu.mensagem()).contains("ponto de outra pessoa");
+        assertThat(registros.buscarPorData(USUARIO, DIA)).isEmpty();
+        assertThat(eventos).singleElement().isInstanceOf(br.com.conferenciaponto.application.evento.ComprovanteNaoImportadoEvento.class);
+        assertThat(useCase.executar(Fixtures.OUTRO, comprovante)).as("para o dono, continua \"já processado\"").isEmpty();
+    }
+
+    @Test
     @DisplayName("PDF sem o padrão é INVALIDO; data futura e 7ª batida são REJEITADO")
     void naoImportados() {
         assertThat(importar(null)).map(Resultado::status).contains(StatusImportacao.INVALIDO);
