@@ -17,7 +17,10 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-/** tb_horario_trabalho: uma coluna por dia da semana com os períodos em texto ("08:00-12:00 13:00-17:48"). */
+/**
+ * tb_horario_trabalho: uma coluna por dia da semana com os períodos em texto ("08:00-12:00 13:00-17:48") e a carga
+ * semanal informada (vazia = a soma do horário).
+ */
 @Repository
 class HorarioTrabalhoRepositoryJdbc implements HorarioTrabalhoRepository {
 
@@ -33,11 +36,12 @@ class HorarioTrabalhoRepositoryJdbc implements HorarioTrabalhoRepository {
     public void salvar(HorarioTrabalho h) {
         JdbcClient.StatementSpec sql = jdbc.sql("""
                         INSERT INTO tb_horario_trabalho (id, usuario_id, vigente_desde, tolerancia_minutos,
-                            seg, ter, qua, qui, sex, sab, dom, criado_em, criado_por)
+                            seg, ter, qua, qui, sex, sab, dom, criado_em, criado_por, carga_semanal_segundos)
                         VALUES (:id, :usuario, :desde, :tolerancia, :seg, :ter, :qua, :qui, :sex, :sab, :dom,
-                            :criadoEm, :criadoPor)
+                            :criadoEm, :criadoPor, :carga)
                         ON CONFLICT (id) DO UPDATE SET
                             vigente_desde = EXCLUDED.vigente_desde, tolerancia_minutos = EXCLUDED.tolerancia_minutos,
+                            carga_semanal_segundos = EXCLUDED.carga_semanal_segundos,
                             seg = EXCLUDED.seg, ter = EXCLUDED.ter, qua = EXCLUDED.qua, qui = EXCLUDED.qui,
                             sex = EXCLUDED.sex, sab = EXCLUDED.sab, dom = EXCLUDED.dom,
                             criado_em = EXCLUDED.criado_em, criado_por = EXCLUDED.criado_por
@@ -45,7 +49,8 @@ class HorarioTrabalhoRepositoryJdbc implements HorarioTrabalhoRepository {
                 .param("id", h.id()).param("usuario", h.usuarioId()).param("desde", h.vigenteDesde())
                 .param("tolerancia", h.toleranciaMinutos())
                 .param("criadoEm", RelatorioRhRepositoryJdbc.utc(h.criadoEm()))
-                .param("criadoPor", h.criadoPor());
+                .param("criadoPor", h.criadoPor())
+                .param("carga", h.cargaSemanalInformadaSegundos());
         for (Map.Entry<DayOfWeek, String> coluna : COLUNAS.entrySet()) {
             GradeHoraria grade = h.dias().get(coluna.getKey());
             sql = sql.param(coluna.getValue(), grade == null ? null : grade.texto());
@@ -82,7 +87,8 @@ class HorarioTrabalhoRepositoryJdbc implements HorarioTrabalhoRepository {
         Instant criadoEm = RelatorioRhRepositoryJdbc.instante(rs, "criado_em");
         return new HorarioTrabalho(rs.getObject("id", UUID.class), rs.getObject("usuario_id", UUID.class),
                 rs.getObject("vigente_desde", LocalDate.class), rs.getInt("tolerancia_minutos"), dias,
-                criadoEm == null ? Instant.EPOCH : criadoEm, rs.getString("criado_por"));
+                criadoEm == null ? Instant.EPOCH : criadoEm, rs.getString("criado_por"),
+                rs.getObject("carga_semanal_segundos", Integer.class));
     }
 
     private static Map<DayOfWeek, String> colunas() {

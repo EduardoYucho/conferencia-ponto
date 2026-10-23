@@ -19,6 +19,8 @@ const props = defineProps({
   lancamentos: { type: Object, default: () => ({}) },
   /** data -> expediente previsto pelo horário da pessoa (dia ausente = sem expediente); null = seg–sex. */
   expedientes: { type: Object, default: null },
+  /** Esconde os dias sem expediente (fim de semana): no painel eles ficam na tela Banco de horas. */
+  ocultarSemExpediente: { type: Boolean, default: false },
 })
 const emit = defineEmits(['selecionar', 'lancar', 'ajustar', 'marcar'])
 
@@ -32,8 +34,11 @@ const ROTULOS = { ENTRADA_1: 'Entrada 1', SAIDA_1: 'Saída 1', ENTRADA_2: 'Entra
 
 const batidasDaLinha = (registro) => colunas.value.map((tipo) => registro.batidas.find((b) => b.tipo === tipo))
 
+/** Dia sem expediente no horário da pessoa (sábado e domingo, no horário padrão). */
+const semExpediente = (data) => (props.expedientes ? !props.expedientes[data] : ehFimDeSemana(data))
+
 const linhas = computed(() =>
-  diasDoMes(props.ano, props.mes).map((data) => {
+  diasDoMes(props.ano, props.mes).filter((data) => !props.ocultarSemExpediente || !semExpediente(data)).map((data) => {
     const registro = props.diasPorData[data] ?? null
     const marcador = props.marcadores[data] ?? null
     return {

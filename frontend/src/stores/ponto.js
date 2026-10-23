@@ -32,6 +32,8 @@ export const usePontoStore = defineStore('ponto', () => {
   /** Expediente previsto de cada dia do mês pelo horário da pessoa: [{ data, previstoSegundos, periodos }]. */
   const expedientesMes = ref(null)
   const resumo = ref(null)
+  /** A conferência do mês em tela (null = não conferido): o painel avisa que o mês está travado. */
+  const conferenciaMes = ref(null)
   const saldos = ref(null)
   const dataSelecionada = ref(null)
 
@@ -138,6 +140,20 @@ export const usePontoStore = defineStore('ponto', () => {
     return temExpediente(data) ? cargaDiaInteiro.value : 0
   }
 
+  /**
+   * O dia aparece no painel: tem registro e expediente no horário. Os dias sem expediente (sábado e domingo, no
+   * horário padrão) ficam na tela Banco de horas; no painel, só o lançamento continua.
+   */
+  function diaDoPainel(data) {
+    return !!data && !!diasPorData.value[data] && temExpediente(data)
+  }
+
+  /** Hoje (se aparece no painel) ou o último dia do mês que aparece. */
+  function selecaoPadrao() {
+    if (diaDoPainel(hoje.value)) return hoje.value
+    return [...dias.value].reverse().find((d) => temExpediente(d.data))?.data ?? null
+  }
+
   function mesCarregado() {
     return ano.value ? `${ano.value}-${String(mes.value).padStart(2, '0')}` : null
   }
@@ -188,13 +204,10 @@ export const usePontoStore = defineStore('ponto', () => {
       lancamentosMes.value = dadosMes.lancamentos ?? []
       expedientesMes.value = dadosMes.expedientes ?? null
       resumo.value = dadosMes.resumo
+      conferenciaMes.value = dadosMes.conferencia ?? null
       saldos.value = dadosSaldos
 
-      if (!diasPorData.value[dataSelecionada.value]) {
-        dataSelecionada.value = diasPorData.value[hoje.value]
-          ? hoje.value
-          : (dadosMes.dias.at(-1)?.data ?? null)
-      }
+      if (!diaDoPainel(dataSelecionada.value)) dataSelecionada.value = selecaoPadrao()
       return dadosMes
     })
   }
@@ -445,6 +458,7 @@ export const usePontoStore = defineStore('ponto', () => {
     lancamentosMes.value = []
     expedientesMes.value = null
     resumo.value = null
+    conferenciaMes.value = null
     saldos.value = null
     dataSelecionada.value = null
     monitoramento.value = null
@@ -491,6 +505,7 @@ export const usePontoStore = defineStore('ponto', () => {
     lancamentosMes.value = []
     expedientesMes.value = null
     resumo.value = null
+    conferenciaMes.value = null
     saldos.value = null
     dataSelecionada.value = null
     monitoramento.value = null
@@ -517,10 +532,10 @@ export const usePontoStore = defineStore('ponto', () => {
       const outros = dias.value.filter((d) => d.data !== data)
       dias.value = registro ? [...outros, registro].sort((x, y) => x.data.localeCompare(y.data)) : outros
 
-      if (registro && origem === 'COMPROVANTE_PDF') {
+      if (registro && origem === 'COMPROVANTE_PDF' && temExpediente(data)) {
         dataSelecionada.value = data // leva a linha do tempo para o dia importado
-      } else if (!diasPorData.value[dataSelecionada.value]) {
-        dataSelecionada.value = diasPorData.value[hoje.value] ? hoje.value : (dias.value.at(-1)?.data ?? null)
+      } else if (!diaDoPainel(dataSelecionada.value)) {
+        dataSelecionada.value = selecaoPadrao()
       }
     }
 
@@ -556,14 +571,14 @@ export const usePontoStore = defineStore('ponto', () => {
 
   return {
     // state
-    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, saldos,
+    configuracao, ano, mes, dias, ausenciasMes, feriadosMes, lancamentosMes, expedientesMes, resumo, conferenciaMes, saldos,
     dataSelecionada, carregando, salvando,
     erro, tempoReal, monitoramento, ultimoEvento, ultimaConciliacao, ultimaAlteracaoUsuarios, planilha,
     erroPlanilha, desatualizado, reconectouEm, bancoMudouEm, presencaMudouEm,
     // getters
     hoje, jornadaBaseSegundos, horario, cargaDiaInteiro, expedientePorData, diasPorData, registroHoje, diaSelecionado,
     saldoMensal, saldoAnualAcumulado, serieAnual, ciclo, marcadoresDoMes, lancamentosPorData, ehMesAtual, temDados,
-    temExpediente, periodosDoDia, cargaDoDia,
+    temExpediente, periodosDoDia, cargaDoDia, diaDoPainel,
     // actions
     carregarMonitor, carregarPlanilha, recarregarConfiguracao, trocarPessoa,
     fetchConfiguracao, fetchMes, fetchMesAtual, navegarMes, postBatida, postRegistroManual,

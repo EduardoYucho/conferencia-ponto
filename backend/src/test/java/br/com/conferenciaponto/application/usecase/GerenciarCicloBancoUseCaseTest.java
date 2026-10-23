@@ -54,7 +54,7 @@ class GerenciarCicloBancoUseCaseTest {
     }
 
     private GerenciarLancamentosBancoUseCase lancamentosUseCase() {
-        return new GerenciarLancamentosBancoUseCase(lancamentos, ciclos, eventos::add, clock());
+        return new GerenciarLancamentosBancoUseCase(lancamentos, ciclos, br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock());
     }
 
     private VerificarPrazoCicloUseCase alertas() {

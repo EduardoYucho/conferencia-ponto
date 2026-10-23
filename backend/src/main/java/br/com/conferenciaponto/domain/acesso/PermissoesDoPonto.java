@@ -14,10 +14,12 @@ public final class PermissoesDoPonto implements FonteDePermissoes {
     public static final String EQUIPE = "ponto.equipe";
     /** Muda o horário, a pasta de comprovantes e a planilha de outras pessoas. */
     public static final String CONFIGURAR_EQUIPE = "ponto.equipe.configurar";
+    /** Marca o mês de uma pessoa como conferido (e reabre), o que trava as mudanças à mão nele. */
+    public static final String CONFERIR = "ponto.conferir";
     /** Cadastra e exclui feriados (valem para todos). */
     public static final String FERIADOS = "ponto.feriados";
 
-    public static final Set<String> CODIGOS = Set.of(PROPRIO, LANCAR, EQUIPE, CONFIGURAR_EQUIPE, FERIADOS);
+    public static final Set<String> CODIGOS = Set.of(PROPRIO, LANCAR, EQUIPE, CONFIGURAR_EQUIPE, CONFERIR, FERIADOS);
 
     @Override
     public String grupo() {
@@ -41,6 +43,9 @@ public final class PermissoesDoPonto implements FonteDePermissoes {
                         "Vê o ponto de qualquer pessoa, sem alterar, e os detalhes de todos em Equipe."),
                 Permissao.de(CONFIGURAR_EQUIPE, "Configurar o ponto da equipe",
                         "Muda o horário, a pasta de comprovantes e a planilha de outras pessoas.").requer(EQUIPE),
+                Permissao.de(CONFERIR, "Conferir o mês",
+                        "Marca o mês de uma pessoa como conferido, na tela Banco de horas, e reabre. O mês conferido "
+                                + "fica travado para mudanças à mão.").requer(EQUIPE),
                 Permissao.de(FERIADOS, "Cadastrar feriados",
                         "Cadastra e exclui feriados, que valem para todos, inclusive os que vêm do relatório do RH."));
     }

@@ -70,6 +70,7 @@ const grupos = computed(() =>
       icone: 'relogio',
       itens: [
         { nome: 'painel', rotulo: 'Painel' },
+        { nome: 'banco', rotulo: 'Banco de horas' },
         { nome: 'auditoria', rotulo: 'Auditoria' },
         { nome: 'conciliacao', rotulo: 'Conciliação RH' },
         { nome: 'ausencias', rotulo: 'Folgas e feriados' },

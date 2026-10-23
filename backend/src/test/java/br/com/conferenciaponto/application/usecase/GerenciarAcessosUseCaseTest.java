@@ -86,7 +86,8 @@ class GerenciarAcessosUseCaseTest {
         assertThat(administrador.doSistema()).isTrue();
         assertThat(administrador.permissoes()).containsAll(catalogo.codigos());
         assertThat(administrador.pessoas()).extracting(GerenciarAcessosUseCase.PessoaDoPerfil::login).containsExactly("eduardo");
-        assertThat(perfilChamado("Coordenador").permissoes()).containsExactly(PermissoesDoPonto.EQUIPE);
+        assertThat(perfilChamado("Coordenador").permissoes())
+                .containsExactly(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR);
         assertThat(admin().pode("teste.editar")).isTrue();
     }
 

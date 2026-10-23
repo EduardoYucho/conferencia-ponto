@@ -112,7 +112,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * ponto.equipe, os de todos). Os testes com {@code jwt()} dão as permissões do perfil do sistema; os com token de
  * verdade passam pelo conversor, que relê o usuário (e as permissões) a cada requisição.
  */
-@WebMvcTest(controllers = {JornadaController.class, ComprovanteController.class, AuditoriaController.class,
+@WebMvcTest(controllers = {JornadaController.class, BancoDeHorasController.class, ComprovanteController.class,
+        AuditoriaController.class,
         AuthController.class, CicloBancoController.class, ConciliacaoController.class, LancamentoBancoController.class,
         FeriadoController.class, UsuarioController.class, PlanilhaController.class, IntegracaoGoogleController.class,
         PresencaController.class, LogController.class})
@@ -154,6 +155,10 @@ class SegurancaRbacWebTest {
     private AutenticarUsuarioUseCase autenticar;
     @MockitoBean
     private AjustarBatidasUseCase ajustar;
+    @MockitoBean
+    private br.com.conferenciaponto.application.usecase.ConferirMesUseCase conferirMes;
+    @MockitoBean
+    private br.com.conferenciaponto.application.usecase.ConsultarBancoDeHorasUseCase bancoDeHoras;
     @MockitoBean
     private GerenciarCicloBancoUseCase ciclos;
     @MockitoBean
@@ -305,7 +310,7 @@ class SegurancaRbacWebTest {
         mvc.perform(delete("/api/v1/jornadas/2026-09-26").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
                 .andExpect(status().isForbidden());
 
-        verify(lancarManual, never()).executar(any(), any(), any());
+        verify(lancarManual, never()).executar(any(), any(), any(), any(), any());
         verify(excluir, never()).executar(any(), any());
     }
 
@@ -338,7 +343,7 @@ class SegurancaRbacWebTest {
     @Test
     @DisplayName("USER e ADMIN escrevem")
     void usuarioEAdminEscrevem() throws Exception {
-        when(lancarManual.executar(any(), any(), any())).thenReturn(sabadoManual());
+        when(lancarManual.executar(any(), any(), any(), any(), any())).thenReturn(sabadoManual());
 
         mvc.perform(post("/api/v1/jornadas/manual").with(jwt().authorities(perfil(Perfil.ROLE_USER)))
                         .contentType(MediaType.APPLICATION_JSON).content(MANUAL))
@@ -415,7 +420,7 @@ class SegurancaRbacWebTest {
     @DisplayName("JWT real emitido pela aplicação: as permissões vêm do usuário relido do banco; assinatura inválida = 401")
     void tokenReal() throws Exception {
         mesVazio();
-        when(lancarManual.executar(any(), any(), any())).thenReturn(sabadoManual());
+        when(lancarManual.executar(any(), any(), any(), any(), any())).thenReturn(sabadoManual());
         String viewer = tokenReal(Perfil.ROLE_VIEWER);
 
         mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, viewer))
@@ -434,7 +439,7 @@ class SegurancaRbacWebTest {
     @Test
     @DisplayName("Mudar o acesso vale na hora, com o mesmo token; desativado ou apagado: 401 ACESSO_DESATIVADO")
     void acessoValeNaHora() throws Exception {
-        when(lancarManual.executar(any(), any(), any())).thenReturn(sabadoManual());
+        when(lancarManual.executar(any(), any(), any(), any(), any())).thenReturn(sabadoManual());
         String token = tokenDe("maria");
         mvc.perform(post("/api/v1/jornadas/manual").header(HttpHeaders.AUTHORIZATION, token)
                         .contentType(MediaType.APPLICATION_JSON).content(MANUAL))
@@ -458,7 +463,7 @@ class SegurancaRbacWebTest {
         mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token))
                 .andExpect(status().isUnauthorized())
                 .andExpect(jsonPath("$.erros[0].codigo").value("ACESSO_DESATIVADO"));
-        verify(lancarManual, org.mockito.Mockito.times(1)).executar(any(), any(), any());
+        verify(lancarManual, org.mockito.Mockito.times(1)).executar(any(), any(), any(), any(), any());
     }
 
     @Test

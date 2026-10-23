@@ -130,7 +130,7 @@ class ImportarComprovanteUseCaseTest {
     @Test
     @DisplayName("Batida a menos de 1 min de uma já registrada (ex.: botão 'bater ponto') é DUPLICADO")
     void janelaDeDuplicidade() {
-        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), e -> { }, clock)
+        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, e -> { }, clock)
                 .executar(USUARIO, DIA, LocalTime.of(8, 2, 50));
 
         assertThat(importar("08:02:31")).map(Resultado::status).contains(StatusImportacao.DUPLICADO);
@@ -208,7 +208,7 @@ class ImportarComprovanteUseCaseTest {
     @Test
     @DisplayName("Batida já registrada pelo botão: o PDF não cria batida, mas é arquivado como prova dela")
     void arquivaPdfDeBatidaExistente() {
-        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), e -> { }, clock)
+        new RegistrarBatidaUseCase(registros, Fixtures.regras(classificador), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, e -> { }, clock)
                 .executar(USUARIO, DIA, LocalTime.of(8, 2, 50));
 
         Resultado r = importar("08:02:31").orElseThrow();

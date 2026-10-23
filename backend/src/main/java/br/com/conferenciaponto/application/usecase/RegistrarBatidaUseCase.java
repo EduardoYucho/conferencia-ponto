@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.application.usecase;
 
 import br.com.conferenciaponto.application.RegrasJornada;
+import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.OrigemAtualizacao;
 import br.com.conferenciaponto.application.view.RegistroJornadaView;
@@ -26,13 +27,15 @@ public class RegistrarBatidaUseCase {
 
     private final RegistroJornadaRepository repository;
     private final RegrasJornada regras;
+    private final TravaDosMesesConferidos trava;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public RegistrarBatidaUseCase(RegistroJornadaRepository repository, RegrasJornada regras,
-                                  ApplicationEventPublisher eventos, Clock clock) {
+                                  TravaDosMesesConferidos trava, ApplicationEventPublisher eventos, Clock clock) {
         this.repository = repository;
         this.regras = regras;
+        this.trava = trava;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -48,6 +51,7 @@ public class RegistrarBatidaUseCase {
                     "Não é permitido registrar batida em data/hora futura.");
         }
 
+        trava.exigirAberto(usuarioId, data);
         RegistroJornada registro = repository.buscarPorData(usuarioId, data)
                 .orElseGet(() -> RegistroJornada.novo(usuarioId, data, regras.classificar(usuarioId, data)));
         MotorCalculoJornadaService motor = regras.motor(usuarioId, data);

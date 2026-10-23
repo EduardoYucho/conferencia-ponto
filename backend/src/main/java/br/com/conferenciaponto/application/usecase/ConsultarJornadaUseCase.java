@@ -82,6 +82,11 @@ public class ConsultarJornadaUseCase {
         return lista;
     }
 
+    /** Os números do mês (o mesmo resumo do painel): dias, horas e o saldo com lançamentos e a diferença da carga. */
+    public SaldoMensal resumo(UUID usuarioId, YearMonth referencia) {
+        return consolidarAnoCompleto(usuarioId, referencia.getYear()).get(referencia.getMonthValue() - 1);
+    }
+
     public ResumoSaldosView saldos(UUID usuarioId, YearMonth referencia) {
         List<SaldoMensal> meses = consolidarAnoCompleto(usuarioId, referencia.getYear());
         SaldoMensal doMes = meses.get(referencia.getMonthValue() - 1);

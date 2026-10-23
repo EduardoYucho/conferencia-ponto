@@ -44,21 +44,26 @@ class MontadorPlanilhaConferenciaTest {
     private final AusenciaRepositoryEmMemoria ausencias = new AusenciaRepositoryEmMemoria();
     private final CalendarioFeriadosEmMemoria feriados = new CalendarioFeriadosEmMemoria();
     private final CicloBancoRepositoryEmMemoria ciclos = new CicloBancoRepositoryEmMemoria();
+    private final ConferenciaMesRepositoryEmMemoria conferencias = new ConferenciaMesRepositoryEmMemoria();
     private final MotorCalculoJornadaService motor = new MotorCalculoJornadaService();
     private final Clock clock = Clock.fixed(ZonedDateTime.of(HOJE, LocalTime.of(14, 30), SP).toInstant(), SP);
-    private final ConsolidacaoBancoHoras consolidacao = new ConsolidacaoBancoHoras(registros, lancamentos);
+    private final HorarioTrabalhoRepositoryEmMemoria horarios = new HorarioTrabalhoRepositoryEmMemoria();
+    private final br.com.conferenciaponto.application.RegrasJornada regras =
+            Fixtures.regras(new ClassificadorDiaService(feriados, ausencias), horarios);
+    private final br.com.conferenciaponto.application.DiferencaDaCarga carga =
+            new br.com.conferenciaponto.application.DiferencaDaCarga(regras, registros);
+    private final ConsolidacaoBancoHoras consolidacao = new ConsolidacaoBancoHoras(registros, lancamentos, carga);
     private final GerenciarCicloBancoUseCase ciclo = new GerenciarCicloBancoUseCase(ciclos, consolidacao,
             new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), evento -> { }, clock);
     private MontadorPlanilhaConferencia montador;
 
     @BeforeEach
     void montar() {
-        var regras = Fixtures.regras(new ClassificadorDiaService(feriados, ausencias));
         var consultar = new ConsultarJornadaUseCase(registros, regras, ausencias, feriados, lancamentos, consolidacao);
         var auditoria = new ConsultarAuditoriaUseCase(consultar, new ComprovanteArquivadoRepositoryEmMemoria(),
                 new ArmazenamentoEmMemoria(), new AjusteJornadaRepositoryEmMemoria());
         montador = new MontadorPlanilhaConferencia(UsuarioRepositoryEmMemoria.comTitular(), consolidacao, auditoria,
-                ciclo, regras, clock);
+                ciclo, regras, carga, conferencias, clock);
         ciclo.garantirCicloAberto(USUARIO);
     }
 
@@ -147,7 +152,7 @@ class MontadorPlanilhaConferenciaTest {
         assertThat(texto(junho, "A2")).startsWith("Eduardo").contains("Atualizado em 02/10/2026 às 14:30");
         assertThat(junho.linhas().get(3)).extracting(Celula::texto).containsExactly("Data", "Dia", "Tipo de dia",
                 "Entrada 1", "Saída 1", "Entrada 2", "Saída 2", "Trabalhado", "Previsto", "Tolerância",
-                "Saldo do dia", "Lançamento no banco", "Situação", "PDFs", "Observações");
+                "Saldo do dia", "Lançamento no banco", "Situação", "PDFs", "Origem das batidas", "Observações");
 
         // 30 dias: linhas 6 a 35
         assertThat(celula(junho, "A6").data()).isEqualTo(LocalDate.of(2026, 6, 1));
@@ -171,16 +176,16 @@ class MontadorPlanilhaConferenciaTest {
         assertThat(celula(junho, "H8").tipo()).isEqualTo(Celula.Tipo.VAZIA);
         assertThat(celula(junho, "K8").tipo()).isEqualTo(Celula.Tipo.VAZIA);
         assertThat(texto(junho, "M8")).isEqualTo("Incompleto");
-        assertThat(texto(junho, "O8")).contains("Trabalhado até a última batida: 04:00:00");
+        assertThat(texto(junho, "P8")).contains("Trabalhado até a última batida: 04:00:00");
 
         // feriado, lançamento num sábado, férias, dia útil sem registro
         assertThat(texto(junho, "C9")).isEqualTo("Feriado");
-        assertThat(texto(junho, "O9")).isEqualTo("Corpus Christi");
+        assertThat(texto(junho, "P9")).isEqualTo("Corpus Christi");
         assertThat(texto(junho, "C11")).isEqualTo("Fim de semana");
         assertThat(celula(junho, "L11").valor()).isEqualTo(-14_400);
-        assertThat(texto(junho, "O11")).isEqualTo("Banco de horas -04:00:00: Folga compensada (por eduardo)");
+        assertThat(texto(junho, "P11")).isEqualTo("Banco de horas -04:00:00: Folga compensada (por eduardo)");
         assertThat(texto(junho, "C13")).isEqualTo("Férias");
-        assertThat(texto(junho, "O13")).isEqualTo("Férias de inverno");
+        assertThat(texto(junho, "P13")).isEqualTo("Férias de inverno");
         assertThat(celula(junho, "M13").tipo()).isEqualTo(Celula.Tipo.VAZIA);
         assertThat(texto(junho, "C15")).isEqualTo("Útil");
         assertThat(texto(junho, "M15")).isEqualTo("Sem registro");
@@ -230,7 +235,7 @@ class MontadorPlanilhaConferenciaTest {
 
         assertThat(outubro.linhas().get(3)).extracting(Celula::texto)
                 .containsSequence("Saída 2", "Entrada 3", "Saída 3", "Trabalhado");
-        assertThat(outubro.colunas()).isEqualTo(17);
+        assertThat(outubro.colunas()).isEqualTo(18);
         assertThat(celula(outubro, "I6").valor()).isEqualTo(LocalTime.of(17, 48).toSecondOfDay());
         assertThat(celula(outubro, "J5").formula()).isEqualTo("SUM(J6:J36)");
         // 02/10 é hoje e 05/10 ainda não chegou: nada de "Sem registro"
@@ -268,15 +273,15 @@ class MontadorPlanilhaConferenciaTest {
         assertThat(celula(resumo, "G11").formula()).isEqualTo("'Jun 2026'!K5");
         assertThat(celula(resumo, "G11").valor()).isEqualTo(-1_000);
         assertThat(celula(resumo, "H11").valor()).isEqualTo(-3_600);
-        assertThat(celula(resumo, "I11").formula()).isEqualTo("'Jun 2026'!K5+'Jun 2026'!L5");
-        assertThat(celula(resumo, "I11").valor()).isEqualTo(-4_600);
-        assertThat(celula(resumo, "J11").valor()).as("banco no fim de junho").isEqualTo(600 - 4_600);
-        assertThat(celula(resumo, "I12").valor()).as("maio inteiro").isEqualTo(7_800);
-        assertThat(celula(resumo, "J12").valor()).as("banco no fim de maio: só desde 25/05").isEqualTo(600);
+        assertThat(celula(resumo, "J11").formula()).isEqualTo("'Jun 2026'!K5+'Jun 2026'!L5");
+        assertThat(celula(resumo, "J11").valor()).isEqualTo(-4_600);
+        assertThat(celula(resumo, "K11").valor()).as("banco no fim de junho").isEqualTo(600 - 4_600);
+        assertThat(celula(resumo, "J12").valor()).as("maio inteiro").isEqualTo(7_800);
+        assertThat(celula(resumo, "K12").valor()).as("banco no fim de maio: só desde 25/05").isEqualTo(600);
         assertThat(celula(resumo, "B10").formula()).isEqualTo("SUM(B11:B12)");
         assertThat(celula(resumo, "B10").valor()).isEqualTo(3);
-        assertThat(celula(resumo, "I10").formula()).isEqualTo("SUM(I11:I12)");
-        assertThat(celula(resumo, "I10").valor()).isEqualTo(3_200);
+        assertThat(celula(resumo, "J10").formula()).isEqualTo("SUM(J11:J12)");
+        assertThat(celula(resumo, "J10").valor()).isEqualTo(3_200);
 
         // horário padrão: seg a sex, um período por linha dentro da célula
         assertThat(texto(resumo, "A14")).isEqualTo("Horário de trabalho");
@@ -284,6 +289,56 @@ class MontadorPlanilhaConferenciaTest {
         assertThat(texto(resumo, "B16")).isEqualTo("08:00-12:00\n13:00-17:48");
         assertThat(texto(resumo, "G16")).isEqualTo("—");
         assertThat(texto(resumo, "I16")).isEqualTo("5 min");
+    }
+
+    @Test
+    @DisplayName("Carga semanal acima do horário: a coluna da diferença, o saldo do mês com ela, a origem e a conferência")
+    void cargaOrigemEConferencia() {
+        horarios.salvar(br.com.conferenciaponto.domain.model.HorarioTrabalho.semanal(USUARIO,
+                br.com.conferenciaponto.domain.model.HorarioTrabalho.DESDE_SEMPRE,
+                br.com.conferenciaponto.domain.model.GradeHoraria.PADRAO, 5, "teste", Instant.EPOCH));
+        horarios.salvar(br.com.conferenciaponto.domain.model.HorarioTrabalho.semanal(USUARIO, LocalDate.of(2026, 10, 1),
+                br.com.conferenciaponto.domain.model.GradeHoraria.ler("08:00-12:00 13:00-17:00"), 5, "teste", Instant.EPOCH)
+                .comCarga(42 * 3600));
+        regras.invalidar(USUARIO);
+        RegistroJornada quinta = RegistroJornada.novo(USUARIO, LocalDate.of(2026, 10, 1), TipoDia.UTIL);
+        for (String b : List.of("08:00", "12:00", "13:00", "17:00")) {
+            quinta.incluirBatida(LocalTime.parse(b), regras.motor(USUARIO, quinta.getDataReferencia()));
+        }
+        registros.salvar(quinta);
+        RegistroJornada sabado = RegistroJornada.novo(USUARIO, LocalDate.of(2026, 9, 26), TipoDia.FIM_DE_SEMANA);
+        sabado.lancarManualmente(br.com.conferenciaponto.domain.model.Batidas.deIntervalos(List.of(
+                new br.com.conferenciaponto.domain.model.Intervalo(LocalTime.of(8, 0), LocalTime.of(12, 0)))), motor);
+        registros.salvar(sabado);
+        conferencias.salvar(br.com.conferenciaponto.domain.model.ConferenciaMes.nova(USUARIO, java.time.YearMonth.of(2026, 9),
+                "carla", null, SaldoMensal.vazio(2026, 9, 0), Instant.parse("2026-10-01T15:00:00Z")));
+
+        PlanilhaConferencia planilha = montador.montar(USUARIO);
+        Aba outubro = planilha.aba(OUTUBRO).orElseThrow();
+        assertThat(outubro.linhas().get(3)).extracting(Celula::texto).containsSequence("Lançamento no banco",
+                "Diferença da carga", "Situação", "PDFs", "Origem das batidas", "Observações");
+        assertThat(celula(outubro, "M6").valor()).isEqualTo(-24 * 60);
+        assertThat(celula(outubro, "M5").formula()).isEqualTo("SUM(M6:M36)");
+        assertThat(texto(outubro, "P6")).isEqualTo("Sem comprovante (4)");
+        assertThat(outubro.linhas().stream().flatMap(List::stream).map(Celula::texto))
+                .contains("Diferença da carga semanal", "Não conferido");
+        assertThat(outubro.linhas().stream().flatMap(List::stream).filter(cel -> "K5+L5+M5".equals(cel.formula())))
+                .as("saldo do mês com a diferença").singleElement()
+                .satisfies(cel -> assertThat(cel.valor()).isEqualTo(-24 * 60));
+
+        Aba setembro = planilha.aba(202609).orElseThrow();
+        assertThat(setembro.linhas().get(3)).extracting(Celula::texto).doesNotContain("Diferença da carga");
+        assertThat(texto(setembro, "O31")).isEqualTo("Lançado à mão");
+        assertThat(setembro.linhas().stream().flatMap(List::stream).map(Celula::texto))
+                .contains("Conferido por carla em 01/10/2026 (os números mudaram depois da conferência)");
+
+        Aba resumo = planilha.aba(Aba.ID_RESUMO).orElseThrow();
+        assertThat(celula(resumo, "I11").formula()).isEqualTo("'Out 2026'!M5");
+        assertThat(celula(resumo, "J11").formula()).isEqualTo("'Out 2026'!K5+'Out 2026'!L5+'Out 2026'!M5");
+        assertThat(texto(resumo, "L11")).isEqualTo("Não conferido");
+        assertThat(texto(resumo, "L12")).startsWith("Conferido por carla");
+        assertThat(resumo.linhas().stream().flatMap(List::stream).map(Celula::texto))
+                .contains("42h (horário: 40h)", "44h (o horário)");
     }
 
     @Test

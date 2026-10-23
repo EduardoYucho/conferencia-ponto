@@ -8,5 +8,11 @@ public enum TipoNotificacao {
     /** A previsão passou e o ciclo continua aberto. */
     CICLO_VENCIDO,
     /** Relatório do RH conferido (conciliação concluída). */
-    CONCILIACAO
+    CONCILIACAO,
+    /** Faltam horas para fechar a carga semanal no mês (ou o mês terminou faltando). */
+    COMPENSACAO,
+    /** Semana (ou 7 dias seguidos) sem a folga que a lei pede. */
+    SEM_FOLGA,
+    /** O mês foi conferido (ou a conferência foi reaberta). */
+    MES_CONFERIDO
 }

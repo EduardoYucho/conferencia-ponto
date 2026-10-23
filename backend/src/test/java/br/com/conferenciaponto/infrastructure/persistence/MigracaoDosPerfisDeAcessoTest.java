@@ -83,9 +83,10 @@ class MigracaoDosPerfisDeAcessoTest {
         });
         assertThat(acessos.perfilDoSistema(Perfil.ROLE_USER)).get()
                 .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR));
-        assertThat(acessos.perfilDoSistema(Perfil.ROLE_VIEWER)).get()
-                .satisfies(p -> assertThat(p.permissoes()).containsExactly(PermissoesDoPonto.EQUIPE));
-        assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso").query(Integer.class).single()).isEqualTo(1);
+        assertThat(acessos.perfilDoSistema(Perfil.ROLE_VIEWER)).get().as("ponto.conferir veio na V17")
+                .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE,
+                        PermissoesDoPonto.CONFERIR));
+        assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso").query(Integer.class).single()).isEqualTo(2);
     }
 
     @Test
@@ -94,7 +95,7 @@ class MigracaoDosPerfisDeAcessoTest {
         assertThat(efetivas(eduardo)).containsExactlyElementsOf(CATALOGO.codigos());
         assertThat(acessos.ajustesDo(eduardo)).isEmpty();
 
-        assertThat(efetivas(carla)).containsExactly(PermissoesDoPonto.EQUIPE);
+        assertThat(efetivas(carla)).containsExactly(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR);
         assertThat(efetivas(bruno)).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR);
         assertThat(efetivas(ana)).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR,
                 PermissoesDoAtendimento.USAR, PermissoesDaBase.PESQUISAR, PermissoesDaBase.CURAR);

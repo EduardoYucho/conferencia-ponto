@@ -7,6 +7,7 @@ export const PONTO_PROPRIO = 'ponto.proprio'
 export const PONTO_LANCAR = 'ponto.lancar'
 export const PONTO_EQUIPE = 'ponto.equipe'
 export const PONTO_CONFIGURAR_EQUIPE = 'ponto.equipe.configurar'
+export const PONTO_CONFERIR = 'ponto.conferir'
 export const PONTO_FERIADOS = 'ponto.feriados'
 
 export const USUARIOS = 'usuarios.gerenciar'

@@ -11,11 +11,12 @@ public record ResumoMensalResponse(
         int segundosPrevistos,
         int saldoMensalSegundos,
         int saldoAnualAcumuladoSegundos,
-        int segundosLancados) {
+        int segundosLancados,
+        int segundosDaCarga) {
 
     public static ResumoMensalResponse de(SaldoMensal s) {
         return new ResumoMensalResponse(s.ano(), s.mes(), s.diasRegistrados(), s.diasEmAberto(),
                 s.segundosTrabalhados(), s.segundosPrevistos(), s.saldoMensalSegundos(),
-                s.saldoAnualAcumuladoSegundos(), s.segundosLancados());
+                s.saldoAnualAcumuladoSegundos(), s.segundosLancados(), s.segundosDaCarga());
     }
 }

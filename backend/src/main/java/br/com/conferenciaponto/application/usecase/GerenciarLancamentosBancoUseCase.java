@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.application.TextoDuracao;
 import br.com.conferenciaponto.application.evento.LancamentoBancoAlteradoEvento;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
@@ -30,13 +31,16 @@ public class GerenciarLancamentosBancoUseCase {
 
     private final LancamentoBancoRepository lancamentos;
     private final CicloBancoRepository ciclos;
+    private final TravaDosMesesConferidos trava;
     private final ApplicationEventPublisher eventos;
     private final Clock clock;
 
     public GerenciarLancamentosBancoUseCase(LancamentoBancoRepository lancamentos, CicloBancoRepository ciclos,
-                                            ApplicationEventPublisher eventos, Clock clock) {
+                                            TravaDosMesesConferidos trava, ApplicationEventPublisher eventos,
+                                            Clock clock) {
         this.lancamentos = lancamentos;
         this.ciclos = ciclos;
+        this.trava = trava;
         this.eventos = eventos;
         this.clock = clock;
     }
@@ -53,6 +57,7 @@ public class GerenciarLancamentosBancoUseCase {
     public LancamentoBanco lancar(UUID usuarioId, LocalDate data, int segundos, String descricao, String usuario) {
         LancamentoBanco novo = LancamentoBanco.novo(usuarioId, data, segundos, descricao, usuario, clock.instant());
         exigirCicloAberto(usuarioId, data);
+        trava.exigirAberto(usuarioId, data);
         LocalDate limite = LocalDate.now(clock).plusYears(1);
         if (data.isAfter(limite)) {
             throw new RegraNegocioException("LANCAMENTO_DISTANTE", "A data do lançamento pode ser no máximo um ano à frente.");
@@ -71,6 +76,7 @@ public class GerenciarLancamentosBancoUseCase {
                 .orElseThrow(() -> new RecursoNaoEncontradoException("LANCAMENTO_NAO_ENCONTRADO",
                         "Lançamento no banco de horas não encontrado."));
         exigirCicloAberto(usuarioId, lancamento.data());
+        trava.exigirAberto(usuarioId, lancamento.data());
         lancamentos.excluir(id);
         eventos.publishEvent(new LancamentoBancoAlteradoEvento(usuarioId, lancamento.data(), "Lançamento de %s removido (%s)"
                 .formatted(DATA.format(lancamento.data()), TextoDuracao.saldo(lancamento.segundos()))));

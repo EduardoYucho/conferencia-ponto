@@ -16,7 +16,15 @@ public record RegistroManualRequest(
 
         @NotEmpty(message = "Informe ao menos um intervalo.")
         @Size(max = 3, message = "Informe no máximo 3 intervalos.")
-        List<@Valid @NotNull(message = "Há um intervalo sem horários.") IntervaloRequest> intervalos) {
+        List<@Valid @NotNull(message = "Há um intervalo sem horários.") IntervaloRequest> intervalos,
+
+        /** Motivo (ex.: "Compensação da carga semanal"); vazio = "Lançamento manual". */
+        @Size(max = 500, message = "O motivo pode ter no máximo 500 caracteres.")
+        String justificativa) {
+
+    public RegistroManualRequest(LocalDate data, List<IntervaloRequest> intervalos) {
+        this(data, intervalos, null);
+    }
 
     public record IntervaloRequest(
             @NotNull(message = "Informe o horário de entrada.") LocalTime entrada,

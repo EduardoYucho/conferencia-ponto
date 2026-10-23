@@ -132,8 +132,8 @@ class CatalogoDePermissoesTest {
         Acesso carla = Acesso.de(Perfil.ROLE_VIEWER, Perfil.ROLE_USER);
 
         assertThat(carla.perfis()).containsExactly("Coordenador", "Usuário");
-        assertThat(carla.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.PROPRIO,
-                PermissoesDoPonto.LANCAR);
+        assertThat(carla.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR,
+                PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR);
         assertThat(Acesso.administrador().permissoes()).containsAll(PermissoesDoPonto.CODIGOS)
                 .containsAll(PermissoesDaAdministracao.CODIGOS);
         assertThat(Acesso.usuario().sem(PermissoesDoPonto.LANCAR).com(PermissoesDoPonto.EQUIPE).ordenadas())

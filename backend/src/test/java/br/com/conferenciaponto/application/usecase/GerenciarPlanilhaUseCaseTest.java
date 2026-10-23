@@ -105,7 +105,8 @@ class GerenciarPlanilhaUseCaseTest {
                 new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), e -> { }, clock);
         var usuarios = UsuarioRepositoryEmMemoria.comTitular();
         usuarios.salvar(new Usuario(OUTRO, "maria", "Maria", "h:senha", true, Acesso.usuario(), null));
-        var montador = new MontadorPlanilhaConferencia(usuarios, consolidacao, auditoria, ciclo, regras, clock);
+        var montador = new MontadorPlanilhaConferencia(usuarios, consolidacao, auditoria, ciclo, regras,
+                new br.com.conferenciaponto.application.DiferencaDaCarga(regras, registros), new ConferenciaMesRepositoryEmMemoria(), clock);
         return new GerenciarPlanilhaUseCase(vinculos, remotas, montador, eventos::add, clock);
     }
 

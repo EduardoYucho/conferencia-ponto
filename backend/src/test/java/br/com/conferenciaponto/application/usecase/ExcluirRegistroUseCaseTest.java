@@ -25,7 +25,9 @@ class ExcluirRegistroUseCaseTest {
 
     private final RegistroJornadaRepositoryEmMemoria registros = new RegistroJornadaRepositoryEmMemoria();
     private final ComprovanteArquivadoRepositoryEmMemoria arquivos = new ComprovanteArquivadoRepositoryEmMemoria();
-    private final ExcluirRegistroUseCase useCase = new ExcluirRegistroUseCase(registros, arquivos, e -> { });
+    private final AjusteJornadaRepositoryEmMemoria historico = new AjusteJornadaRepositoryEmMemoria();
+    private final ExcluirRegistroUseCase useCase = new ExcluirRegistroUseCase(registros, arquivos, historico,
+            br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, e -> { }, java.time.Clock.systemDefaultZone());
 
     private RegistroJornada criarDia() {
         RegistroJornada registro = RegistroJornada.novo(USUARIO, DIA, TipoDia.UTIL);
@@ -38,8 +40,15 @@ class ExcluirRegistroUseCaseTest {
     @DisplayName("Dia sem comprovante arquivado pode ser excluído")
     void excluiSemComprovante() {
         criarDia();
-        useCase.executar(USUARIO, DIA);
+        useCase.executar(USUARIO, DIA, "maria");
         assertThat(registros.buscarPorData(USUARIO, DIA)).isEmpty();
+        assertThat(historico.listarPorData(USUARIO, DIA)).as("a exclusão fica no histórico do dia").singleElement()
+                .satisfies(a -> {
+                    assertThat(a.origem()).isEqualTo(br.com.conferenciaponto.domain.model.AjusteJornada.Origem.EXCLUSAO);
+                    assertThat(a.antes()).containsExactly(LocalTime.of(8, 2, 31));
+                    assertThat(a.depois()).isEmpty();
+                    assertThat(a.usuario()).isEqualTo("maria");
+                });
     }
 
     @Test

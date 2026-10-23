@@ -45,7 +45,7 @@ class AjustarBatidasUseCaseTest {
     private final Clock clock = Clock.fixed(ZonedDateTime.of(HOJE, LocalTime.of(11, 0), SP).toInstant(), SP);
 
     private final AjustarBatidasUseCase useCase = new AjustarBatidasUseCase(registros, arquivos, ajustes,
-            Fixtures.regras(new ClassificadorDiaService(data -> false)), eventos::add, clock);
+            Fixtures.regras(new ClassificadorDiaService(data -> false)), br.com.conferenciaponto.application.TravaDosMesesConferidos.NENHUMA, eventos::add, clock);
 
     private static LocalTime t(String horario) {
         return LocalTime.parse(horario);

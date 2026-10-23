@@ -5,6 +5,7 @@ import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.evento.ComprovanteNaoImportadoEvento;
 import br.com.conferenciaponto.application.evento.ConciliacaoAtualizadaEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
+import br.com.conferenciaponto.application.evento.ConferenciaAlteradaEvento;
 import br.com.conferenciaponto.application.evento.LancamentoBancoAlteradoEvento;
 import br.com.conferenciaponto.application.evento.NotificacaoCriadaEvento;
 import br.com.conferenciaponto.application.evento.PlanilhaAtualizadaEvento;
@@ -170,6 +171,12 @@ public class EmissorEventosSse {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAlterarBanco(LancamentoBancoAlteradoEvento evento) {
         difundir(evento.usuarioId(), EVENTO_BANCO, new BancoEvento(evento.data().toString(), evento.descricao()));
+    }
+
+    /** Mês conferido ou reaberto: as telas do mês recarregam (o painel mostra a trava). */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void aoAlterarConferencia(ConferenciaAlteradaEvento evento) {
+        difundir(evento.usuarioId(), EVENTO_BANCO, new BancoEvento(evento.mes().atDay(1).toString(), evento.descricao()));
     }
 
     /**

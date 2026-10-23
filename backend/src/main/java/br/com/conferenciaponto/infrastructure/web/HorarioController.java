@@ -24,9 +24,11 @@ import java.util.UUID;
 /**
  * Horário de trabalho com vigência. O próprio usuário ou o administrador ({@code ?usuario=login}) alteram.
  * <pre>
- * GET    /api/v1/horarios          vigências (da mais antiga para a mais recente)
- * POST   /api/v1/horarios          {vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}}
- * DELETE /api/v1/horarios/{id}     remove uma vigência (os dias voltam ao horário anterior)
+ * GET    /api/v1/horarios            vigências (da mais antiga para a mais recente), com os avisos da lei
+ * POST   /api/v1/horarios            {vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...},
+ *                                    cargaSemanalSegundos}
+ * POST   /api/v1/horarios/avaliacao  o mesmo corpo, sem salvar: a carga, a soma e os avisos da lei
+ * DELETE /api/v1/horarios/{id}       remove uma vigência (os dias voltam ao horário anterior)
  * </pre>
  */
 @RestController
@@ -43,7 +45,7 @@ public class HorarioController {
 
     @GetMapping
     public ApiResponse<List<HorarioResponse>> listar(Titular titular) {
-        return ApiResponse.ok(horarios.listar(titular.id()).stream().map(HorarioResponse::de).toList());
+        return ApiResponse.ok(horarios.listarComAvisos(titular.id()).stream().map(HorarioResponse::de).toList());
     }
 
     @PostMapping
@@ -51,14 +53,25 @@ public class HorarioController {
                                                         @RequestParam(required = false) String usuario) {
         Usuario logado = acesso.logado();
         Usuario alvo = acesso.alvoDeEdicao(logado, usuario);
-        return ApiResponse.ok(AlteracaoHorarioResponse.de(horarios.salvar(alvo.id(), r.vigenteDesde(),
-                r.toleranciaMinutos(), r.diasDominio(), logado.login())));
+        GerenciarHorariosUseCase.Alteracao alteracao = horarios.salvar(alvo.id(), r.vigenteDesde(),
+                r.toleranciaMinutos(), r.diasDominio(), r.cargaSemanalSegundos(), logado.login());
+        return ApiResponse.ok(AlteracaoHorarioResponse.de(alteracao, horarios.comAvisos(alteracao.vigencias())));
+    }
+
+    /** Confere o horário sem salvar (a tela mostra a comparação e os avisos enquanto a pessoa digita). */
+    @PostMapping("/avaliacao")
+    public ApiResponse<HorarioResponse> avaliar(@Valid @RequestBody HorarioRequest r,
+                                                @RequestParam(required = false) String usuario) {
+        Usuario alvo = acesso.alvoDeEdicao(acesso.logado(), usuario);
+        return ApiResponse.ok(HorarioResponse.de(horarios.avaliar(alvo.id(), r.vigenteDesde(), r.toleranciaMinutos(),
+                r.diasDominio(), r.cargaSemanalSegundos())));
     }
 
     @DeleteMapping("/{id}")
     public ApiResponse<AlteracaoHorarioResponse> excluir(@PathVariable UUID id,
                                                          @RequestParam(required = false) String usuario) {
         Usuario alvo = acesso.alvoDeEdicao(acesso.logado(), usuario);
-        return ApiResponse.ok(AlteracaoHorarioResponse.de(horarios.excluir(alvo.id(), id)));
+        GerenciarHorariosUseCase.Alteracao alteracao = horarios.excluir(alvo.id(), id);
+        return ApiResponse.ok(AlteracaoHorarioResponse.de(alteracao, horarios.comAvisos(alteracao.vigencias())));
     }
 }

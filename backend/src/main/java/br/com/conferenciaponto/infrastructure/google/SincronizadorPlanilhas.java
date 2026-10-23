@@ -5,6 +5,7 @@ import br.com.conferenciaponto.infrastructure.log.ContextoDeLog;
 import br.com.conferenciaponto.application.evento.CalendarioAlteradoEvento;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.evento.JornadaAtualizadaEvento;
+import br.com.conferenciaponto.application.evento.ConferenciaAlteradaEvento;
 import br.com.conferenciaponto.application.evento.LancamentoBancoAlteradoEvento;
 import br.com.conferenciaponto.application.evento.UsuarioAlteradoEvento;
 import br.com.conferenciaponto.application.usecase.GerenciarPlanilhaUseCase;
@@ -98,6 +99,12 @@ public class SincronizadorPlanilhas {
     @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
     public void aoAlterarBanco(LancamentoBancoAlteradoEvento evento) {
         agendar(evento.usuarioId(), Set.of(YearMonth.from(evento.data())));
+    }
+
+    /** A aba do mês e o resumo dizem quem conferiu. */
+    @TransactionalEventListener(phase = TransactionPhase.AFTER_COMMIT, fallbackExecution = true)
+    public void aoAlterarConferencia(ConferenciaAlteradaEvento evento) {
+        agendar(evento.usuarioId(), Set.of(evento.mes()));
     }
 
     /** Feriado ({@code usuarioId} nulo: vale para todos), férias, folga, abono ou horário de trabalho. */

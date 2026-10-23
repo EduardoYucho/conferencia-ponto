@@ -43,6 +43,9 @@ public class AjusteJornadaEntity implements Persistable<UUID> {
     @Column(name = "ajustado_em", nullable = false, updatable = false)
     private OffsetDateTime ajustadoEm;
 
+    @Column(name = "origem", nullable = false, updatable = false, length = 12)
+    private String origem = "AJUSTE";
+
     protected AjusteJornadaEntity() {
         // JPA
     }
@@ -96,6 +99,14 @@ public class AjusteJornadaEntity implements Persistable<UUID> {
 
     public OffsetDateTime getAjustadoEm() {
         return ajustadoEm;
+    }
+
+    public String getOrigem() {
+        return origem;
+    }
+
+    void setOrigem(String origem) {
+        this.origem = origem;
     }
 
     public UUID getUsuarioId() {
