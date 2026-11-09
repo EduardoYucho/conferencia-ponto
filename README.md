@@ -201,7 +201,7 @@ $env:PGPASSWORD = Read-Host 'Senha do banco (padrão: ponto)'   # digitada aqui,
 $bin = 'C:\Program Files\PostgreSQL\18\bin'
 # 1. esvazia o banco (o usuário ponto é o dono dele)
 & "$bin\psql.exe" --host=localhost --username=ponto --dbname=conferencia_ponto -v ON_ERROR_STOP=1 `
-    -c 'DROP SCHEMA IF EXISTS atendimento, conhecimento CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
+    -c 'DROP SCHEMA IF EXISTS atendimento, conhecimento, fiscal CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
 # 2. restaura (inteiro ou nada)
 & "$bin\pg_restore.exe" --no-owner --single-transaction --exit-on-error `
     --host=localhost --username=ponto --dbname=conferencia_ponto "$HOME\.conferencia-ponto\backups\<pasta>\banco.dump"
@@ -225,8 +225,11 @@ $env:PGPASSWORD = 'ponto'
 Remove-Item Env:PGPASSWORD
 ```
 
-(troque `'14', '15'` pelas versões da migração desfeita). Depois, instale a versão sem a migração, ou com ela
-corrigida (`ponto atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
+(troque `'14', '15'` pelas versões da migração desfeita). Para o monitor fiscal (`V18`), o comando é
+`BEGIN; DROP SCHEMA IF EXISTS fiscal CASCADE; DELETE FROM tb_perfil_permissao WHERE permissao LIKE 'fiscal.%';
+DELETE FROM tb_usuario_permissao WHERE permissao LIKE 'fiscal.%'; DELETE FROM flyway_schema_history WHERE version =
+'18'; COMMIT;` (as linhas do histórico de acessos ficam, como registro). Depois, instale a versão sem a migração, ou
+com ela corrigida (`ponto atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
 atrapalham o ponto e são reaproveitadas.
 
 ## Menu lateral
@@ -234,7 +237,7 @@ atrapalham o ponto e são reaproveitadas.
 As telas ficam num **menu lateral**, agrupadas por área: **Ponto** (Painel, Auditoria, Conciliação RH, Folgas e
 feriados, Equipe), **Atendimentos** (Meus atendimentos, Novo atendimento; Minha chave do Gemini só com o motor
 `gemini`), **Base de
-conhecimento** (Pesquisar) e **Administração** (Usuários, Perfis de acesso, Logs). Cada item só aparece para quem
+conhecimento** (Pesquisar), **Suporte** (Monitor fiscal) e **Administração** (Usuários, Perfis de acesso, Logs). Cada item só aparece para quem
 tem a permissão da tela (veja [Controle de acessos](#controle-de-acessos)). Cada grupo abre
 e fecha, e o botão no pé do menu o **recolhe** para uma faixa só com os ícones (aí o grupo abre os itens ao lado,
 e *Esc* ou um clique fora fecha). O navegador lembra o menu recolhido e os grupos fechados. No alto fica uma barra
@@ -276,7 +279,8 @@ O que cada pessoa pode fazer vem de **permissões**, uma por tela e por ação, 
 - **Permissões** (a lista fica no código; cada módulo declara as dele): *Ponto* — ter o próprio ponto, lançar no
   próprio ponto (requer o anterior), consultar o ponto da equipe, configurar o ponto da equipe (horário, pasta e
   planilha de outras pessoas; requer consultar), conferir o mês (requer consultar), cadastrar feriados; *Atendimentos* — usar os atendimentos, ver o
-  espaço em disco; *Base de conhecimento* — pesquisar, curar (requer pesquisar); *Administração* — cadastrar
+  espaço em disco; *Base de conhecimento* — pesquisar, curar (requer pesquisar); *Suporte* — ver o monitor fiscal,
+  configurar o monitor (requer ver); *Administração* — cadastrar
   usuários, perfis e acessos, integração com o Google, logs. Uma permissão sem o requisito não vale.
 - **Perfis** (tela *Perfis de acesso*): um nome, uma descrição e as permissões que libera. Vêm três de fábrica:
   *Administrador* (tudo, inclusive o que vier depois; não muda), *Usuário* e *Coordenador* (podem ser editados,
@@ -617,6 +621,42 @@ com a pesquisa exata:
 | DELETE | `/atendimentos/{id}/arquivos/{arquivoId}` | Tira o arquivo (`ARQUIVO_EM_USO` se ele estiver aberto em outro programa) |
 | PUT | `/atendimentos/{id}/pdf` | PDF novo do mesmo chamado: renova os links dos anexos que faltam (`CHAMADO_DIFERENTE`) |
 | GET | `/atendimentos/espaco` | (com `atendimentos.espaco`) `{ocupado, livre, pausados}` em bytes |
+| GET | `/fiscal/meu-acesso` | Qualquer pessoa: `{ver, configurar}` |
+| GET | `/fiscal/painel` | (`fiscal.ver`) `{agora, coletaAtiva, intervaloMinutos, ultimaRodada, documentos, estados[{uf, celulas[{documento, autorizador, nome, situacao, desde, detalhe}], contingencia}], autorizadores[{..., estados, servicos, incidente}], contagem, fontes, avisos}` |
+| GET | `/fiscal/incidentes?dias=` · `/fiscal/disponibilidade?dias=` | (`fiscal.ver`) os incidentes do período, o mais recente primeiro · a porcentagem no ar de cada autorizador (`PERIODO_INVALIDO` fora de 1 a 90 dias) |
+| POST | `/fiscal/coletar` | (`fiscal.configurar`) uma leitura agora; devolve a rodada (`LEITURA_RECENTE` se a última foi há menos de 1 min) |
+
+## Monitor fiscal
+
+A tela **Monitor fiscal** (menu *Suporte*) mostra se cada serviço dos documentos fiscais está no ar, por estado e
+por documento (NF-e, NFC-e, CT-e e MDF-e), e guarda o histórico: serve para responder no suporte se a nota não sai
+por causa da SEFAZ ou do sistema do cliente, e para provar isso depois. É um módulo à parte
+(`br.com.conferenciaponto.modulos.fiscal`, `frontend/src/modulos/fiscal`, schema `fiscal`), separado do ponto e dos
+outros módulos pelas regras do `ArquiteturaModulosTest`.
+
+- **De onde vem:** a cada 5 min (`fiscal.coleta.intervalo`), numa thread própria, o sistema lê os **painéis
+  públicos de disponibilidade da SVRS** (NF-e e NFC-e da SEFAZ-RS e da SEFAZ Virtual do RS; CT-e e MDF-e da SVRS:
+  cada serviço, a situação e o cStat que o portal publicou) e faz um **teste de conexão** sem certificado (endereço,
+  conexão e o começo da conexão segura) nos outros autorizadores e nas contingências (SVC-AN e SVC-RS). O teste de
+  conexão vê queda e lentidão (acima de 3 s é instável), não um erro depois da autenticação. Os painéis nacionais
+  (`nfe.fazenda.gov.br`, `cte.fazenda.gov.br`) não são lidos: o `robots.txt` deles não permite.
+- **Quem autoriza cada estado** fica em `backend/src/main/resources/fiscal.yml` (`fiscal.autorizadores` e
+  `fiscal.contingencia`), com os painéis e os endereços testados. Um estado que migra para a SVRS muda uma linha lá
+  (ou em `config/application.yml`); um estado repetido num documento impede o sistema de subir, com a mensagem.
+- **Falhas:** cada fonte tem tempo limite (15 s) e uma que falha não para as outras; vira "fonte com problema" e o
+  que ela trazia fica *sem informação* (cinza), nunca verde. Página com o formato mudado também. Se nenhuma fonte
+  alcança ninguém, a rodada é **"sem internet neste computador"**: nada abre nem fecha incidente. A coleta só roda
+  com o sistema no ar (o PC desligado deixa um buraco no histórico).
+- **Incidentes:** o resumo de cada autorizador (fora se a autorização está fora; instável se outro serviço está
+  ruim ou o teste foi lento) abre um incidente na primeira leitura ruim e fecha na volta ao normal, com o pior
+  momento e o motivo informado pela fonte. Ficam para sempre; os resumos por hora (disponibilidade) e as mudanças,
+  90 dias; as rodadas, 7 dias (limpeza diária às 03:45, `fiscal.retencao`).
+- **A tela:** o quadro (uma linha por estado, uma coluna por documento, a sigla de quem autoriza na cor da situação,
+  e a contingência da NF-e), o detalhe do estado (cada serviço, quem autoriza, quantos estados uma queda afeta),
+  os incidentes e a disponibilidade de 24 h, 7 ou 30 dias, as fontes e os comunicados dos portais. Atualiza sozinha
+  a cada minuto. **Ler agora** (com *Configurar o monitor*) faz uma leitura na hora, no máximo uma por minuto.
+- **Permissões:** *Ver o monitor fiscal* (dada aos perfis Usuário e Coordenador pela V18) e *Configurar o monitor*
+  (só o Administrador, de fábrica).
 
 ## Erros, protocolo e logs
 
@@ -808,7 +848,7 @@ decidida **pelo método HTTP**, então uma rota nova de escrita já nasce proteg
 | feriados (gravar) · usuários · acessos · integrações · logs | `ponto.feriados` · `usuarios.gerenciar` · `acessos.gerenciar` · `integracoes.gerenciar` · `logs.ver` |
 
 Tela inicial: o Painel para quem tem o próprio ponto; a Auditoria para quem só consulta a equipe; senão a primeira
-tela liberada (Atendimentos, Base, Usuários, Logs ou Minha conta).
+tela liberada (Atendimentos, Base, Monitor fiscal, Usuários, Logs ou Minha conta).
 
 Fora de `/api/**`, só `GET`/`HEAD` são liberados: são as telas empacotadas no jar (HTML/JS/CSS, sem dados —
 `FrontendConfig` devolve o `index.html` para as rotas do Vue); o resto é negado. No front-end, quem só consulta vê o
@@ -853,6 +893,9 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V15` — base de conhecimento, no schema `conhecimento`: `acesso`, `registro` (busca em português sem acento,
   mantida por gatilho, e trigramas), `registro_imagem`, `registro_situacao` e `vetor`; ativa as extensões
   `unaccent` e `pg_trgm` (confiáveis: o dono do banco cria sem superusuário)
+- `V18` — monitor fiscal, no schema `fiscal`: `situacao_atual`, `mudanca`, `incidente` (um aberto por
+  autorizador), `resumo_hora`, `rodada`, `fonte` e `aviso`; "Ver o monitor fiscal" entra nos perfis Usuário e
+  Coordenador (com a linha no histórico de acessos)
 
 Os schemas dos módulos só se ligam ao ponto por `tb_usuario`; para desfazê-los sem tocar no ponto, veja
 [Backup](#backup). `MigracoesPostgresTest` aplica todas as migrações num PostgreSQL temporário (o mesmo 18.6,

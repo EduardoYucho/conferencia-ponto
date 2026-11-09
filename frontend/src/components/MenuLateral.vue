@@ -6,12 +6,12 @@ import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 
 /**
- * O menu lateral: os grupos (Ponto, Atendimentos, Base de conhecimento, Administração), cada um com os submenus.
+ * O menu lateral: os grupos (Ponto, Atendimentos, Base de conhecimento, Suporte, Administração), cada um com os submenus.
  * No computador, fica aberto (com os nomes) ou recolhido (só os ícones; o grupo abre os submenus num menu ao lado),
  * e o navegador lembra a escolha e os grupos fechados. No celular, abre por cima da tela pelo botão do alto.
  * Cada item aparece só com a permissão da tela (a soma dos perfis da pessoa com os ajustes só dela): o Ponto para
- * quem tem o próprio ponto ou consulta o da equipe, Atendimentos e Base para quem tem a permissão do módulo, e cada
- * item da Administração com a permissão dele.
+ * quem tem o próprio ponto ou consulta o da equipe, Atendimentos, Base e Suporte (monitor fiscal) para quem tem a
+ * permissão do módulo, e cada item da Administração com a permissão dele.
  */
 const props = defineProps({
   /** No celular: a gaveta aberta. */
@@ -94,6 +94,12 @@ const grupos = computed(() =>
       icone: 'livro',
       itens: [{ nome: 'base-conhecimento', rotulo: 'Pesquisar', tambem: ['registro-da-base'] }],
     },
+    modulos.fiscal && {
+      id: 'suporte',
+      rotulo: 'Suporte',
+      icone: 'pulso',
+      itens: [{ nome: 'monitor-fiscal', rotulo: 'Monitor fiscal' }],
+    },
     administracao.value.length > 0 && {
       id: 'administracao',
       rotulo: 'Administração',
@@ -171,6 +177,7 @@ const ICONES = {
   relogio: 'M12 6v6l4 2M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z',
   conversa: 'M7 9h10M7 13h6m-9 7 3.5-3H19a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1v3Z',
   livro: 'M4 5a2 2 0 0 1 2-2h13v16H6a2 2 0 0 0-2 2V5Zm0 16a2 2 0 0 1 2-2h13v2H6M8 7h7',
+  pulso: 'M3 12h4l2.5-6 4 12 2.5-6H21',
   engrenagem:
     'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.5 7.5 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.4 7.4 0 0 0-2-1.2L14.5 3h-4l-.4 2.6a7.4 7.4 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.6 7.6 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.4 7.4 0 0 0 2 1.2l.4 2.6h4l.4-2.6a7.4 7.4 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z',
 }
