@@ -1,0 +1,105 @@
+# Configuração do Monitor fiscal (importada pelo application.yml).
+# Os valores desta máquina vão em config/application.yml (fora do Git): lá eles têm prioridade sobre os daqui.
+#
+# De onde vem cada informação:
+# - paineis: as páginas públicas de disponibilidade da SVRS. Trazem cada serviço da SEFAZ-RS e da SEFAZ Virtual
+#   do RS (NF-e e NFC-e) e da SVRS (CT-e e MDF-e), atualizadas pelo portal a cada 5 minutos.
+# - conexoes: para os outros autorizadores, um teste de conexão sem certificado (endereço, conexão e o começo da
+#   conexão segura): mostra se o servidor está no ar e em quanto tempo responde, não se a nota passa.
+# - autorizadores e contingencia: quem autoriza cada documento de cada estado. Muda com o tempo (um estado que
+#   migra para a SVRS muda uma linha aqui). Cada estado aparece uma vez por documento; um estado repetido impede o
+#   sistema de subir, com a mensagem do erro no log. Relação conferida em novembro de 2026.
+
+fiscal:
+  coleta:
+    ativa: true                    # false desliga a coleta automática (a tela continua mostrando o histórico)
+    intervalo: 5m                  # entre o fim de uma rodada e o começo da próxima (o ritmo dos painéis)
+    primeira-vez: 30s              # depois que o sistema sobe
+    tempo-limite: 15s              # para cada página e cada teste de conexão
+    lento: 3s                      # teste de conexão acima disto conta como instável
+    verificacao-antiga: 30m        # serviço que o painel não verifica há mais que isto fica sem informação
+
+  retencao:
+    dias-resumo: 90                # resumos por hora (disponibilidade); os incidentes ficam para sempre
+    dias-mudancas: 90              # cada troca de situação de cada serviço
+    dias-rodadas: 7                # o registro de cada coleta
+    cron: "0 45 3 * * *"           # limpeza diária às 03:45
+
+  paineis:
+    NFE: https://dfe-portal.svrs.rs.gov.br/Nfe/Disponibilidade
+    NFCE: https://dfe-portal.svrs.rs.gov.br/Nfce/Disponibilidade
+    CTE: https://dfe-portal.svrs.rs.gov.br/Cte/Disponibilidade
+    MDFE: https://dfe-portal.svrs.rs.gov.br/Mdfe/Disponibilidade
+
+  conexoes:                        # documento → autorizador → endereço (porta 443 se não tiver ":porta")
+    NFE:
+      AM: nfe.sefaz.am.gov.br
+      BA: nfe.sefaz.ba.gov.br
+      GO: nfe.sefaz.go.gov.br
+      MG: nfe.fazenda.mg.gov.br
+      MS: nfe.sefaz.ms.gov.br
+      MT: nfe.sefaz.mt.gov.br
+      PE: nfe.sefaz.pe.gov.br
+      PR: nfe.sefa.pr.gov.br
+      SP: nfe.fazenda.sp.gov.br
+      SVAN: www.sefazvirtual.fazenda.gov.br
+      SVC-AN: www.svc.fazenda.gov.br
+      SVC-RS: nfe.svrs.rs.gov.br
+    NFCE:
+      AM: nfce.sefaz.am.gov.br
+      BA: nfe.sefaz.ba.gov.br
+      GO: nfe.sefaz.go.gov.br
+      MG: nfce.fazenda.mg.gov.br
+      MS: nfce.sefaz.ms.gov.br
+      MT: nfce.sefaz.mt.gov.br
+      PE: nfce.sefaz.pe.gov.br
+      PR: nfce.sefa.pr.gov.br
+      SP: nfce.fazenda.sp.gov.br
+    CTE:
+      MG: cte.fazenda.mg.gov.br
+      MS: producao.cte.ms.gov.br
+      MT: cte.sefaz.mt.gov.br
+      PR: cte.fazenda.pr.gov.br
+      SP: nfe.fazenda.sp.gov.br
+      SVSP: nfe.fazenda.sp.gov.br
+
+  autorizadores:                   # documento → autorizador → os estados que ele autoriza
+    NFE:
+      AM: AM
+      BA: BA
+      GO: GO
+      MG: MG
+      MS: MS
+      MT: MT
+      PE: PE
+      PR: PR
+      RS: RS
+      SP: SP
+      SVAN: MA
+      SVRS: AC, AL, AP, CE, DF, ES, PA, PB, PI, RJ, RN, RO, RR, SC, SE, TO
+    NFCE:
+      AM: AM
+      BA: BA
+      GO: GO
+      MG: MG
+      MS: MS
+      MT: MT
+      PE: PE
+      PR: PR
+      RS: RS
+      SP: SP
+      SVRS: AC, AL, AP, CE, DF, ES, MA, PA, PB, PI, RJ, RN, RO, RR, SC, SE, TO
+    CTE:
+      MG: MG
+      MS: MS
+      MT: MT
+      PR: PR
+      SP: SP
+      SVSP: AP, PE, RR
+      SVRS: AC, AL, AM, BA, CE, DF, ES, GO, MA, PA, PB, PI, RJ, RN, RO, RS, SC, SE, TO
+    MDFE:
+      SVRS: AC, AL, AM, AP, BA, CE, DF, ES, GO, MA, MG, MS, MT, PA, PB, PE, PI, PR, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+
+  contingencia:                    # NF-e: a SEFAZ Virtual de Contingência de cada estado
+    SVC-AN: AC, AL, AP, DF, ES, MG, PB, RJ, RN, RO, RR, RS, SC, SE, SP, TO
+    SVC-RS: AM, BA, CE, GO, MA, MS, MT, PA, PE, PI, PR

@@ -36,6 +36,7 @@ class MigracoesPostgresTest {
     private static TransactionTemplate transacao;
     private static List<String> pontoDepoisDaV13;
     private static List<String> pontoDepoisDosModulos;
+    private static List<String> pontoAntesDoMonitorFiscal;
 
     @BeforeAll
     static void subirOBancoEAplicarAsMigracoes() throws Exception {
@@ -54,6 +55,8 @@ class MigracoesPostgresTest {
         pontoDepoisDaV13 = estruturaDoPonto();
         flyway().target("15").load().migrate();
         pontoDepoisDosModulos = estruturaDoPonto();
+        flyway().target("17").load().migrate();
+        pontoAntesDoMonitorFiscal = estruturaDoPonto();
         flyway().load().migrate();
     }
 
@@ -77,6 +80,17 @@ class MigracoesPostgresTest {
     @Test
     void nadaDoPontoMudou() {
         assertThat(pontoDepoisDosModulos).containsExactlyElementsOf(pontoDepoisDaV13);
+    }
+
+    /** A V18 (monitor fiscal) cria o schema fiscal e só acrescenta a permissão nova aos perfis: o ponto não muda. */
+    @Test
+    void oMonitorFiscalNaoMudaOPonto() {
+        assertThat(estruturaDoPonto()).containsExactlyElementsOf(pontoAntesDoMonitorFiscal);
+        assertThat(jdbc.queryForList("""
+                SELECT schemaname || '.' || tablename || ' ' || tableowner FROM pg_tables WHERE schemaname = 'fiscal'""",
+                String.class)).containsExactlyInAnyOrder("fiscal.situacao_atual ponto", "fiscal.mudanca ponto",
+                "fiscal.incidente ponto", "fiscal.resumo_hora ponto", "fiscal.rodada ponto", "fiscal.fonte ponto",
+                "fiscal.aviso ponto");
     }
 
     @Test

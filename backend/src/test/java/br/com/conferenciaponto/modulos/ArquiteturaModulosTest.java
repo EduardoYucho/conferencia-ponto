@@ -16,7 +16,7 @@ import static com.tngtech.archunit.core.domain.JavaClass.Predicates.resideInAPac
 import static com.tngtech.archunit.lang.syntax.ArchRuleDefinition.noClasses;
 
 /**
- * Isolamento entre o ponto e os módulos de atendimentos e base de conhecimento (veja o package-info de
+ * Isolamento entre o ponto e os módulos (atendimentos, base de conhecimento e monitor fiscal; veja o package-info de
  * {@code br.com.conferenciaponto.modulos}). Uma dependência fora destas regras reprova a etapa.
  *
  * <p>As regras dos módulos aceitam pacote ainda vazio ({@code allowEmptyShould}): passam a valer de verdade à
@@ -94,6 +94,20 @@ class ArquiteturaModulosTest {
             .should().dependOnClassesThat(resideInAPackage(MODULOS + ".atendimento..")
                     .and(not(resideInAPackage(MODULOS + ".atendimento.application.evento.."))))
             .because("a base usa do gerador só o que ele publica: o evento do texto confirmado e os vetores")
+            .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule o_monitor_fiscal_nao_conhece_os_outros_modulos = noClasses()
+            .that().resideInAPackage(MODULOS + ".fiscal..")
+            .should().dependOnClassesThat().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..")
+            .because("o monitor fiscal é um módulo à parte; a ligação com os atendimentos (M5) passa por uma consulta")
+            .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule os_outros_modulos_nao_conhecem_o_monitor_fiscal = noClasses()
+            .that().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..")
+            .should().dependOnClassesThat().resideInAPackage(MODULOS + ".fiscal..")
+            .because("o monitor fiscal pode ser retirado sem mexer nos atendimentos nem na base")
             .allowEmptyShould(true);
 
     static ArchRule regraDosModulos() {

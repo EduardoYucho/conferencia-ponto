@@ -9,6 +9,7 @@ import br.com.conferenciaponto.domain.model.Perfil;
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.application.acesso.PermissoesDoAtendimento;
 import br.com.conferenciaponto.modulos.conhecimento.application.acesso.PermissoesDaBase;
+import br.com.conferenciaponto.modulos.fiscal.application.acesso.PermissoesDoMonitor;
 import org.flywaydb.core.Flyway;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.DisplayName;
@@ -31,7 +32,7 @@ class MigracaoDosPerfisDeAcessoTest {
     private static JdbcClient jdbc;
     private static AcessosRepositoryJdbc acessos;
     private static final CatalogoDePermissoes CATALOGO = new CatalogoDePermissoes(List.of(new PermissoesDoPonto(),
-            new PermissoesDoAtendimento(), new PermissoesDaBase(), new PermissoesDaAdministracao()));
+            new PermissoesDoAtendimento(), new PermissoesDaBase(), new PermissoesDoMonitor(), new PermissoesDaAdministracao()));
     private static UUID eduardo;
     private static UUID carla;
     private static UUID bruno;
@@ -82,11 +83,16 @@ class MigracaoDosPerfisDeAcessoTest {
             assertThat(p.permissoes()).isEmpty();
         });
         assertThat(acessos.perfilDoSistema(Perfil.ROLE_USER)).get()
-                .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR));
-        assertThat(acessos.perfilDoSistema(Perfil.ROLE_VIEWER)).get().as("ponto.conferir veio na V17")
+                .as("fiscal.ver veio na V18")
+                .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO,
+                        PermissoesDoPonto.LANCAR, PermissoesDoMonitor.VER));
+        assertThat(acessos.perfilDoSistema(Perfil.ROLE_VIEWER)).get().as("ponto.conferir veio na V17; fiscal.ver, na V18")
                 .satisfies(p -> assertThat(p.permissoes()).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE,
-                        PermissoesDoPonto.CONFERIR));
-        assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso").query(Integer.class).single()).isEqualTo(2);
+                        PermissoesDoPonto.CONFERIR, PermissoesDoMonitor.VER));
+        assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso").query(Integer.class).single())
+                .as("2 da V17 e 2 da V18").isEqualTo(4);
+        assertThat(jdbc.sql("SELECT count(*) FROM tb_historico_acesso WHERE descricao LIKE '%Ver o monitor fiscal%'")
+                .query(Integer.class).single()).isEqualTo(2);
     }
 
     @Test
@@ -95,10 +101,13 @@ class MigracaoDosPerfisDeAcessoTest {
         assertThat(efetivas(eduardo)).containsExactlyElementsOf(CATALOGO.codigos());
         assertThat(acessos.ajustesDo(eduardo)).isEmpty();
 
-        assertThat(efetivas(carla)).containsExactly(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR);
-        assertThat(efetivas(bruno)).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR);
+        // o monitor fiscal (V18) entra para os perfis Usuário e Coordenador: é a única permissão nova
+        assertThat(efetivas(carla)).containsExactlyInAnyOrder(PermissoesDoPonto.EQUIPE, PermissoesDoPonto.CONFERIR,
+                PermissoesDoMonitor.VER);
+        assertThat(efetivas(bruno)).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR,
+                PermissoesDoMonitor.VER);
         assertThat(efetivas(ana)).containsExactlyInAnyOrder(PermissoesDoPonto.PROPRIO, PermissoesDoPonto.LANCAR,
-                PermissoesDoAtendimento.USAR, PermissoesDaBase.PESQUISAR, PermissoesDaBase.CURAR);
+                PermissoesDoAtendimento.USAR, PermissoesDaBase.PESQUISAR, PermissoesDaBase.CURAR, PermissoesDoMonitor.VER);
         assertThat(acessos.ajustesDo(ana)).containsExactlyInAnyOrder(new AjusteDeAcesso(PermissoesDoAtendimento.USAR, true),
                 new AjusteDeAcesso(PermissoesDaBase.PESQUISAR, true), new AjusteDeAcesso(PermissoesDaBase.CURAR, true));
         assertThat(efetivas(semPerfil)).containsExactly(PermissoesDaBase.PESQUISAR);
