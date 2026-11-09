@@ -45,12 +45,15 @@ public final class LeitorDoPainelSvrs {
     private static final Pattern VERIFICACAO_SEM_CSTAT = Pattern.compile("(\\d{1,2}:\\d{2}:\\d{2})\\s*-\\s*(.+)$");
     private static final Pattern TITULO = Pattern.compile("(?i).*\\b(sefaz|sefa)\\b.*");
     private static final Pattern AVISO = Pattern.compile(
-            "(?i)(n[ãa]o h[áa] manuten[çc][ãa]o prevista[^.]*\\.?"
+            "(?iu)(n[ãa]o h[áa] manuten[çc][ãa]o prevista[^.]*\\.?"
                     + "|manuten[çc][ãa]o (?:programada|prevista)\\s+(?:para|em|no|na|dia|de)\\b[^.]{0,250}\\.?"
                     + "|(?:haver[áa]|ocorrer[áa]|ser[áa] realizada)[^.]{0,60}manuten[çc][ãa]o[^.]{0,250}\\.?)");
     private static final Set<String> TAGS_DE_TITULO = Set.of("h1", "h2", "h3", "h4", "h5", "h6", "caption", "legend",
             "strong", "b", "span", "div", "p", "th", "label", "a", "td");
     private static final DateTimeFormatter HORA = DateTimeFormatter.ofPattern("HH:mm");
+    private static final int TAMANHO_DO_AVISO = 400;
+    private static final Set<String> EM_LINHA = Set.of("b", "strong", "i", "em", "u", "span", "a", "small", "br",
+            "font", "mark", "time");
 
     /**
      * @param erro vazio quando a página trouxe ao menos um serviço
@@ -143,7 +146,7 @@ public final class LeitorDoPainelSvrs {
         }
         String erro = leituras.isEmpty() && repetidos.isEmpty()
                 ? "O painel não trouxe nenhum serviço (o formato da página pode ter mudado)." : null;
-        return new Lido(leituras, aviso(pagina.body().text()), erro);
+        return new Lido(leituras, aviso(pagina.body()), erro);
     }
 
     /** "SEFAZ Virtual do RS" → SVRS; "SEFAZ-RS" → RS. */
@@ -242,9 +245,20 @@ public final class LeitorDoPainelSvrs {
         return verificado.toInstant();
     }
 
-    private static String aviso(String texto) {
-        Matcher m = AVISO.matcher(texto);
-        return m.find() ? m.group(1).strip() : null;
+    /**
+     * O aviso de manutenção: o texto do próprio elemento que fala dela (não o da página inteira, que emenda o aviso
+     * com o menu quando não há ponto final). Sem um elemento curto com a frase, não há aviso.
+     */
+    private static String aviso(Element corpo) {
+        for (Element e : corpo.getAllElements()) {
+            // o texto do elemento sem o dos blocos de dentro; os pedaços em linha (a data em negrito) contam
+            boolean soEmLinha = e.children().stream().allMatch(f -> EM_LINHA.contains(f.normalName()));
+            String texto = (soEmLinha ? e.text() : e.ownText()).strip();
+            if (!texto.isEmpty() && texto.length() <= TAMANHO_DO_AVISO && AVISO.matcher(texto).find()) {
+                return texto;
+            }
+        }
+        return null;
     }
 
     private static String semAcento(String texto) {

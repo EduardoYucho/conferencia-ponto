@@ -44,6 +44,8 @@ const soProblemas = ref(false)
 const lendo = ref(false)
 const mensagemLeitura = ref('')
 const verFontes = ref(false)
+/** Incidentes de uma leitura ruim só, já fechados (um teste lento, uma recusa que passou): escondidos de início. */
+const mostrarOscilacoes = ref(false)
 const agora = ref(new Date())
 
 function mudarRota(mudancas) {
@@ -137,6 +139,22 @@ const atrasada = computed(() => {
 const fontesComProblema = computed(() => (painel.value?.fontes ?? []).filter((f) => f.erro))
 const contagem = computed(() => painel.value?.contagem ?? null)
 const linhas = computed(() => (lista.value?.chave === `${aba.value}:${dias.value}` ? lista.value.linhas : []))
+const oscilacao = (i) => !i.aberto && i.leituras < 2
+const oscilacoes = computed(() => (aba.value === 'incidentes' ? linhas.value.filter(oscilacao).length : 0))
+const linhasVisiveis = computed(() =>
+  aba.value === 'incidentes' && !mostrarOscilacoes.value ? linhas.value.filter((i) => !oscilacao(i)) : linhas.value,
+)
+/** Os comunicados iguais em vários portais (o mesmo "não há manutenção prevista") viram uma linha só. */
+const avisos = computed(() => {
+  const porTexto = new Map()
+  for (const a of painel.value?.avisos ?? []) {
+    const g = porTexto.get(a.texto) ?? { texto: a.texto, documentos: [], desde: a.desde }
+    g.documentos.push(a.rotuloDocumento)
+    if (a.desde < g.desde) g.desde = a.desde
+    porTexto.set(a.texto, g)
+  }
+  return [...porTexto.values()].map((g) => ({ ...g, semManutencao: /^n[ãa]o h[áa] manuten/i.test(g.texto) }))
+})
 </script>
 
 <template>
@@ -204,11 +222,11 @@ const linhas = computed(() => (lista.value?.chave === `${aba.value}:${dias.value
           </section>
 
           <!-- comunicados dos portais -->
-          <section v-if="painel.avisos.length" class="mt-3 cartao px-4 py-3 sm:px-5" aria-label="Comunicados dos portais">
+          <section v-if="avisos.length" class="mt-3 cartao px-4 py-3 sm:px-5" aria-label="Comunicados dos portais">
             <p class="rotulo">Comunicados dos portais</p>
             <ul class="mt-1 grid gap-1 text-sm">
-              <li v-for="a in painel.avisos" :key="a.documento">
-                <strong>{{ a.rotuloDocumento }}:</strong> {{ a.texto }}
+              <li v-for="a in avisos" :key="a.texto" :class="a.semManutencao ? 'text-tinta-suave' : ''">
+                <strong :class="a.semManutencao ? 'font-semibold' : ''">{{ a.documentos.join(', ') }}:</strong> {{ a.texto }}
                 <span class="text-xs text-tinta-suave">(desde {{ hora(a.desde, agora) }})</span>
               </li>
             </ul>
@@ -270,16 +288,20 @@ const linhas = computed(() => (lista.value?.chave === `${aba.value}:${dias.value
                 @click="mudarRota({ dias: p.dias === 1 ? null : String(p.dias) })"
               >{{ p.rotulo }}</button>
             </div>
+            <label v-if="oscilacoes" class="mb-3 flex items-center gap-2 text-sm">
+              <input v-model="mostrarOscilacoes" type="checkbox" class="size-4 accent-tinta" />
+              Mostrar também as oscilações (uma leitura ruim só, já resolvida): {{ oscilacoes }}
+            </label>
             <EstadoDaTela
               :carregando="carregandoLista && !linhas.length"
               :erro="erroLista"
-              :manter="linhas.length > 0"
-              :vazio="!linhas.length"
+              :manter="linhasVisiveis.length > 0"
+              :vazio="!linhasVisiveis.length"
               :vazio-texto="aba === 'incidentes' ? 'Nenhum incidente no período.' : 'Ainda sem leituras no período.'"
               @tentar="carregarLista"
             >
-              <ListaDeIncidentes v-if="aba === 'incidentes'" :incidentes="linhas" :agora="agora" />
-              <TabelaDeDisponibilidade v-else :linhas="linhas" />
+              <ListaDeIncidentes v-if="aba === 'incidentes'" :incidentes="linhasVisiveis" :agora="agora" />
+              <TabelaDeDisponibilidade v-else :linhas="linhasVisiveis" />
             </EstadoDaTela>
           </section>
         </template>

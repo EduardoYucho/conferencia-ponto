@@ -16,7 +16,7 @@ fiscal:
     intervalo: 5m                  # entre o fim de uma rodada e o começo da próxima (o ritmo dos painéis)
     primeira-vez: 30s              # depois que o sistema sobe
     tempo-limite: 15s              # para cada página e cada teste de conexão
-    lento: 3s                      # teste de conexão acima disto conta como instável
+    lento: 5s                      # teste de conexão acima disto conta como instável
     verificacao-antiga: 30m        # serviço que o painel não verifica há mais que isto fica sem informação
 
   retencao:
@@ -43,7 +43,7 @@ fiscal:
       PR: nfe.sefa.pr.gov.br
       SP: nfe.fazenda.sp.gov.br
       SVAN: www.sefazvirtual.fazenda.gov.br
-      SVC-AN: www.svc.fazenda.gov.br
+      SVC-AN: www.sefazvirtual.fazenda.gov.br   # desde 11/02/2025, no mesmo endereço da SVAN
       SVC-RS: nfe.svrs.rs.gov.br
     NFCE:
       AM: nfce.sefaz.am.gov.br

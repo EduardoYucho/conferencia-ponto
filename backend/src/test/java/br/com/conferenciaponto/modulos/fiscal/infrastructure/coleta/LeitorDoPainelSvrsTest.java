@@ -52,7 +52,8 @@ class LeitorDoPainelSvrsTest {
             assertThat(l.situacao()).isEqualTo(Situacao.SEM_INFORMACAO);
             assertThat(l.detalhe()).isEqualTo("O portal não verifica este serviço desde 14:40 (há 135 min).");
         });
-        assertThat(lido.aviso()).isEqualTo("Não há manutenção prevista para o próximo Domingo.");
+        assertThat(lido.aviso()).as("só o aviso, sem o menu que vem depois")
+                .isEqualTo("Não há manutenção prevista para o próximo Domingo");
     }
 
     @Test
@@ -95,6 +96,22 @@ class LeitorDoPainelSvrsTest {
         assertThat(leitor.ler("", Documento.MDFE, AGORA, BRASILIA, Duration.ofMinutes(30)).erro()).isNotNull();
         assertThat(leitor.ler("<table><tr><td>WS Autorizacao HMLE</td><td>16:50:00 - WS com status normal (CStat: 1)</td></tr></table>",
                 Documento.MDFE, AGORA, BRASILIA, Duration.ofMinutes(30)).erro()).isNotNull();
+    }
+
+    @Test
+    @DisplayName("Aviso em maiúsculas ou dividido em pedaços; menu com a palavra manutenção não é aviso")
+    void avisos() {
+        String maiusculas = "<p>HAVERÁ MANUTENÇÃO NO AMBIENTE DE AUTORIZAÇÃO NO DOMINGO</p>"
+                + "<table><tr><td>WS Autorizacao</td><td>16:50:00 - WS com status normal (CStat: 1)</td></tr></table>";
+        assertThat(leitor.ler(maiusculas, Documento.MDFE, AGORA, BRASILIA, Duration.ofMinutes(30)).aviso())
+                .isEqualTo("HAVERÁ MANUTENÇÃO NO AMBIENTE DE AUTORIZAÇÃO NO DOMINGO");
+        String emPedacos = "<div>Manutenção programada para <b>15/11/2026</b>, das 8h às 12h.</div>"
+                + "<table><tr><td>WS Autorizacao</td><td>16:50:00 - WS com status normal (CStat: 1)</td></tr></table>";
+        assertThat(leitor.ler(emPedacos, Documento.MDFE, AGORA, BRASILIA, Duration.ofMinutes(30)).aviso())
+                .isEqualTo("Manutenção programada para 15/11/2026, das 8h às 12h.");
+        String soMenu = "<nav><a>Manutenção</a> <a>Serviços</a></nav>"
+                + "<table><tr><td>WS Autorizacao</td><td>16:50:00 - WS com status normal (CStat: 1)</td></tr></table>";
+        assertThat(leitor.ler(soMenu, Documento.MDFE, AGORA, BRASILIA, Duration.ofMinutes(30)).aviso()).isNull();
     }
 
     @Test

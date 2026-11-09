@@ -15,6 +15,8 @@ import java.net.SocketException;
 import java.net.SocketTimeoutException;
 import java.net.UnknownHostException;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Teste de conexão com um servidor de autorização, sem certificado: acha o endereço (DNS), abre a conexão (TCP) e
@@ -28,23 +30,35 @@ public class SondaDeConexao {
     public record Resposta(Situacao situacao, String detalhe, Integer tempoMs, boolean respondeu) {
     }
 
+    /** Acha os endereços IP de um nome (o DNS; nos testes, um falso). */
+    interface Resolvedor {
+        InetAddress[] resolver(String host) throws UnknownHostException;
+    }
+
     private static final int PORTA_PADRAO = 443;
+    /** Um nome com vários servidores (DNS round robin): testa até este tanto, um depois do outro. */
+    private static final int SERVIDORES_TESTADOS = 3;
 
     private final Duration tempoLimite;
     private final Duration lento;
     private final SSLSocketFactory tls;
+    private final Resolvedor resolvedor;
 
     public SondaDeConexao(Duration tempoLimite, Duration lento) {
-        this(tempoLimite, lento, (SSLSocketFactory) SSLSocketFactory.getDefault());
+        this(tempoLimite, lento, (SSLSocketFactory) SSLSocketFactory.getDefault(), InetAddress::getAllByName);
     }
 
-    SondaDeConexao(Duration tempoLimite, Duration lento, SSLSocketFactory tls) {
+    SondaDeConexao(Duration tempoLimite, Duration lento, SSLSocketFactory tls, Resolvedor resolvedor) {
         this.tempoLimite = tempoLimite;
         this.lento = lento;
         this.tls = tls;
+        this.resolvedor = resolvedor;
     }
 
-    /** @param endereco "host" ou "host:porta" (443 se não tiver porta) */
+    /**
+     * @param endereco "host" ou "host:porta" (443 se não tiver porta). Um nome com mais de um servidor: se um não
+     *                 responde e outro sim, o endereço está instável (parte dos pedidos dos clientes cai no que falha)
+     */
     public Resposta testar(String endereco) {
         String host = endereco.strip();
         int porta = PORTA_PADRAO;
@@ -58,45 +72,85 @@ public class SondaDeConexao {
             }
         }
         long inicio = System.nanoTime();
-        long limite = tempoLimite.toMillis();
-        InetAddress ip;
+        InetAddress[] ips;
         try {
-            ip = InetAddress.getByName(host);
+            ips = resolvedor.resolver(host);
         } catch (UnknownHostException e) {
             return new Resposta(Situacao.FORA, "Endereço não encontrado (DNS).", null, false);
         }
+        if (ips == null || ips.length == 0) {
+            return new Resposta(Situacao.FORA, "Endereço não encontrado (DNS).", null, false);
+        }
+        int dnsMs = decorrido(inicio);
+        int total = Math.min(ips.length, SERVIDORES_TESTADOS);
+        List<Resposta> falhas = new ArrayList<>();
+        for (int i = 0; i < total; i++) {
+            long resta = tempoLimite.toMillis() - decorrido(inicio);
+            if (resta <= 0) {
+                break;
+            }
+            Resposta r = tentar(ips[i], host, porta, resta, dnsMs);
+            if (r.situacao() != Situacao.FORA) {
+                if (falhas.isEmpty()) {
+                    return r;
+                }
+                return new Resposta(Situacao.INSTAVEL, "%d de %d servidores deste endereço não responderam (%s); outro respondeu em %d ms."
+                        .formatted(falhas.size(), ips.length, minusculaNoInicio(falhas.get(0).detalhe()), r.tempoMs()),
+                        r.tempoMs(), true);
+            }
+            falhas.add(r);
+        }
+        Resposta primeira = falhas.isEmpty()
+                ? new Resposta(Situacao.FORA, "Sem resposta em %d s.".formatted(tempoLimite.toSeconds()), null, false)
+                : falhas.get(0);
+        if (ips.length > 1 && falhas.size() > 1) {
+            return new Resposta(Situacao.FORA, "%s (%d de %d servidores testados)".formatted(
+                    primeira.detalhe().replaceAll("\\.$", ""), falhas.size(), ips.length) + ".", null,
+                    falhas.stream().anyMatch(Resposta::respondeu));
+        }
+        return primeira;
+    }
+
+    /** Um servidor: conexão e começo da conexão segura, com o tempo medido até o fim do handshake. */
+    private Resposta tentar(InetAddress ip, String host, int porta, long limiteMs, int dnsMs) {
+        long inicio = System.nanoTime();
+        String segundos = "%d s".formatted(tempoLimite.toSeconds());
+        // o fechamento é da conexão de baixo: fechar a conexão segura espera o "close_notify" do servidor, e há
+        // servidor que não manda (o teste ficava 15 s esperando à toa)
         try (Socket socket = new Socket()) {
-            int resta = (int) Math.max(1, limite - decorrido(inicio));
             try {
-                socket.connect(new InetSocketAddress(ip, porta), resta);
+                socket.connect(new InetSocketAddress(ip, porta), (int) Math.max(1, limiteMs));
             } catch (SocketTimeoutException e) {
-                return new Resposta(Situacao.FORA, "Sem resposta em %d s (conexão).".formatted(tempoLimite.toSeconds()),
-                        null, false);
+                return new Resposta(Situacao.FORA, "Sem resposta em %s (conexão).".formatted(segundos), null, false);
             } catch (ConnectException e) {
                 return new Resposta(Situacao.FORA, "Conexão recusada pelo servidor.", null, true);
             } catch (NoRouteToHostException e) {
                 return new Resposta(Situacao.FORA, "Sem rota até o servidor.", null, false);
             }
-            socket.setSoTimeout((int) Math.max(1, limite - decorrido(inicio)));
-            try (SSLSocket seguro = (SSLSocket) tls.createSocket(socket, host, porta, false)) {
-                seguro.setSoTimeout((int) Math.max(1, limite - decorrido(inicio)));
+            int resta = (int) Math.max(1, limiteMs - decorrido(inicio));
+            socket.setSoTimeout(resta);
+            try {
+                SSLSocket seguro = (SSLSocket) tls.createSocket(socket, host, porta, false);
+                seguro.setSoTimeout(resta);
                 seguro.startHandshake();
             } catch (SocketTimeoutException e) {
-                return new Resposta(Situacao.FORA, "Conectou, mas não respondeu à conexão segura em %d s."
-                        .formatted(tempoLimite.toSeconds()), null, true);
+                return new Resposta(Situacao.FORA, "Conectou, mas não respondeu à conexão segura em %s."
+                        .formatted(segundos), null, true);
             } catch (SSLException e) {
                 if (causa(e, SocketTimeoutException.class)) {
-                    return new Resposta(Situacao.FORA, "Conectou, mas não respondeu à conexão segura em %d s."
-                            .formatted(tempoLimite.toSeconds()), null, true);
+                    return new Resposta(Situacao.FORA, "Conectou, mas não respondeu à conexão segura em %s."
+                            .formatted(segundos), null, true);
                 }
                 if (causa(e, SocketException.class)) {
-                    return comTempo(inicio, Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.");
+                    return new Resposta(Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.",
+                            dnsMs + decorrido(inicio), true);
                 }
                 // o servidor respondeu ao TLS (pediu o certificado, recusou o cliente, mandou um alerta): está lá
             } catch (SocketException e) {
-                return comTempo(inicio, Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.");
+                return new Resposta(Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.",
+                        dnsMs + decorrido(inicio), true);
             }
-            int ms = decorrido(inicio);
+            int ms = dnsMs + decorrido(inicio);
             if (ms > lento.toMillis()) {
                 return new Resposta(Situacao.INSTAVEL, "Respondeu, mas devagar: %d ms (o normal é menos de %d ms)."
                         .formatted(ms, lento.toMillis()), ms, true);
@@ -109,8 +163,9 @@ public class SondaDeConexao {
         }
     }
 
-    private static Resposta comTempo(long inicio, Situacao situacao, String detalhe) {
-        return new Resposta(situacao, detalhe, decorrido(inicio), true);
+    private static String minusculaNoInicio(String texto) {
+        String t = texto.replaceAll("\\.$", "");
+        return t.isEmpty() ? t : Character.toLowerCase(t.charAt(0)) + t.substring(1);
     }
 
     private static int decorrido(long inicio) {
