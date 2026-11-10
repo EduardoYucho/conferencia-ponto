@@ -4,7 +4,7 @@ import DashboardView from '@/views/DashboardView.vue'
 // Fora do carregamento sob demanda: é para o login que a aba volta quando algo dá errado (sessão vencida,
 // sistema atualizado), e nessa hora os arquivos antigos das outras telas podem não existir mais.
 import LoginView from '@/views/LoginView.vue'
-// telas dos módulos de atendimentos e base de conhecimento (ficam todas em src/modulos)
+// telas dos módulos (atendimentos, base de conhecimento, monitor fiscal; ficam todas em src/modulos)
 import { rotasDosModulos } from '@/modulos/rotas'
 import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 

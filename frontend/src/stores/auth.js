@@ -190,6 +190,7 @@ export const useAuthStore = defineStore('auth', () => {
     if (podeVerTodos.value) return { name: 'auditoria' }
     if (pode('atendimentos.usar')) return { name: 'atendimentos' }
     if (pode('base.pesquisar')) return { name: 'base-conhecimento' }
+    if (pode('fiscal.ver')) return { name: 'monitor-fiscal' }
     if (podeAlgum(USUARIOS, ACESSOS, INTEGRACOES)) return { name: 'usuarios' }
     if (pode(LOGS)) return { name: 'logs' }
     return { name: 'conta' }
