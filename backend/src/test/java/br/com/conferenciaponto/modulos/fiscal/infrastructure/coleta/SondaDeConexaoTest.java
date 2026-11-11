@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.fiscal.infrastructure.coleta;
 
+import br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal;
 import br.com.conferenciaponto.modulos.fiscal.domain.Situacao;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.DisplayName;
@@ -120,16 +121,16 @@ class SondaDeConexaoTest {
     private static final char[] SENHA_DE_TESTE = "teste-fiscal".toCharArray();
 
     @Test
-    @DisplayName("Porta fechada: fora (conexão recusada); endereço que não existe: fora (DNS); endereço inválido: sem informação")
+    @DisplayName("Porta fechada: fora (conexão recusada); endereço que o DNS não acha e endereço inválido: sem informação")
     void foraDoAr() throws IOException {
         SondaDeConexao.Resposta recusada = sonda.testar("127.0.0.1:" + ServidoresDeTeste.fechada());
         assertThat(recusada.situacao()).isEqualTo(Situacao.FORA);
         assertThat(recusada.detalhe()).isEqualTo("Conexão recusada pelo servidor.");
 
         SondaDeConexao.Resposta dns = sonda.testar("servidor-que-nao-existe.invalid");
-        assertThat(dns.situacao()).isEqualTo(Situacao.FORA);
+        assertThat(dns.situacao()).as("o DNS é deste computador: sem informação, não fora").isEqualTo(Situacao.SEM_INFORMACAO);
         assertThat(dns.respondeu()).isFalse();
-        assertThat(dns.detalhe()).isEqualTo("Endereço não encontrado (DNS).");
+        assertThat(dns.detalhe()).isEqualTo(ProblemaLocal.DNS);
 
         assertThat(sonda.testar("127.0.0.1:porta").situacao()).isEqualTo(Situacao.SEM_INFORMACAO);
     }

@@ -203,6 +203,10 @@ const avisos = computed(() => {
               >{{ fontesComProblema.length }} {{ fontesComProblema.length === 1 ? 'fonte com problema' : 'fontes com problema' }}</button>
               <button v-else type="button" class="text-tinta-suave underline underline-offset-4" :aria-expanded="verFontes" aria-controls="fiscal-fontes" @click="verFontes = !verFontes">fontes</button>
             </div>
+            <p v-if="painel.redeOscilando && !ultima?.semInternet" role="alert" class="mt-1 text-sm text-carimbo">
+              Na última leitura, muitos servidores ficaram sem resposta ao mesmo tempo: foi a internet deste computador
+              que oscilou, não a SEFAZ. Eles aparecem como “sem informação” até a próxima leitura.
+            </p>
             <p v-if="!painel.coletaAtiva" class="mt-1 text-sm text-tinta-suave">A coleta automática está desligada nesta máquina; a tela mostra o que já foi lido.</p>
             <p v-else-if="atrasada" class="mt-1 text-sm text-carimbo">
               A última leitura foi {{ haQuanto(ultima.fim, agora) }}: o sistema pode ter ficado parado. As leituras só

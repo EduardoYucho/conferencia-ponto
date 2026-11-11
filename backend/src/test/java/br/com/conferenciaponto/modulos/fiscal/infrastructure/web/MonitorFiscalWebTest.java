@@ -125,7 +125,7 @@ class MonitorFiscalWebTest {
         when(consulta.painel()).thenReturn(new ConsultarMonitor.PainelView(T, true, 5,
                 new ConsultarMonitor.RodadaView(T, T.plusSeconds(3), false, 0), List.of(), List.of(), List.of(),
                 new ConsultarMonitor.ContagemView(1, 0, 0, 0), List.of(), List.of(new ConsultarMonitor.AvisoView("NFE",
-                "NF-e", "Não há manutenção prevista.", T))));
+                "NF-e", "Não há manutenção prevista.", T)), false));
         mvc.perform(get("/api/v1/fiscal/painel").with(como(ana)))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.ultimaRodada.inicio").value("2026-11-09T19:50:00Z"))

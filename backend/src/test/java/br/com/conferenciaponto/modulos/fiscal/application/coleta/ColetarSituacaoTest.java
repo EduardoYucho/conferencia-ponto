@@ -182,6 +182,36 @@ class ColetarSituacaoTest {
     }
 
     @Test
+    @DisplayName("Teste de conexão sem resposta: instável na primeira leitura, fora só na segunda seguida; o painel vale na hora")
+    void foraSoNaSegundaLeituraDoTesteDeConexao() {
+        painelCom(servico(Documento.NFE, "RS", "Autorização", Situacao.FORA));
+        conexoes.resposta = agora -> new FonteDeLeituras.Resultado("testes-de-conexao", true, null,
+                List.of(conexao(Documento.NFE, "SP", Situacao.FORA, null)), null, null);
+
+        coleta.executar();
+        assertThat(estado("NFE:SP:geral").situacao()).isEqualTo(Situacao.INSTAVEL);
+        assertThat(estado("NFE:SP:Conexão").leitura().detalhe()).startsWith(ColetarSituacao.CONFIRMANDO);
+        assertThat(estado("NFE:RS:geral").situacao()).as("o painel é a palavra do portal").isEqualTo(Situacao.FORA);
+
+        relogio.avancar(5);
+        coleta.executar();
+        assertThat(estado("NFE:SP:geral").situacao()).isEqualTo(Situacao.FORA);
+        assertThat(estado("NFE:SP:geral").desde()).isEqualTo(relogio.agora);
+        assertThat(registro.incidentesAbertos().get("NFE:SP:geral").inicio()).as("o incidente começa na primeira leitura")
+                .isEqualTo(relogio.agora.minus(Duration.ofMinutes(5)));
+
+        relogio.avancar(5);
+        conexoes.resposta = agora -> new FonteDeLeituras.Resultado("testes-de-conexao", true, null,
+                List.of(conexao(Documento.NFE, "SP", Situacao.NORMAL, 120)), null, null);
+        coleta.executar();
+        relogio.avancar(5);
+        conexoes.resposta = agora -> new FonteDeLeituras.Resultado("testes-de-conexao", true, null,
+                List.of(conexao(Documento.NFE, "SP", Situacao.FORA, null)), null, null);
+        coleta.executar();
+        assertThat(estado("NFE:SP:geral").situacao()).as("depois de voltar, confirma de novo").isEqualTo(Situacao.INSTAVEL);
+    }
+
+    @Test
     @DisplayName("Uma fonte que estoura erro ou não volta a tempo não para as outras")
     void fonteComErroOuLenta() {
         painel.resposta = agora -> {

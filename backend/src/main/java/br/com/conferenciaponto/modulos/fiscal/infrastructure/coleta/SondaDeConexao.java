@@ -1,5 +1,6 @@
 package br.com.conferenciaponto.modulos.fiscal.infrastructure.coleta;
 
+import br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal;
 import br.com.conferenciaponto.modulos.fiscal.domain.Situacao;
 
 import javax.net.ssl.SSLException;
@@ -76,10 +77,10 @@ public class SondaDeConexao {
         try {
             ips = resolvedor.resolver(host);
         } catch (UnknownHostException e) {
-            return new Resposta(Situacao.FORA, "Endereço não encontrado (DNS).", null, false);
+            return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
         }
         if (ips == null || ips.length == 0) {
-            return new Resposta(Situacao.FORA, "Endereço não encontrado (DNS).", null, false);
+            return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
         }
         int dnsMs = decorrido(inicio);
         int total = Math.min(ips.length, SERVIDORES_TESTADOS);
@@ -90,7 +91,7 @@ public class SondaDeConexao {
                 break;
             }
             Resposta r = tentar(ips[i], host, porta, resta, dnsMs);
-            if (r.situacao() != Situacao.FORA) {
+            if (r.situacao() == Situacao.NORMAL || r.situacao() == Situacao.INSTAVEL) {
                 if (falhas.isEmpty()) {
                     return r;
                 }
@@ -103,7 +104,7 @@ public class SondaDeConexao {
         Resposta primeira = falhas.isEmpty()
                 ? new Resposta(Situacao.FORA, "Sem resposta em %d s.".formatted(tempoLimite.toSeconds()), null, false)
                 : falhas.get(0);
-        if (ips.length > 1 && falhas.size() > 1) {
+        if (ips.length > 1 && falhas.size() > 1 && primeira.situacao() == Situacao.FORA) {
             return new Resposta(Situacao.FORA, "%s (%d de %d servidores testados)".formatted(
                     primeira.detalhe().replaceAll("\\.$", ""), falhas.size(), ips.length) + ".", null,
                     falhas.stream().anyMatch(Resposta::respondeu));
@@ -125,7 +126,7 @@ public class SondaDeConexao {
             } catch (ConnectException e) {
                 return new Resposta(Situacao.FORA, "Conexão recusada pelo servidor.", null, true);
             } catch (NoRouteToHostException e) {
-                return new Resposta(Situacao.FORA, "Sem rota até o servidor.", null, false);
+                return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.SEM_ROTA, null, false);
             }
             int resta = (int) Math.max(1, limiteMs - decorrido(inicio));
             socket.setSoTimeout(resta);

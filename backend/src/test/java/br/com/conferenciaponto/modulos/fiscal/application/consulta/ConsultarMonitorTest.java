@@ -129,7 +129,9 @@ class ConsultarMonitorTest {
         assertThat(svc.contingencia()).isTrue();
         assertThat(svc.estados()).containsExactly("ES", "SC", "SP");
         assertThat(svc.tempoMs()).isEqualTo(300);
-        assertThat(p.contagem()).isEqualTo(new ConsultarMonitor.ContagemView(1, 1, 1, 1));
+        assertThat(p.contagem()).as("SP sem resposta pela primeira vez: instável até a segunda leitura")
+                .isEqualTo(new ConsultarMonitor.ContagemView(1, 2, 0, 1));
+        assertThat(p.redeOscilando()).isFalse();
         assertThat(p.fontes()).extracting(ConsultarMonitor.FonteView::rotulo)
                 .containsExactly("Painel da SVRS · NF-e", "Testes de conexão");
         assertThat(p.ultimaRodada().semInternet()).isFalse();
@@ -157,6 +159,18 @@ class ConsultarMonitorTest {
 
         assertThatThrownBy(() -> consulta.incidentes(0)).isInstanceOf(RegraNegocioException.class);
         assertThatThrownBy(() -> consulta.disponibilidade(MapaDosEstados.UFS.size() * 10)).isInstanceOf(RegraNegocioException.class);
+    }
+
+    @Test
+    @DisplayName("Internet deste computador oscilando: a tela avisa no alto e nada fica fora")
+    void redeOscilando() {
+        doPainel.add(new Leitura(new br.com.conferenciaponto.modulos.fiscal.domain.Alvo(Documento.NFE, "SVRS", "Autorização"),
+                br.com.conferenciaponto.modulos.fiscal.domain.Origem.TESTE_DE_CONEXAO, Situacao.SEM_INFORMACAO,
+                br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal.REDE_OSCILANDO, null, null, agora));
+        coleta.executar();
+
+        ConsultarMonitor.PainelView p = consulta.painel();
+        assertThat(p.redeOscilando()).isTrue();
     }
 
     @Test

@@ -4,12 +4,15 @@ import br.com.conferenciaponto.modulos.fiscal.domain.DetectorDeIncidentes;
 import br.com.conferenciaponto.modulos.fiscal.domain.EstadoAtual;
 import br.com.conferenciaponto.modulos.fiscal.domain.Incidente;
 import br.com.conferenciaponto.modulos.fiscal.domain.Leitura;
+import br.com.conferenciaponto.modulos.fiscal.domain.Origem;
+import br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor.Aviso;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor.Rodada;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor.RodadaConcluida;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor.SituacaoDaFonte;
 import br.com.conferenciaponto.modulos.fiscal.domain.ResumoDoAutorizador;
+import br.com.conferenciaponto.modulos.fiscal.domain.Situacao;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -42,7 +45,8 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class ColetarSituacao {
 
     private static final Logger log = LoggerFactory.getLogger(ColetarSituacao.class);
-    static final String SEM_INTERNET = "Sem internet neste computador: nenhuma fonte respondeu nesta rodada.";
+    static final String SEM_INTERNET = ProblemaLocal.SEM_INTERNET;
+    static final String CONFIRMANDO = "Não respondeu nesta leitura; se continuar na próxima, fica fora. ";
 
     private final List<FonteDeLeituras> fontes;
     private final RegistroDoMonitor registro;
@@ -71,11 +75,12 @@ public class ColetarSituacao {
         List<FonteDeLeituras.Resultado> resultados = lerTodas();
         boolean semInternet = !resultados.isEmpty() && resultados.stream().noneMatch(FonteDeLeituras.Resultado::alcancou);
 
+        Map<String, EstadoAtual> anteriores = registro.estados();
         List<Leitura> servicos = new ArrayList<>();
         for (FonteDeLeituras.Resultado r : resultados) {
             for (Leitura l : r.leituras()) {
                 if (!l.alvo().ehGeral()) {
-                    servicos.add(semInternet ? l.semInformacao(SEM_INTERNET) : l);
+                    servicos.add(semInternet ? l.semInformacao(SEM_INTERNET) : confirmada(l, anteriores.get(l.alvo().chave())));
                 }
             }
         }
@@ -83,7 +88,6 @@ public class ColetarSituacao {
         leituras.addAll(ResumoDoAutorizador.resumir(servicos));
 
         // o que já era acompanhado e não veio nesta rodada (a fonte falhou): sem informação, sem abrir nem fechar nada
-        Map<String, EstadoAtual> anteriores = registro.estados();
         Set<String> lidas = new HashSet<>();
         leituras.forEach(l -> lidas.add(l.alvo().chave()));
         String motivo = semInternet ? SEM_INTERNET : "A fonte não trouxe este serviço nesta rodada.";
@@ -119,6 +123,20 @@ public class ColetarSituacao {
                     leituras.size(), ruins, resultado.mudancas().size(), comProblema);
         }
         return rodada;
+    }
+
+    /**
+     * O teste de conexão sem resposta só vira "fora" na segunda leitura seguida; na primeira, fica instável (uma
+     * oscilação de um minuto não pinta o quadro de vermelho). O painel é a palavra do portal: vale na hora.
+     */
+    static Leitura confirmada(Leitura leitura, EstadoAtual anterior) {
+        boolean primeiraRuim = anterior == null || anterior.ruinsSeguidas() == 0;
+        if (leitura.origem() != Origem.TESTE_DE_CONEXAO || leitura.situacao() != Situacao.FORA || !primeiraRuim) {
+            return leitura;
+        }
+        return new Leitura(leitura.alvo(), leitura.origem(), Situacao.INSTAVEL,
+                CONFIRMANDO + "(" + (leitura.detalhe() == null ? "sem detalhe" : leitura.detalhe()) + ")", leitura.cstat(),
+                leitura.tempoMs(), leitura.verificadoEm());
     }
 
     /** Apaga o histórico que passou do prazo (os incidentes ficam). */
