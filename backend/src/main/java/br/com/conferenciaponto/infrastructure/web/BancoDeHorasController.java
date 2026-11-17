@@ -25,7 +25,8 @@ import java.time.YearMonth;
  * A tela Banco de horas.
  * <pre>
  * GET  /api/v1/banco-de-horas?ano=&mes=                     carga x horário, compensação, dias, avisos e conferência
- * POST /api/v1/banco-de-horas/conferencia?ano=&mes=&usuario=   {observacao}  marca o mês como conferido (ponto.conferir)
+ * POST /api/v1/banco-de-horas/conferencia?ano=&mes=&usuario=   {observacao, mesmoComPendencias}  marca o mês como
+ *      conferido (ponto.conferir); com pendências no mês, só com mesmoComPendencias (senão 422 MES_COM_PENDENCIAS)
  * POST /api/v1/banco-de-horas/conferencia/reabrir?ano=&mes=&usuario=   {motivo}  reabre o mês (ponto.conferir)
  * </pre>
  */
@@ -54,8 +55,12 @@ public class BancoDeHorasController {
                 titular.logado().pode(PermissoesDoPonto.CONFERIR)));
     }
 
+    /**
+     * @param mesmoComPendencias quem confere viu as pendências do mês (dias sem saída, sem registro, diferenças do RH)
+     *                           e quer conferir assim mesmo
+     */
     public record ConferirRequest(@Size(max = 300, message = "A observação pode ter no máximo 300 caracteres.")
-                                  String observacao) {
+                                  String observacao, Boolean mesmoComPendencias) {
     }
 
     public record ReabrirRequest(@Size(max = 300, message = "O motivo pode ter no máximo 300 caracteres.")
@@ -69,7 +74,8 @@ public class BancoDeHorasController {
         Usuario logado = acesso.logado();
         Usuario alvo = acesso.alvoDaConferencia(logado, usuario);
         return ApiResponse.ok(ConferenciaResponse.de(conferir.conferir(alvo.id(), ReferenciaMes.resolver(ano, mes, clock),
-                corpo == null ? null : corpo.observacao(), logado.login())));
+                corpo == null ? null : corpo.observacao(), logado.login(),
+                corpo != null && Boolean.TRUE.equals(corpo.mesmoComPendencias()))));
     }
 
     @PostMapping("/conferencia/reabrir")

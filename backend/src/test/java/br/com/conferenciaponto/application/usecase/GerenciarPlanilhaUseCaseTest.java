@@ -102,7 +102,8 @@ class GerenciarPlanilhaUseCaseTest {
         var auditoria = new ConsultarAuditoriaUseCase(consultar, new ComprovanteArquivadoRepositoryEmMemoria(),
                 new ArmazenamentoEmMemoria(), new AjusteJornadaRepositoryEmMemoria());
         var ciclo = new GerenciarCicloBancoUseCase(new CicloBancoRepositoryEmMemoria(), consolidacao,
-                new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), e -> { }, clock);
+                new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), e -> { },
+                br.com.conferenciaponto.application.PendenciasDoPeriodo.NENHUMA, clock);
         var usuarios = UsuarioRepositoryEmMemoria.comTitular();
         usuarios.salvar(new Usuario(OUTRO, "maria", "Maria", "h:senha", true, Acesso.usuario(), null));
         var montador = new MontadorPlanilhaConferencia(usuarios, consolidacao, auditoria, ciclo, regras,

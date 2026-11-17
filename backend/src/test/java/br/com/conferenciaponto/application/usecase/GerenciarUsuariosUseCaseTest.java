@@ -54,7 +54,7 @@ class GerenciarUsuariosUseCaseTest {
             new br.com.conferenciaponto.application.ConsolidacaoBancoHoras(new RegistroJornadaRepositoryEmMemoria(),
                     new LancamentoBancoRepositoryEmMemoria()),
             new br.com.conferenciaponto.application.ParametrosBancoHoras(LocalDate.of(2025, 11, 25), 6), eventos::add,
-            clock);
+            br.com.conferenciaponto.application.PendenciasDoPeriodo.NENHUMA, clock);
     private final PreparacaoDoTitular preparacao = new PreparacaoDoTitular(horarios, regras, gerenciarCiclos, clock);
     private final GerenciarAcessosUseCase gerenciarAcessos = new GerenciarAcessosUseCase(acessos, usuarios, catalogo,
             preparacao, eventos::add, clock);

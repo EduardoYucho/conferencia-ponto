@@ -29,6 +29,11 @@ const fimPrevisto = ref('')
 const enviando = ref(false)
 const erro = ref('')
 const resultado = ref(null) // { fechado, novo } após fechar
+/** O que está em aberto até o último dia (null = ainda não carregou ou não deu para carregar). */
+const pendencias = ref(null)
+const mesmoComPendencias = ref(false)
+let pedidoPendencias = 0
+let timerPendencias = null
 const historico = ref([])
 const campoInicial = ref(null)
 
@@ -40,6 +45,8 @@ async function reiniciar() {
   inicio.value = props.ciclo?.dataInicio ?? ''
   fimPrevisto.value = props.ciclo?.dataFimPrevista ?? ''
   historico.value = []
+  pendencias.value = null
+  mesmoComPendencias.value = false
   try {
     historico.value = (await pontoApi.ciclos()).filter((c) => c.status === 'FECHADO')
   } catch {
@@ -82,6 +89,25 @@ function previsaoPara(iso) {
   return dataISO(d)
 }
 
+/** As pendências do período que vai ser fechado; se não carregarem, o servidor ainda confere ao fechar. */
+async function carregarPendencias() {
+  const meu = ++pedidoPendencias
+  pendencias.value = null
+  mesmoComPendencias.value = false
+  if (props.modo !== 'fechar' || !ultimoDia.value || erroFechamento.value) return
+  try {
+    const lista = await pontoApi.pendenciasDoFechamento(ultimoDia.value)
+    if (meu === pedidoPendencias) pendencias.value = lista
+  } catch {
+    // só informativo: a recusa do servidor (com a lista) aparece ao fechar
+  }
+}
+watch([() => props.modelValue, ultimoDia], ([aberto]) => {
+  clearTimeout(timerPendencias)
+  if (aberto) timerPendencias = setTimeout(carregarPendencias, 300)
+})
+onBeforeUnmount(() => clearTimeout(timerPendencias))
+
 const erroFechamento = computed(() => {
   if (!ultimoDia.value) return 'Informe o último dia que entra neste fechamento.'
   if (props.ciclo && ultimoDia.value < props.ciclo.dataInicio) return `O ciclo começou em ${dataBR(props.ciclo.dataInicio)}.`
@@ -109,6 +135,8 @@ async function gravar(chamada) {
       dados = await chamada()
     } catch (e) {
       erro.value = mensagemDe(e)
+      // uma pendência que apareceu depois de a lista carregar: a lista volta, para confirmar
+      if (e?.codigo === 'CICLO_COM_PENDENCIAS') carregarPendencias()
       return { ok: false }
     }
     await store.atualizarSaldos()
@@ -120,8 +148,15 @@ async function gravar(chamada) {
 
 async function confirmarFechamento() {
   if (erroFechamento.value) return
-  const fechamento = await gravar(() =>
-    pontoApi.fecharCiclo({ ultimoDia: ultimoDia.value, observacao: observacao.value.trim() || null }))
+  if (pendencias.value?.length && !mesmoComPendencias.value) {
+    erro.value = 'O período tem pendências: resolva antes ou marque "Fechar mesmo assim".'
+    return
+  }
+  const fechamento = await gravar(() => pontoApi.fecharCiclo({
+    ultimoDia: ultimoDia.value,
+    observacao: observacao.value.trim() || null,
+    mesmoComPendencias: !!pendencias.value?.length && mesmoComPendencias.value,
+  }))
   if (!fechamento.ok) return
   resultado.value = fechamento.dados
   emit('concluido', resultado.value)
@@ -227,10 +262,18 @@ async function salvarPeriodo() {
                 </p>
                 <p v-if="erroFechamento" class="mt-1 text-sm text-carimbo">{{ erroFechamento }}</p>
               </div>
-              <p v-if="ciclo.diasEmAberto" class="rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm text-carimbo">
-                {{ ciclo.diasEmAberto }} dia(s) do ciclo estão incompletos (faltou batida) e ficam fora do saldo.
-                Se o RH já corrigiu, ajuste antes de fechar.
-              </p>
+              <div v-if="pendencias?.length" class="rounded-[3px] border border-carimbo/40 bg-carimbo/5 px-3 py-2 text-sm" role="note">
+                <p class="font-semibold text-carimbo">Até este dia, o ciclo tem pendências:</p>
+                <ul class="mt-1 list-disc space-y-0.5 pl-5">
+                  <li v-for="p in pendencias" :key="p">{{ p }}</li>
+                </ul>
+                <p class="mt-1 text-xs text-tinta-suave">
+                  O saldo congelado não muda depois. Se o RH já corrigiu, ajuste antes de fechar.
+                </p>
+                <label class="mt-2 flex items-center gap-2 font-semibold">
+                  <input v-model="mesmoComPendencias" type="checkbox" class="size-4" /> Fechar mesmo assim
+                </label>
+              </div>
               <div>
                 <label for="ciclo-obs" class="rotulo">Observação (opcional)</label>
                 <input id="ciclo-obs" v-model="observacao" type="text" maxlength="200" class="campo mt-1.5 font-sans" placeholder="Ex.: Zerado pelo RH no relatório de 25/05" />
@@ -280,7 +323,7 @@ async function salvarPeriodo() {
               <button
                 type="submit"
                 class="botao-primario"
-                :disabled="enviando || (modo === 'fechar' ? !!erroFechamento : !!erroPeriodo)"
+                :disabled="enviando || (modo === 'fechar' ? !!erroFechamento || (!!pendencias?.length && !mesmoComPendencias) : !!erroPeriodo)"
               >{{ enviando ? 'Salvando…' : modo === 'fechar' ? 'Fechar e recomeçar do zero' : 'Salvar período' }}</button>
             </template>
           </footer>

@@ -13,6 +13,8 @@ interface RegistroJornadaJpaRepository extends JpaRepository<RegistroJornadaEnti
 
     Optional<RegistroJornadaEntity> findByUsuarioIdAndDataReferencia(UUID usuarioId, LocalDate dataReferencia);
 
+    Optional<RegistroJornadaEntity> findFirstByUsuarioIdOrderByDataReferenciaAsc(UUID usuarioId);
+
     List<RegistroJornadaEntity> findByUsuarioIdAndDataReferenciaBetweenOrderByDataReferenciaAsc(UUID usuarioId,
                                                                                             LocalDate inicio,
                                                                                             LocalDate fim);

@@ -1,5 +1,7 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.PendenciasDoPeriodo;
+import br.com.conferenciaponto.application.PendenciasDoPeriodo.Pendencias;
 import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.application.evento.ConferenciaAlteradaEvento;
 import br.com.conferenciaponto.application.view.ConferenciaDoMesView;
@@ -10,6 +12,8 @@ import br.com.conferenciaponto.domain.model.ConferenciaMes;
 import br.com.conferenciaponto.domain.model.SaldoMensal;
 import br.com.conferenciaponto.domain.model.TipoNotificacao;
 import br.com.conferenciaponto.domain.port.ConferenciaMesRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,12 +28,16 @@ import java.util.UUID;
 /**
  * Conferência do mês: quem confere (permissão ponto.conferir) marca o mês de uma pessoa como conferido, com os
  * números da hora, e ele fica travado para mudanças à mão ({@link TravaDosMesesConferidos}). Reabrir exige o motivo;
- * tudo fica no histórico do mês. Só um mês que já terminou pode ser conferido.
+ * tudo fica no histórico do mês. Só um mês que já terminou pode ser conferido. Se o mês tem pendências (dia sem
+ * saída, dia útil sem registro, diferença do RH sem decisão: {@link PendenciasDoPeriodo}), a tela mostra antes e a
+ * conferência só passa com a confirmação de quem confere ("conferir mesmo assim").
  */
 @Service
 public class ConferirMesUseCase {
 
     static final int MOTIVO_MINIMO = 5;
+
+    private static final Logger log = LoggerFactory.getLogger(ConferirMesUseCase.class);
 
     private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
@@ -37,14 +45,17 @@ public class ConferirMesUseCase {
     private final ConsultarJornadaUseCase jornada;
     private final NotificacoesUseCase notificacoes;
     private final ApplicationEventPublisher eventos;
+    private final PendenciasDoPeriodo pendencias;
     private final Clock clock;
 
     public ConferirMesUseCase(ConferenciaMesRepository conferencias, ConsultarJornadaUseCase jornada,
-                              NotificacoesUseCase notificacoes, ApplicationEventPublisher eventos, Clock clock) {
+                              NotificacoesUseCase notificacoes, ApplicationEventPublisher eventos,
+                              PendenciasDoPeriodo pendencias, Clock clock) {
         this.conferencias = conferencias;
         this.jornada = jornada;
         this.notificacoes = notificacoes;
         this.eventos = eventos;
+        this.pendencias = pendencias;
         this.clock = clock;
     }
 
@@ -53,7 +64,14 @@ public class ConferirMesUseCase {
         SaldoMensal agora = jornada.resumo(usuarioId, mes);
         List<ConferenciaMes> historico = conferencias.historico(usuarioId, mes);
         ConferenciaMes vigente = historico.stream().filter(ConferenciaMes::vale).findFirst().orElse(null);
-        return new ConferenciaDoMesView(vigente, vigente != null && vigente.mudouDesde(agora), agora, historico, terminou(mes));
+        // as pendências só interessam a quem ainda vai conferir
+        Pendencias abertas = vigente == null && terminou(mes) ? pendenciasDo(usuarioId, mes) : Pendencias.NENHUMA;
+        return new ConferenciaDoMesView(vigente, vigente != null && vigente.mudouDesde(agora), agora, historico,
+                terminou(mes), abertas);
+    }
+
+    private Pendencias pendenciasDo(UUID usuarioId, YearMonth mes) {
+        return pendencias.de(usuarioId, mes.atDay(1), mes.atEndOfMonth());
     }
 
     /** A conferência que vale para o mês (a planilha mostra quem conferiu). */
@@ -62,8 +80,13 @@ public class ConferirMesUseCase {
         return conferencias.vigente(usuarioId, mes);
     }
 
+    /**
+     * @param mesmoComPendencias quem confere viu as pendências do mês e confirmou; sem isso, um mês com pendências
+     *                           é recusado com a lista delas (MES_COM_PENDENCIAS)
+     */
     @Transactional
-    public ConferenciaMes conferir(UUID usuarioId, YearMonth mes, String observacao, String quem) {
+    public ConferenciaMes conferir(UUID usuarioId, YearMonth mes, String observacao, String quem,
+                                   boolean mesmoComPendencias) {
         if (!terminou(mes)) {
             throw new RegraNegocioException("MES_NAO_TERMINOU",
                     "%s ainda não terminou: dá para conferir a partir de %s.".formatted(
@@ -73,6 +96,16 @@ public class ConferirMesUseCase {
             throw new ConflitoException("MES_JA_CONFERIDO", "%s já foi conferido por %s."
                     .formatted(TravaDosMesesConferidos.nomeDoMes(mes), c.conferidoPor()));
         });
+        Pendencias abertas = pendenciasDo(usuarioId, mes);
+        if (!abertas.vazia() && !mesmoComPendencias) {
+            throw new RegraNegocioException("MES_COM_PENDENCIAS", "%s tem pendências: %s. Resolva antes ou confirme "
+                    .formatted(TravaDosMesesConferidos.nomeDoMes(mes), abertas.resumo())
+                    + "\"conferir mesmo assim\".");
+        }
+        if (!abertas.vazia()) {
+            log.info("{} conferido por {} com pendências: {}", TravaDosMesesConferidos.nomeDoMes(mes), quem,
+                    abertas.resumo());
+        }
         SaldoMensal numeros = jornada.resumo(usuarioId, mes);
         ConferenciaMes nova = ConferenciaMes.nova(usuarioId, mes, quem, observacao, numeros, clock.instant());
         conferencias.salvar(nova);

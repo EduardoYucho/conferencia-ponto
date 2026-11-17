@@ -42,6 +42,7 @@ import java.util.Set;
 import java.util.UUID;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -105,7 +106,9 @@ class BancoDeHorasWebTest {
                 -30_240, -17_280, 14_400, 14_400, 0, 15_840,
                 List.of(new BancoDeHorasMesView.Bloco(LocalDate.of(2026, 10, 24), LocalDate.of(2026, 10, 25))));
         var auditoria = new AuditoriaMesView(outubro, List.of(), resumo, List.of(), List.of(), List.of(), List.of());
-        var conferencia = new ConferenciaDoMesView(null, false, resumo, List.of(), false);
+        var conferencia = new ConferenciaDoMesView(null, false, resumo, List.of(), false,
+                new br.com.conferenciaponto.application.PendenciasDoPeriodo.Pendencias(List.of(LocalDate.of(2026, 10, 7)),
+                        List.of(), List.of()));
         return new BancoDeHorasMesView(outubro, LocalDate.of(2026, 10, 21), h, compensacao, auditoria, Map.of(),
                 Set.of(LocalDate.of(2026, 10, 10)), List.of(LocalDate.of(2026, 10, 9)),
                 List.of(new AvisoLegal(AvisoLegal.Nivel.ALERTA, "SEM_FOLGA_7_DIAS", LocalDate.of(2026, 10, 5),
@@ -130,6 +133,7 @@ class BancoDeHorasWebTest {
                 .andExpect(jsonPath("$.dados.semRegistro[0]").value("2026-10-09"))
                 .andExpect(jsonPath("$.dados.avisos[0].nivel").value("ALERTA"))
                 .andExpect(jsonPath("$.dados.conferencia.podeConferir").value(false))
+                .andExpect(jsonPath("$.dados.conferencia.pendencias[0]").value("1 dia com entrada sem saída (07/10): fora do saldo"))
                 .andExpect(jsonPath("$.dados.conferencia.vigente").doesNotExist());
     }
 
@@ -139,16 +143,22 @@ class BancoDeHorasWebTest {
                 .andExpect(status().isForbidden());
         mvc.perform(post("/api/v1/banco-de-horas/conferencia/reabrir?ano=2026&mes=9").with(como(maria)))
                 .andExpect(status().isForbidden());
-        verify(conferir, never()).conferir(any(), any(), any(), any());
+        verify(conferir, never()).conferir(any(), any(), any(), any(), anyBoolean());
 
         ConferenciaMes c = ConferenciaMes.nova(maria.id(), YearMonth.of(2026, 9), "coordenacao", "Ok",
                 SaldoMensal.vazio(2026, 9, 0), Instant.parse("2026-10-21T21:00:00Z"));
-        when(conferir.conferir(eq(maria.id()), eq(YearMonth.of(2026, 9)), eq("Ok"), eq("coordenacao"))).thenReturn(c);
+        when(conferir.conferir(eq(maria.id()), eq(YearMonth.of(2026, 9)), eq("Ok"), eq("coordenacao"), eq(false))).thenReturn(c);
         mvc.perform(post("/api/v1/banco-de-horas/conferencia?ano=2026&mes=9&usuario=maria").with(como(coordenacao))
                         .contentType(MediaType.APPLICATION_JSON).content("{\"observacao\":\"Ok\"}"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.dados.conferidoPor").value("coordenacao"))
                 .andExpect(jsonPath("$.dados.mes").value(9));
+        // "conferir mesmo assim": a confirmação das pendências chega ao caso de uso
+        when(conferir.conferir(eq(maria.id()), eq(YearMonth.of(2026, 9)), eq("Ok"), eq("coordenacao"), eq(true))).thenReturn(c);
+        mvc.perform(post("/api/v1/banco-de-horas/conferencia?ano=2026&mes=9&usuario=maria").with(como(coordenacao))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"observacao\":\"Ok\",\"mesmoComPendencias\":true}"))
+                .andExpect(status().isOk());
+        verify(conferir).conferir(eq(maria.id()), eq(YearMonth.of(2026, 9)), eq("Ok"), eq("coordenacao"), eq(true));
 
         when(conferir.reabrir(eq(maria.id()), eq(YearMonth.of(2026, 9)), eq("Faltou o atestado"), eq("coordenacao")))
                 .thenReturn(c.reaberta("coordenacao", "Faltou o atestado", Instant.parse("2026-10-21T21:05:00Z")));

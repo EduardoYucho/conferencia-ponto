@@ -8,12 +8,15 @@ import br.com.conferenciaponto.infrastructure.web.dto.CorrigirCicloRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.FechamentoCicloResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.FecharCicloRequest;
 import jakarta.validation.Valid;
+import org.springframework.format.annotation.DateTimeFormat;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.time.LocalDate;
 import java.util.List;
 
 /**
@@ -22,8 +25,10 @@ import java.util.List;
  * GET  /api/v1/ciclos                      todos os ciclos (o aberto primeiro), com saldo
  * GET  /api/v1/ciclos/atual                ciclo aberto: saldo, previsão, dias restantes, meses
  * PUT  /api/v1/ciclos/atual                corrige {dataInicio, dataFimPrevista?} do ciclo aberto
- * POST /api/v1/ciclos/fechar               fecha {ultimoDia?, observacao?} e abre o próximo zerado
- *      (também em /api/ciclos/fechar)
+ * GET  /api/v1/ciclos/pendencias?ultimoDia=   o que está em aberto até o último dia do fechamento (uma frase por
+ *      tipo: dias sem saída, dias úteis sem registro, diferenças do RH sem decisão)
+ * POST /api/v1/ciclos/fechar               fecha {ultimoDia?, observacao?, mesmoComPendencias?} e abre o próximo
+ *      zerado (também em /api/ciclos/fechar); com pendências, só com mesmoComPendencias (senão 422 CICLO_COM_PENDENCIAS)
  * POST /api/v1/ciclos/desfazer-fechamento  o ciclo anterior volta a ser o aberto
  * </pre>
  */
@@ -52,12 +57,20 @@ public class CicloBancoController {
                 ciclos.corrigirPeriodo(titular.id(), r.dataInicio(), r.dataFimPrevista())));
     }
 
+    @GetMapping("/api/v1/ciclos/pendencias")
+    public ApiResponse<List<String>> pendencias(@RequestParam(required = false)
+                                                @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate ultimoDia,
+                                                Titular titular) {
+        return ApiResponse.ok(ciclos.pendenciasDoFechamento(titular.id(), ultimoDia).itens());
+    }
+
     @PostMapping({"/api/v1/ciclos/fechar", "/api/ciclos/fechar"})
     public ApiResponse<FechamentoCicloResponse> fechar(@Valid @RequestBody(required = false) FecharCicloRequest r,
                                                        Titular titular) {
         FecharCicloRequest pedido = r != null ? r : new FecharCicloRequest(null, null);
         return ApiResponse.ok(FechamentoCicloResponse.de(
-                ciclos.fechar(titular.id(), pedido.ultimoDia(), pedido.observacao(), titular.quem())));
+                ciclos.fechar(titular.id(), pedido.ultimoDia(), pedido.observacao(), titular.quem(),
+                        Boolean.TRUE.equals(pedido.mesmoComPendencias()))));
     }
 
     @PostMapping("/api/v1/ciclos/desfazer-fechamento")
