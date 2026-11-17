@@ -7,8 +7,10 @@ import br.com.conferenciaponto.domain.model.Usuario;
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.PdfDigisacDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.ServidorDeAnexos;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.EtapaDeAnalise;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.fila.CoordenadorDaFila;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.EtapaDeRedacao;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
@@ -107,7 +109,9 @@ class ProcessamentoDosAnexosTest {
     }
 
     private ProcessarAtendimentos processamento(Instant agora) {
-        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(agora), 2);
+        // com a transação de verdade: a tarefa e o "aguardando" do anexo entram juntos, como no sistema
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(agora), 2,
+                EtapaDeAnalise.NENHUMA, EtapaDeRedacao.NENHUMA, RepositoriosDeTeste.transacao());
     }
 
     private CoordenadorDaFila coordenador(Instant agora, DataSize espacoMinimo) {

@@ -12,11 +12,12 @@ import br.com.conferenciaponto.modulos.atendimento.application.analise.AnaliseVi
 import br.com.conferenciaponto.modulos.atendimento.application.analise.ConfiguracaoDaAnalise;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.ConsultarAnalise;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.FilaDeAnalises;
-import br.com.conferenciaponto.modulos.atendimento.application.analise.ParaOsTestes;
 import br.com.conferenciaponto.modulos.atendimento.application.analise.PanoramaDasAnalises;
+import br.com.conferenciaponto.modulos.atendimento.application.analise.ParaOsTestes;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.AtendimentoView;
 import br.com.conferenciaponto.modulos.atendimento.application.atendimento.GerenciarAtendimentos;
 import br.com.conferenciaponto.modulos.atendimento.application.fila.CoordenadorDaFila;
+import br.com.conferenciaponto.modulos.atendimento.application.redacao.EtapaDeRedacao;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.Analises;
 import br.com.conferenciaponto.modulos.atendimento.domain.analise.SituacaoDaAnalise;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
@@ -119,7 +120,8 @@ class ProcessamentoDasAnalisesTest {
     }
 
     private ProcessarAtendimentos processamento() {
-        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila);
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila,
+                EtapaDeRedacao.NENHUMA, RepositoriosDeTeste.transacao());
     }
 
     private void iniciarFila() {

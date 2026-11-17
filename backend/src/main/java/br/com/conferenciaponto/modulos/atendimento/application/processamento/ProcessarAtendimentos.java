@@ -126,8 +126,17 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         int vencidos = arquivos.vencerLinks(atendimentoId, agora, LINK_VENCIDO);
         int criadas = 0;
         for (ArquivoParaBaixar anexo : arquivos.aBaixar(atendimentoId)) {
-            if (tarefas.criar(TipoDeTarefa.BAIXAR, atendimentoId, anexo.id(), null, tentativasDoDownload, agora)) {
+            // a tarefa e o "aguardando" do anexo aparecem juntos: se a fila pegasse o download entre um e outro, o
+            // "aguardando" chegaria com ele em andamento e o arquivo baixado seria descartado ("mudou durante o
+            // download"), deixando o anexo para trás
+            boolean criada = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!tarefas.criar(TipoDeTarefa.BAIXAR, atendimentoId, anexo.id(), null, tentativasDoDownload, agora)) {
+                    return false;
+                }
                 arquivos.aguardar(anexo.id());
+                return true;
+            }));
+            if (criada) {
                 criadas++;
             }
         }
