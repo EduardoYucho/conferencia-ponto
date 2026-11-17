@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.pdf;
 
 import br.com.conferenciaponto.modulos.atendimento.domain.pacote.JuntadorDePdf;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.io.IOUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDPage;
 import org.apache.pdfbox.pdmodel.PDPageContentStream;
@@ -52,7 +53,9 @@ public class JuntadorPdfBox implements JuntadorDePdf {
     @Override
     public Resultado juntar(Function<List<Integer>, String> texto, List<Item> itens, Path destino) {
         List<PDDocument> abertos = new ArrayList<>();
-        try (PDDocument pdf = new PDDocument()) {
+        // as imagens e as páginas importadas ficam num arquivo temporário, não na memória: um pacote com muitos prints
+        // grandes não aperta a memória do sistema (o arquivo sai quando o PDF fecha)
+        try (PDDocument pdf = new PDDocument(IOUtils.createTempFileOnlyStreamCache())) {
             PDType1Font normal = new PDType1Font(Standard14Fonts.FontName.HELVETICA);
             PDType1Font negrito = new PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD);
 
@@ -124,7 +127,7 @@ public class JuntadorPdfBox implements JuntadorDePdf {
     private static Object abrir(PDDocument pdf, Item item, List<PDDocument> abertos) {
         if (item.pdf()) {
             try {
-                PDDocument outro = Loader.loadPDF(item.arquivo().toFile());
+                PDDocument outro = Loader.loadPDF(item.arquivo().toFile(), IOUtils.createTempFileOnlyStreamCache());
                 abertos.add(outro); // as páginas importadas precisam do original aberto até gravar
                 return outro;
             } catch (IOException e) {

@@ -15,6 +15,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.io.IOUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.rendering.PDFRenderer;
 import org.apache.pdfbox.text.PDFTextStripper;
@@ -455,7 +456,7 @@ public class ModeloLocal implements ModeloDeIA {
     }
 
     private Conteudo pdf(Path arquivo) throws IOException {
-        try (PDDocument documento = Loader.loadPDF(arquivo.toFile())) {
+        try (PDDocument documento = Loader.loadPDF(arquivo.toFile(), IOUtils.createTempFileOnlyStreamCache())) {
             PDFTextStripper extrator = new PDFTextStripper();
             String texto = extrator.getText(documento).strip();
             PDFRenderer renderizador = new PDFRenderer(documento);

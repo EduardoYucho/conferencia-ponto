@@ -63,6 +63,27 @@ class JuntadorPdfBoxTest {
         }
     }
 
+    /** As imagens e as páginas importadas vão para arquivos temporários (não para a memória), que saem ao fechar. */
+    @Test
+    void osArquivosTemporariosDoPdfSaemQuandoEleFecha() throws IOException {
+        Path temporarios = Path.of(System.getProperty("java.io.tmpdir"));
+        List<Path> antes = temporariosDoPdfBox(temporarios);
+        Path destino = pasta.resolve("Anexos.pdf");
+
+        JuntadorDePdf.Resultado resultado = new JuntadorPdfBox().juntar(List.of(
+                new JuntadorDePdf.Item("A1 · imagem", imagem("grande.png", "png", 3000, 2000), false),
+                new JuntadorDePdf.Item("A2 · documento", pdf("doc.pdf", 3), true)), destino);
+
+        assertThat(resultado.total()).isEqualTo(5);
+        assertThat(temporariosDoPdfBox(temporarios)).isSubsetOf(antes);
+    }
+
+    private static List<Path> temporariosDoPdfBox(Path pasta) throws IOException {
+        try (var arquivos = Files.list(pasta)) {
+            return arquivos.filter(p -> p.getFileName().toString().startsWith("PDFBox")).toList();
+        }
+    }
+
     @Test
     void semNadaQueAbraNaoGravaArquivo() throws IOException {
         Path quebrado = pasta.resolve("quebrado.pdf");

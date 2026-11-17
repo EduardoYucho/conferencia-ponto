@@ -78,6 +78,9 @@ $ArquivoEstado = Join-Path $Raiz 'instalacao.json'
 $ArquivoLog    = Join-Path $PastaLogs 'conferencia-ponto.log'
 $PastaLogsUsuarios = Join-Path $PastaLogs 'usuarios'
 $LogBuild      = Join-Path $PastaLogs 'build.log'
+# Diagnóstico de quedas da JVM (veja $ArgumentosJava): a memória que acabou e os erros graves da própria JVM
+$ArquivoMemoriaEsgotada = Join-Path $PastaLogs 'memoria-esgotada.hprof'
+$ErrosDaJvmGuardados = 5
 $PortaPadrao   = 8080
 # Backups do banco ("ponto backup"); PONTO_BACKUP_DIR troca a pasta (usado nos testes do próprio script)
 $PastaBackups  = if ($env:PONTO_BACKUP_DIR) { $env:PONTO_BACKUP_DIR } else { Join-Path $HOME '.conferencia-ponto\backups' }
@@ -90,8 +93,14 @@ $SaidaSemCopiaFora = 3
 
 # Argumentos da JVM e da aplicação (a tarefa roda com a pasta de instalação como diretório de trabalho,
 # então o Spring Boot lê config\application.yml sozinho; o servico.yml vem por último e prevalece).
+# Memória: até 1 GB (o uso normal fica perto de 250 MB). Se ela acabar, a JVM grava o diagnóstico em
+# logs\memoria-esgotada.hprof (só o primeiro: com o arquivo lá, não grava outro, para uma queda em laço não encher
+# o disco) e sai; a tarefa agendada sobe de novo em até 5 minutos. Um erro grave da própria JVM vai para
+# logs\erro-da-jvm-<pid>.log.
 $ArgumentosJava = @(
-    '-Xms64m', '-Xmx512m', '-XX:+ExitOnOutOfMemoryError',
+    '-Xms64m', '-Xmx1g', '-XX:+ExitOnOutOfMemoryError',
+    '-XX:+HeapDumpOnOutOfMemoryError', '-XX:HeapDumpPath=logs\memoria-esgotada.hprof',
+    '-XX:ErrorFile=logs\erro-da-jvm-%p.log',
     '-Dnet.bytebuddy.experimental=true',   # Hibernate em JDKs mais novos que o suportado pelo Spring Boot 3.5
     '-Dfile.encoding=UTF-8',
     '-jar', 'app\conferencia-ponto.jar',
@@ -504,6 +513,7 @@ function Parar-Aplicacao([switch] $Silencioso) {
 
 function Iniciar-Aplicacao {
     Exigir-Instalacao
+    Limpar-ErrosDaJvm
     $porta = Porta-Configurada
     $tarefa = Get-ScheduledTask -TaskName $NomeTarefa
     if ($tarefa.State -eq 'Disabled') { Enable-ScheduledTask -TaskName $NomeTarefa | Out-Null }
@@ -527,6 +537,14 @@ function Iniciar-Aplicacao {
         Aviso 'Se foi depois de uma atualização: "ponto voltar" sobe a versão anterior (README, "Voltar para a versão anterior").'
     }
     exit 1
+}
+
+# Uma queda em laço (a tarefa sobe a aplicação de novo a cada 5 minutos) deixaria um erro-da-jvm-<pid>.log por
+# tentativa: ficam só os mais recentes. O memoria-esgotada.hprof não sai daqui: quem apaga é quem olhou.
+function Limpar-ErrosDaJvm {
+    Get-ChildItem -LiteralPath $PastaLogs -Filter 'erro-da-jvm-*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending | Select-Object -Skip $ErrosDaJvmGuardados |
+        Remove-Item -Force -ErrorAction SilentlyContinue
 }
 
 # "ponto voltar": troca a versão instalada pela anterior (e a atual fica como anterior: rodar de novo desfaz).
@@ -1135,8 +1153,28 @@ CREATE SCHEMA public;
 }
 
 # ------------------------------------------------------------------------------------------ comandos
+# "ponto atualizar" roda o ponto.ps1 instalado; se o do projeto mudou, é ele que faz a atualização (o backup, a
+# guarda e a tarefa agendada com os argumentos da JVM seguem a versão que entra, não a que sai).
+function Atualizar-PeloScriptDoProjeto([string] $repositorio) {
+    if ($env:PONTO_PELO_PROJETO) { return }
+    $doProjeto = Join-Path $repositorio 'deploy\windows\ponto.ps1'
+    if (-not (Test-Path -LiteralPath $doProjeto)) { return }
+    $doProjeto = (Resolve-Path -LiteralPath $doProjeto).Path
+    if ($doProjeto -eq $PSCommandPath) { return }
+    if ((Get-FileHash -LiteralPath $doProjeto).Hash -eq (Get-FileHash -LiteralPath $PSCommandPath).Hash) { return }
+    Passo 'O comando ponto mudou no projeto: a atualização segue pelo novo'
+    $env:PONTO_PELO_PROJETO = '1'
+    $argumentos = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $doProjeto, 'atualizar')
+    if ($Testes) { $argumentos += '-Testes' }
+    if ($Porta -gt 0) { $argumentos += @('-Porta', "$Porta") }
+    $ErrorActionPreference = 'Continue'
+    & powershell.exe @argumentos
+    exit $LASTEXITCODE
+}
+
 function Cmd-Instalar([switch] $Atualizacao) {
     $repositorio = Resolver-Repositorio
+    if ($Atualizacao) { Atualizar-PeloScriptDoProjeto $repositorio }
     $estado = Ler-Estado
     $porta = if ($Porta -gt 0) { $Porta } elseif ($estado -and $estado.porta) { [int] $estado.porta } else { $PortaPadrao }
 
@@ -1301,6 +1339,23 @@ function Mostrar-Backup {
     else { Info $texto }
 }
 
+# Só aparece quando há o que ver. O .hprof é a memória da aplicação no momento da queda (tem dados do ponto e dos
+# atendimentos): não envie para ninguém e apague depois de olhar, porque enquanto ele existir o próximo não é gravado.
+function Mostrar-Diagnostico {
+    $dump = Get-Item -LiteralPath $ArquivoMemoriaEsgotada -ErrorAction SilentlyContinue
+    if ($dump) {
+        Aviso ('Memória:        acabou em {0}; o diagnóstico ({1:N0} MB) está em {2}' -f
+            $dump.LastWriteTime.ToString('dd/MM HH:mm'), ($dump.Length / 1MB), $dump.FullName)
+        Aviso '                Ele tem dados da aplicação: não envie para ninguém. Apague depois de olhar (senão o próximo não é gravado).'
+    }
+    $erros = @(Get-ChildItem -LiteralPath $PastaLogs -Filter 'erro-da-jvm-*.log' -File -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime -Descending)
+    if ($erros.Count -gt 0) {
+        Aviso ('Erro da JVM:    {0} arquivo(s); o último em {1}: {2}' -f
+            $erros.Count, $erros[0].LastWriteTime.ToString('dd/MM HH:mm'), $erros[0].FullName)
+    }
+}
+
 function Cmd-Status {
     Titulo 'Conferência de Ponto'
     $tarefa = Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue
@@ -1331,6 +1386,7 @@ function Cmd-Status {
     Info "Logs:           $ArquivoLog"
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
+    Mostrar-Diagnostico
     Mostrar-Backup
     Mostrar-Ffmpeg
     Mostrar-IaLocal

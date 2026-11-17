@@ -147,7 +147,7 @@ num único processo, em **http://localhost:8080**. Depois:
 | `ponto logs maria` · `ponto logs -Erros` | Ao vivo só de um usuário (ou `sistema`) · só avisos e erros (combinam: `ponto logs maria -Erros`) |
 | `ponto logs pasta` | Abre a pasta dos logs por usuário e por hora |
 | `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
-| `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida) |
+| `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida). Se o próprio comando `ponto` mudou no projeto, a atualização segue pelo novo |
 | `ponto voltar` | Volta para a versão de antes do último `ponto atualizar` (rodar de novo desfaz) — veja abaixo |
 | `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados e a regra de guarda (veja [Backup](#backup)) |
 | `ponto restaurar [pasta]` | Volta o banco para um backup: pergunta qual, pede confirmação e faz um backup de agora antes |
@@ -158,6 +158,19 @@ A porta é a mesma do desenvolvimento de propósito: **não rode o serviço e o 
 importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `ponto iniciar`. Se o Eclipse
 estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
 (`npm run dev`) funciona com qualquer um dos dois.
+
+### Memória e diagnóstico de quedas
+
+A aplicação pode usar até **1 GB** de memória para os dados (`-Xmx1g`; o uso normal fica perto de 250 MB). Os PDFs
+grandes (as conversas do Digisac, o pacote do atendimento com muitas imagens) não sobem inteiros para a memória: o
+que o PDFBox precisa guardar vai para um arquivo temporário, apagado quando o PDF fecha.
+
+Se a memória acabar mesmo assim, a aplicação sai e a tarefa agendada a sobe de novo em até 5 minutos. Antes de
+sair, a JVM grava o que havia na memória em `logs\memoria-esgotada.hprof` (só o primeiro: enquanto o arquivo
+existir, não grava outro, para uma queda em laço não encher o disco); um erro grave da própria JVM vai para
+`logs\erro-da-jvm-<pid>.log` (ficam os 5 mais recentes). O `ponto` mostra os dois quando existem. O `.hprof` tem
+dados da aplicação (do ponto e dos atendimentos): **não envie para ninguém** — abra no próprio computador (por
+exemplo, no Eclipse Memory Analyzer) e apague depois de olhar.
 
 ### Voltar para a versão anterior
 

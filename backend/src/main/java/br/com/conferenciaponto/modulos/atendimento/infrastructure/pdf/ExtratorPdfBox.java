@@ -6,6 +6,7 @@ import br.com.conferenciaponto.modulos.atendimento.domain.conversa.LinkDoPdf;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.PdfPosicionado;
 import br.com.conferenciaponto.modulos.atendimento.domain.conversa.Trecho;
 import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.io.IOUtils;
 import org.apache.pdfbox.pdmodel.PDDocument;
 import org.apache.pdfbox.pdmodel.PDDocumentInformation;
 import org.apache.pdfbox.pdmodel.PDPage;
@@ -51,7 +52,8 @@ public class ExtratorPdfBox implements ExtratorDePdf {
     @Override
     public PdfPosicionado extrair(Path arquivo) {
         conferirAssinatura(arquivo);
-        try (PDDocument documento = Loader.loadPDF(arquivo.toFile())) {
+        // o PDF da conversa pode ter até atendimento.pdf.tamanho-maximo: o que o PDFBox precisar guardar vai para o disco
+        try (PDDocument documento = Loader.loadPDF(arquivo.toFile(), IOUtils.createTempFileOnlyStreamCache())) {
             PDDocumentInformation informacoes = documento.getDocumentInformation();
             String titulo = informacoes == null ? null : informacoes.getTitle();
             Coletor coletor = new Coletor(documento.getNumberOfPages());
