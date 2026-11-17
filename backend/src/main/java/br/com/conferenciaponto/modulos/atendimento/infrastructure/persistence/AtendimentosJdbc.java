@@ -2,6 +2,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence;
 
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoGuardado;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoParaOVigia;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.CamposInformados;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.EstadoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
@@ -313,6 +314,27 @@ class AtendimentosJdbc implements Atendimentos {
     @Override
     public int pausados() {
         return jdbc.sql("SELECT count(*) FROM atendimento.atendimento WHERE situacao = 'pausado'").query(Integer.class).single();
+    }
+
+    @Override
+    public List<AtendimentoParaOVigia> paraOVigia(Instant arquivosAte) {
+        return jdbc.sql("""
+                        SELECT a.id, a.usuario_id, a.chamado_digisac, a.situacao, a.motivo_pausa, a.criado_em,
+                               a.atualizado_em, a.apagar_arquivos_em, a.arquivos_apagados_em,
+                               EXISTS (SELECT 1 FROM atendimento.saida s
+                                        WHERE s.atendimento_id = a.id AND s.situacao IN ('pronta', 'confirmada')) AS texto_pronto
+                          FROM atendimento.atendimento a
+                         WHERE a.situacao IN ('novo', 'pausado')
+                            OR (a.arquivos_apagados_em IS NULL AND a.apagar_arquivos_em <= :ate)
+                         ORDER BY a.criado_em
+                        """)
+                .param("ate", utc(arquivosAte))
+                .query((rs, n) -> new AtendimentoParaOVigia(rs.getObject("id", UUID.class),
+                        rs.getObject("usuario_id", UUID.class), rs.getString("chamado_digisac"),
+                        SituacaoDoAtendimento.doCodigo(rs.getString("situacao")), rs.getString("motivo_pausa"),
+                        instante(rs, "criado_em"), instante(rs, "atualizado_em"), instante(rs, "apagar_arquivos_em"),
+                        instante(rs, "arquivos_apagados_em"), rs.getBoolean("texto_pronto")))
+                .list();
     }
 
     private static ResumoDoAtendimento resumo(ResultSet rs, int linha) throws SQLException {

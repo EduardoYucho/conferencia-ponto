@@ -328,6 +328,17 @@ class TarefasJdbc implements Tarefas {
     }
 
     @Override
+    public java.util.Set<String> motivosDaPausa(UUID atendimentoId) {
+        return new java.util.TreeSet<>(jdbc.sql("""
+                        SELECT DISTINCT erro_codigo FROM atendimento.tarefa
+                         WHERE atendimento_id = :atendimento AND situacao = 'pausada' AND erro_codigo IS NOT NULL
+                        """)
+                .param("atendimento", atendimentoId)
+                .query(String.class)
+                .list());
+    }
+
+    @Override
     public int cancelarDoArquivo(UUID arquivoId, Instant agora) {
         return jdbc.sql("""
                         UPDATE atendimento.tarefa SET situacao = 'cancelada', atualizada_em = :agora

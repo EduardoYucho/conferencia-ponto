@@ -581,7 +581,16 @@ com a pesquisa exata:
   próprio atendimento não entram; sem a chave do Gemini, só os da mesma tela, com aviso.
 - **Retenção** (todo dia às 03:30, `atendimento.retencao.*`): os arquivos (PDF, anexos, ligações, vídeo e prints)
   são apagados 30 dias depois da criação do atendimento — a conversa lida e as análises continuam, e a tela avisa
-  — e o atendimento inteiro, 180 dias depois.
+  — e o atendimento inteiro, 180 dias depois. Um atendimento pausado (ou processando) que perde os arquivos fica
+  *com falhas*: não há o que retomar, e o texto ainda pode ser gerado com a conversa e o que já foi analisado.
+- **Vigia** (a cada 10 min, `atendimento.vigia.intervalo`), para nenhum atendimento ficar esquecido:
+  - **retoma sozinho** a pausa cujo motivo costuma passar — a IA local ou o Gemini que não respondeu e o limite
+    por minuto depois de 30 min, 1 h, 2 h... até 8 h entre uma tentativa e outra; o disco cheio, quando há espaço
+    de novo; a cota diária do Gemini, depois que ela renova (meia-noite no Pacífico). A chave recusada, os créditos
+    e o modelo da IA local que falta ficam com a pessoa;
+  - avisa no **sino** do dono o atendimento parado há mais de 1 dia (pausado ou nunca processado) e, 3 dias antes,
+    o atendimento sem texto pronto que vai perder os arquivos na limpeza. Cada aviso sai uma vez e abre o
+    atendimento. O sino é do ponto: o módulo pede o aviso por um evento (`AvisoDeModulo`), sem conhecer o ponto.
 - **Espaço em disco**: em *Meus atendimentos*, quem tem *Ver o espaço em disco dos atendimentos* vê quanto os
   arquivos dos atendimentos ocupam, quanto sobra no disco e quantos atendimentos estão pausados por falta de espaço.
 

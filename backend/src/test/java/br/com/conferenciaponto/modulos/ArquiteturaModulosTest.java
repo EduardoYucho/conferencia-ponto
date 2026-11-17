@@ -44,7 +44,10 @@ class ArquiteturaModulosTest {
             "br.com.conferenciaponto.domain.exception",     // exceções que o GlobalExceptionHandler transforma em mensagem
             "br.com.conferenciaponto.infrastructure.log");  // protocolo e log por usuário
 
-    /** ...e estas classes (o usuário logado, as permissões que cada módulo declara e o envelope das respostas). */
+    /**
+     * ...e estas classes (o usuário logado, as permissões que cada módulo declara, o envelope das respostas e o pedido
+     * de aviso no sino).
+     */
     private static final Set<String> CLASSES_PERMITIDAS = Set.of(
             "br.com.conferenciaponto.domain.model.Usuario",
             "br.com.conferenciaponto.domain.model.Perfil",
@@ -53,7 +56,8 @@ class ArquiteturaModulosTest {
             "br.com.conferenciaponto.domain.port.UsuarioRepository",
             "br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios",
             "br.com.conferenciaponto.infrastructure.web.dto.ApiResponse",
-            "br.com.conferenciaponto.infrastructure.web.dto.ApiErro");
+            "br.com.conferenciaponto.infrastructure.web.dto.ApiErro",
+            "br.com.conferenciaponto.application.evento.AvisoDeModulo");  // o aviso no sino (o sino é do ponto)
 
     static final DescribedPredicate<JavaClass> PONTO_FORA_DO_PERMITIDO =
             new DescribedPredicate<>("classes do ponto que os módulos não podem usar") {

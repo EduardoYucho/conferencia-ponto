@@ -16,5 +16,7 @@ public enum TipoNotificacao {
     /** O mês foi conferido (ou a conferência foi reaberta). */
     MES_CONFERIDO,
     /** O backup automático do dia falhou (ou a cópia dele fora do PC não foi feita). Para quem vê os logs. */
-    BACKUP
+    BACKUP,
+    /** Pedido por um módulo (ex.: um atendimento parado há mais de 1 dia); veja AvisoDeModulo. */
+    MODULO
 }

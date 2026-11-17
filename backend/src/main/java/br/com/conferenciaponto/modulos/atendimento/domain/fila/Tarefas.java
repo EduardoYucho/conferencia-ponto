@@ -73,6 +73,9 @@ public interface Tarefas {
     /** Pausadas do atendimento voltam a pendentes, para já, com as tentativas do começo (a pessoa pediu para retomar). */
     int retomarDoAtendimento(UUID atendimentoId, Instant agora);
 
+    /** Os motivos (códigos) das tarefas pausadas do atendimento: as que pausaram por si (as outras não têm código). */
+    java.util.Set<String> motivosDaPausa(UUID atendimentoId);
+
     /** Pendentes e pausadas de um arquivo viram canceladas (o arquivo foi enviado à mão ou tirado). */
     int cancelarDoArquivo(UUID arquivoId, Instant agora);
 

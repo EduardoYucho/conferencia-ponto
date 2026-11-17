@@ -3,6 +3,7 @@ package br.com.conferenciaponto.modulos.atendimento.application.retencao;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.PastaDosAtendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.fila.Tarefas;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,6 +12,8 @@ import org.springframework.stereotype.Component;
 
 import java.time.Clock;
 import java.time.Instant;
+import java.util.EnumSet;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -22,6 +25,8 @@ import java.util.UUID;
 public class LimpezaDosAtendimentos {
 
     private static final Logger log = LoggerFactory.getLogger(LimpezaDosAtendimentos.class);
+    private static final Set<SituacaoDoAtendimento> PARADOS = EnumSet.of(SituacaoDoAtendimento.PAUSADO,
+            SituacaoDoAtendimento.PROCESSANDO);
 
     /** O que a limpeza fez. */
     public record Resultado(int arquivosApagados, int atendimentosApagados, int falhas) {
@@ -77,6 +82,9 @@ public class LimpezaDosAtendimentos {
                 pasta.apagarArquivosDoAtendimento(id);
                 arquivos.marcarTodosRemovidos(id);
                 atendimentos.marcarArquivosApagados(id, agora);
+                // pausado ou processando, sem os arquivos não há o que retomar (as tarefas saíram): fica "com falhas",
+                // e o texto ainda pode ser gerado com a conversa e o que já foi analisado
+                atendimentos.mudarSituacaoSe(id, PARADOS, SituacaoDoAtendimento.COM_FALHAS, null, agora);
                 soArquivos++;
             } catch (RuntimeException e) {
                 falhas++;
