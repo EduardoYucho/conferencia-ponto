@@ -3,6 +3,8 @@ package br.com.conferenciaponto.application.usecase;
 import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
+import br.com.conferenciaponto.application.PendenciasDoPeriodo;
+import br.com.conferenciaponto.application.PendenciasDoPeriodo.Pendencias;
 import br.com.conferenciaponto.application.TextoDuracao;
 import br.com.conferenciaponto.application.evento.CicloAtualizadoEvento;
 import br.com.conferenciaponto.application.view.CicloBancoView;
@@ -13,6 +15,8 @@ import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.domain.model.SaldoMensal;
 import br.com.conferenciaponto.domain.model.StatusCiclo;
 import br.com.conferenciaponto.domain.port.CicloBancoRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,25 +37,31 @@ import java.util.stream.Collectors;
 /**
  * Ciclo (semestral) do banco de horas: o saldo do painel é o do ciclo aberto. O botão "Fechar banco de
  * horas" congela o saldo exato do ciclo e recomeça a contagem do zero no dia seguinte ao último dia
- * incluído. Cada usuário tem os próprios ciclos.
+ * incluído. Cada usuário tem os próprios ciclos. Se o período tem pendências (dia sem saída, dia útil sem registro,
+ * diferença do RH sem decisão: {@link PendenciasDoPeriodo}), a tela mostra antes e o fechamento só passa com a
+ * confirmação ("fechar mesmo assim"): o saldo congelado não muda depois.
  */
 @Service
 public class GerenciarCicloBancoUseCase {
 
+    private static final Logger log = LoggerFactory.getLogger(GerenciarCicloBancoUseCase.class);
     private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     private final CicloBancoRepository ciclos;
     private final ConsolidacaoBancoHoras consolidacao;
     private final ParametrosBancoHoras parametros;
     private final ApplicationEventPublisher eventos;
+    private final PendenciasDoPeriodo pendencias;
     private final Clock clock;
 
     public GerenciarCicloBancoUseCase(CicloBancoRepository ciclos, ConsolidacaoBancoHoras consolidacao,
-                                      ParametrosBancoHoras parametros, ApplicationEventPublisher eventos, Clock clock) {
+                                      ParametrosBancoHoras parametros, ApplicationEventPublisher eventos,
+                                      PendenciasDoPeriodo pendencias, Clock clock) {
         this.ciclos = ciclos;
         this.consolidacao = consolidacao;
         this.parametros = parametros;
         this.eventos = eventos;
+        this.pendencias = pendencias;
         this.clock = clock;
     }
 
@@ -107,12 +117,28 @@ public class GerenciarCicloBancoUseCase {
     }
 
     /**
+     * O que está em aberto no ciclo atual até o último dia do fechamento, para mostrar antes de fechar.
+     *
+     * @param ultimoDia último dia que entraria no fechamento; {@code null} = sugestão ({@link #sugerirUltimoDia})
+     */
+    @Transactional(readOnly = true)
+    public Pendencias pendenciasDoFechamento(UUID usuarioId, LocalDate ultimoDia) {
+        CicloBanco aberto = aberto(usuarioId);
+        LocalDate dia = ultimoDia != null ? ultimoDia : sugerirUltimoDia(aberto, LocalDate.now(clock));
+        return dia.isBefore(aberto.dataInicio()) ? Pendencias.NENHUMA
+                : pendencias.de(usuarioId, aberto.dataInicio(), dia);
+    }
+
+    /**
      * Fecha o banco de horas.
      *
-     * @param ultimoDia último dia incluído no saldo final; {@code null} = sugestão ({@link #sugerirUltimoDia})
+     * @param ultimoDia          último dia incluído no saldo final; {@code null} = sugestão ({@link #sugerirUltimoDia})
+     * @param mesmoComPendencias quem fecha viu as pendências do período e confirmou; sem isso, um período com
+     *                           pendências é recusado com a lista delas (CICLO_COM_PENDENCIAS)
      */
     @Transactional
-    public Fechamento fechar(UUID usuarioId, LocalDate ultimoDia, String observacao, String usuario) {
+    public Fechamento fechar(UUID usuarioId, LocalDate ultimoDia, String observacao, String usuario,
+                             boolean mesmoComPendencias) {
         CicloBanco aberto = aberto(usuarioId);
         LocalDate hoje = LocalDate.now(clock);
         if (ultimoDia == null && !aberto.dataInicio().isBefore(hoje)) {
@@ -132,6 +158,16 @@ public class GerenciarCicloBancoUseCase {
             throw new RegraNegocioException("CICLO_HOJE_EM_ANDAMENTO", ("O dia de hoje ainda está em andamento: feche "
                     + "até ontem (%s). Para incluir hoje, feche depois da última batida do dia (ou amanhã).")
                     .formatted(DATA.format(hoje.minusDays(1))));
+        }
+        Pendencias abertas = pendencias.de(usuarioId, aberto.dataInicio(), dia);
+        if (!abertas.vazia() && !mesmoComPendencias) {
+            throw new RegraNegocioException("CICLO_COM_PENDENCIAS", ("O período de %s a %s tem pendências: %s. O saldo "
+                    + "congelado não muda depois: resolva antes ou confirme \"fechar mesmo assim\".")
+                    .formatted(DATA.format(aberto.dataInicio()), DATA.format(dia), abertas.resumo()));
+        }
+        if (!abertas.vazia()) {
+            log.info("Banco de horas fechado em {} por {} com pendências: {}", DATA.format(dia), usuario,
+                    abertas.resumo());
         }
         int saldo = apurar(usuarioId, aberto.dataInicio(), dia).saldo();
         CicloBanco fechado = aberto.fechar(dia, saldo, usuario, observacao, hoje, clock.instant());

@@ -3,6 +3,7 @@ package br.com.conferenciaponto.application.usecase;
 import br.com.conferenciaponto.application.ConsolidacaoBancoHoras;
 import br.com.conferenciaponto.application.DiferencaDaCarga;
 import br.com.conferenciaponto.application.ParametrosBancoHoras;
+import br.com.conferenciaponto.application.PendenciasDoPeriodo;
 import br.com.conferenciaponto.application.RegrasJornada;
 import br.com.conferenciaponto.application.TravaDosMesesConferidos;
 import br.com.conferenciaponto.domain.model.GradeHoraria;
@@ -44,6 +45,7 @@ class CenarioDaCarga {
     final NotificacaoRepositoryEmMemoria notificacoesRepo = new NotificacaoRepositoryEmMemoria();
     final AjusteJornadaRepositoryEmMemoria ajustes = new AjusteJornadaRepositoryEmMemoria();
     final ComprovanteArquivadoRepositoryEmMemoria arquivos = new ComprovanteArquivadoRepositoryEmMemoria();
+    final DivergenciaRepositoryEmMemoria divergencias = new DivergenciaRepositoryEmMemoria();
     final List<Object> eventos = new ArrayList<>();
     final RegrasJornada regras = Fixtures.regras(new ClassificadorDiaService(feriados, ausencias), horarios);
 
@@ -56,6 +58,7 @@ class CenarioDaCarga {
     NotificacoesUseCase notificacoes;
     ConferirMesUseCase conferir;
     TravaDosMesesConferidos trava;
+    PendenciasDoPeriodo pendencias;
     ConsultarBancoDeHorasUseCase banco;
     VerificarCompensacaoUseCase verificar;
 
@@ -75,10 +78,11 @@ class CenarioDaCarga {
         consolidacao = new ConsolidacaoBancoHoras(registros, lancamentos, carga);
         jornada = new ConsultarJornadaUseCase(registros, regras, ausencias, feriados, lancamentos, consolidacao);
         auditoria = new ConsultarAuditoriaUseCase(jornada, arquivos, new ArmazenamentoEmMemoria(), ajustes);
+        pendencias = new PendenciasDoPeriodo(registros, regras, divergencias, clock);
         ciclo = new GerenciarCicloBancoUseCase(ciclos, consolidacao, new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6),
-                eventos::add, clock);
+                eventos::add, pendencias, clock);
         notificacoes = new NotificacoesUseCase(notificacoesRepo, eventos::add, clock);
-        conferir = new ConferirMesUseCase(conferencias, jornada, notificacoes, eventos::add, clock);
+        conferir = new ConferirMesUseCase(conferencias, jornada, notificacoes, eventos::add, pendencias, clock);
         trava = new TravaDosMesesConferidos(conferencias, clock);
         banco = new ConsultarBancoDeHorasUseCase(auditoria, registros, regras, carga, LeiDaJornada.vigente(), conferir,
                 ciclo, ajustes, clock);

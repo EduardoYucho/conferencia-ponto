@@ -55,15 +55,18 @@ public record BancoDeHorasMesResponse(int ano, int mes, LocalDate hoje, HorarioR
      * @param mudou        os números de agora são diferentes dos da conferência
      * @param terminou     o mês já terminou (só então dá para conferir)
      * @param podeConferir quem está vendo pode conferir e reabrir
+     * @param pendencias   o que está em aberto no mês (uma frase por tipo), para avisar antes de conferir
      */
     public record ConferenciaMesResponse(ConferenciaResponse vigente, boolean mudou, int saldoAgoraSegundos,
                                          int trabalhadoAgoraSegundos, int diasRegistradosAgora, boolean terminou,
-                                         boolean podeConferir, List<ConferenciaResponse> historico) {
+                                         boolean podeConferir, List<ConferenciaResponse> historico,
+                                         List<String> pendencias) {
 
         public static ConferenciaMesResponse de(ConferenciaDoMesView c, boolean podeConferir) {
             return new ConferenciaMesResponse(c.vigente() == null ? null : ConferenciaResponse.de(c.vigente()), c.mudou(),
                     c.agora().saldoMensalSegundos(), c.agora().segundosTrabalhados(), c.agora().diasRegistrados(),
-                    c.terminou(), podeConferir, c.historico().stream().map(ConferenciaResponse::de).toList());
+                    c.terminou(), podeConferir, c.historico().stream().map(ConferenciaResponse::de).toList(),
+                    c.pendencias() == null ? List.of() : c.pendencias().itens());
         }
     }
 

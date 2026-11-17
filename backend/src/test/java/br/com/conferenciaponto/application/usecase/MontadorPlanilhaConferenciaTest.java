@@ -54,7 +54,8 @@ class MontadorPlanilhaConferenciaTest {
             new br.com.conferenciaponto.application.DiferencaDaCarga(regras, registros);
     private final ConsolidacaoBancoHoras consolidacao = new ConsolidacaoBancoHoras(registros, lancamentos, carga);
     private final GerenciarCicloBancoUseCase ciclo = new GerenciarCicloBancoUseCase(ciclos, consolidacao,
-            new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), evento -> { }, clock);
+            new ParametrosBancoHoras(LocalDate.of(2026, 5, 25), 6), evento -> { },
+            br.com.conferenciaponto.application.PendenciasDoPeriodo.NENHUMA, clock);
     private MontadorPlanilhaConferencia montador;
 
     @BeforeEach

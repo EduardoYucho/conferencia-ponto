@@ -3,6 +3,7 @@ package br.com.conferenciaponto.infrastructure.web;
 import br.com.conferenciaponto.domain.acesso.Acesso;
 import br.com.conferenciaponto.application.BancoDeHorasPorMes;
 import br.com.conferenciaponto.application.view.AuditoriaMesView;
+import br.com.conferenciaponto.application.PendenciasDoPeriodo;
 import br.com.conferenciaponto.application.view.CicloBancoView;
 import br.com.conferenciaponto.domain.model.CicloBanco;
 import br.com.conferenciaponto.application.usecase.AjustarBatidasUseCase;
@@ -91,7 +92,9 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -528,8 +531,25 @@ class SegurancaRbacWebTest {
         mvc.perform(multipart("/api/v1/conciliacoes").file(new MockMultipartFile("arquivo", "rh.pdf",
                         "application/pdf", new byte[]{1})).with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
                 .andExpect(status().isForbidden());
-        verify(ciclos, never()).fechar(any(), any(), any(), any());
+        verify(ciclos, never()).fechar(any(), any(), any(), any(), anyBoolean());
         verify(importarRh, never()).receber(any(), any(), any(), any());
+
+        // as pendências do fechamento são leitura; "fechar mesmo assim" chega ao caso de uso
+        when(ciclos.pendenciasDoFechamento(any(), any())).thenReturn(new PendenciasDoPeriodo.Pendencias(
+                List.of(), List.of(LocalDate.of(2026, 6, 4)), List.of()));
+        mvc.perform(get("/api/v1/ciclos/pendencias?ultimoDia=2026-09-30").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados[0]").value("1 dia útil sem nenhum registro (04/06): fora do saldo"));
+        verify(ciclos).pendenciasDoFechamento(any(), eq(LocalDate.of(2026, 9, 30)));
+        CicloBanco fechado = CicloBanco.abrir(idDe("eduardo"), LocalDate.of(2026, 5, 25), 6, Instant.EPOCH);
+        CicloBancoView view = new CicloBancoView(fechado, 0, 0, 0, null, null, List.of());
+        when(ciclos.fechar(any(), any(), any(), any(), anyBoolean()))
+                .thenReturn(new GerenciarCicloBancoUseCase.Fechamento(view, view));
+        mvc.perform(post("/api/v1/ciclos/fechar").with(jwt().authorities(perfil(Perfil.ROLE_USER)))
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"ultimoDia\":\"2026-09-30\",\"mesmoComPendencias\":true}"))
+                .andExpect(status().isOk());
+        verify(ciclos).fechar(any(), eq(LocalDate.of(2026, 9, 30)), any(), any(), eq(true));
 
         when(consultarConciliacao.resumo(any())).thenReturn(new ConciliacaoResumoView(List.of(), Map.of(), Map.of()));
         mvc.perform(get("/api/v1/conciliacoes/resumo").with(jwt().authorities(perfil(Perfil.ROLE_VIEWER))))

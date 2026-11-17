@@ -214,6 +214,11 @@ const conferencia = computed(() => dados.value?.conferencia ?? null)
 const travado = computed(() => !!conferencia.value?.vigente)
 const podeEditar = computed(() => auth.podeEscrever && !travado.value)
 const observacao = ref('')
+/** O mês tem pendências (dia sem saída, sem registro, diferença do RH): quem confere confirma que viu. */
+const pendencias = computed(() => conferencia.value?.pendencias ?? [])
+const mesmoComPendencias = ref(false)
+// outro mês, outra pessoa ou uma pendência nova: a confirmação vale só para a lista que foi vista
+watch(() => pendencias.value.join('|'), () => (mesmoComPendencias.value = false))
 const motivoReabertura = ref('')
 const reabrindo = ref(false)
 const enviandoConferencia = ref(false)
@@ -223,16 +228,23 @@ const ultimoDiaDoMes = computed(() => new Date(ano.value, mes.value, 0).getDate(
 
 async function conferirMes() {
   if (enviandoConferencia.value) return
+  if (pendencias.value.length && !mesmoComPendencias.value) {
+    mostrarAviso('O mês tem pendências: resolva antes ou marque "Conferir mesmo assim".', 'erro')
+    return
+  }
   enviandoConferencia.value = true
   try {
-    await pontoApi.conferirMes(ano.value, mes.value, auth.pessoaEmTela?.login, observacao.value.trim())
+    await pontoApi.conferirMes(ano.value, mes.value, auth.pessoaEmTela?.login, observacao.value.trim(),
+      pendencias.value.length > 0 && mesmoComPendencias.value)
   } catch (e) {
     mostrarAviso(mensagemDe(e), 'erro')
+    if (e?.codigo === 'MES_COM_PENDENCIAS') carregar() // uma pendência nova: a lista volta, para confirmar
     return
   } finally {
     enviandoConferencia.value = false
   }
   observacao.value = ''
+  mesmoComPendencias.value = false
   mostrarAviso(`${nomeMes(mes.value)} conferido: o mês ficou travado para mudanças à mão.`)
   carregar()
 }
@@ -482,9 +494,23 @@ const listaHoras = (horarios) => (horarios.length ? horarios.join(' ') : 'sem ba
             <p class="mt-2 text-sm text-tinta-suave">Não conferido.</p>
             <template v-if="conferencia.podeConferir">
               <form v-if="conferencia.terminou" class="mt-3 space-y-2" @submit.prevent="conferirMes">
+                <div v-if="pendencias.length" class="rounded-[3px] border border-amber-500/50 bg-amber-500/5 px-2 py-1.5 text-xs" role="note">
+                  <p class="font-semibold text-amber-800">Antes de conferir, o mês tem pendências:</p>
+                  <ul class="mt-1 list-disc space-y-0.5 pl-4">
+                    <li v-for="p in pendencias" :key="p">{{ p }}</li>
+                  </ul>
+                  <p class="mt-1 text-tinta-suave">
+                    Os dias aparecem no extrato, abaixo (filtro "O mês inteiro"); as diferenças do RH, em
+                    <RouterLink to="/conciliacao" class="underline underline-offset-2">Conciliação RH</RouterLink>.
+                  </p>
+                  <label class="mt-1.5 flex items-center gap-1.5 font-semibold">
+                    <input v-model="mesmoComPendencias" type="checkbox" class="size-3.5" /> Conferir mesmo assim
+                  </label>
+                </div>
                 <label class="block text-xs text-tinta-suave" for="obs-conferencia">Observação (opcional)</label>
                 <input id="obs-conferencia" v-model="observacao" class="campo" maxlength="300" placeholder="Ex.: conferido com o relatório do RH" />
-                <button type="submit" class="botao-primario w-full py-1.5! text-xs" :disabled="enviandoConferencia">Marcar como conferido</button>
+                <button type="submit" class="botao-primario w-full py-1.5! text-xs"
+                        :disabled="enviandoConferencia || (pendencias.length > 0 && !mesmoComPendencias)">Marcar como conferido</button>
                 <p class="text-xs text-tinta-apagada">O mês fica travado para mudanças à mão até alguém reabrir.</p>
               </form>
               <p v-else class="mt-2 text-xs text-tinta-suave">Dá para conferir depois que o mês terminar ({{ ultimoDiaDoMes }}/{{ String(mes).padStart(2, '0') }}).</p>

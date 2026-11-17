@@ -59,8 +59,15 @@ export const pontoApi = {
   /** Corrige o início (e a previsão) do ciclo aberto. */
   corrigirCiclo: ({ dataInicio, dataFimPrevista = null }) => http.put('/ciclos/atual', { dataInicio, dataFimPrevista }),
 
-  /** Congela o saldo até ultimoDia e recomeça a contagem do zero no dia seguinte. */
-  fecharCiclo: ({ ultimoDia, observacao }) => http.post('/ciclos/fechar', { ultimoDia, observacao }),
+  /** O que está em aberto no ciclo até ultimoDia (uma frase por tipo), para avisar antes de fechar. */
+  pendenciasDoFechamento: (ultimoDia) => http.get('/ciclos/pendencias', { params: { ultimoDia } }),
+
+  /**
+   * Congela o saldo até ultimoDia e recomeça a contagem do zero no dia seguinte. Com pendências no período, o
+   * servidor só fecha com mesmoComPendencias (quem fecha viu a lista e confirmou).
+   */
+  fecharCiclo: ({ ultimoDia, observacao, mesmoComPendencias = false }) =>
+    http.post('/ciclos/fechar', { ultimoDia, observacao, mesmoComPendencias }),
 
   desfazerFechamento: () => http.post('/ciclos/desfazer-fechamento'),
 
@@ -103,8 +110,9 @@ export const pontoApi = {
   /** O mês na tela Banco de horas: carga x horário, compensação, dias com a origem das batidas, avisos e conferência. */
   bancoDeHoras: (ano, mes) => http.get('/banco-de-horas', { params: { ano, mes } }),
   /** Marca o mês da pessoa (login) como conferido. */
-  conferirMes: (ano, mes, usuario, observacao) =>
-    http.post('/banco-de-horas/conferencia', { observacao: observacao || null }, { params: { ano, mes, usuario } }),
+  conferirMes: (ano, mes, usuario, observacao, mesmoComPendencias = false) =>
+    http.post('/banco-de-horas/conferencia', { observacao: observacao || null, mesmoComPendencias },
+      { params: { ano, mes, usuario } }),
   /** Reabre o mês conferido (o motivo é obrigatório). */
   reabrirMes: (ano, mes, usuario, motivo) =>
     http.post('/banco-de-horas/conferencia/reabrir', { motivo }, { params: { ano, mes, usuario } }),

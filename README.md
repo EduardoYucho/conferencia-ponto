@@ -815,7 +815,7 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | GET/POST | `/horarios` | Vigências do horário (com a soma, a carga, a diferença e os `avisos` da lei) · novo horário `{vigenteDesde, toleranciaMinutos, dias: {SEG: "08:00-12:00 13:00-17:48", ...}, cargaSemanalSegundos?}` (outra pessoa, com `ponto.equipe.configurar`: `?usuario=login`) |
 | POST | `/horarios/avaliacao` | O mesmo corpo, sem salvar: a soma, a carga, a diferença e os avisos da lei |
 | GET | `/banco-de-horas?ano=&mes=` | A tela Banco de horas: `horario`, `compensacao`, `resumo`, `bancoDeHoras`, `dias` (com comprovantes, histórico e `diferencaDaCargaSegundos`), `semExpediente`, `semRegistro`, `excluidos`, `avisos`, `conferencia` |
-| POST | `/banco-de-horas/conferencia?ano=&mes=&usuario=` · `/conferencia/reabrir` | (`ponto.conferir`) marca o mês como conferido `{observacao?}` · reabre `{motivo}` |
+| POST | `/banco-de-horas/conferencia?ano=&mes=&usuario=` · `/conferencia/reabrir` | (`ponto.conferir`) marca o mês como conferido `{observacao?, mesmoComPendencias?}` (com pendências no mês, só com `mesmoComPendencias`; senão `422 MES_COM_PENDENCIAS` com a lista) · reabre `{motivo}` |
 | DELETE | `/horarios/{id}` | Remove uma vigência (os dias voltam ao horário anterior) |
 | GET | `/configuracao` | Horário da pessoa que vale hoje (grade, tolerância, jornada), data/hora do servidor |
 | GET | `/jornadas?ano=&mes=` | Dias do mês + resumo (saldo mensal e anual acumulado, com `segundosLancados` e `segundosDaCarga`) + `conferencia` do mês (null = não conferido) |
@@ -949,7 +949,10 @@ atual", com o gráfico mês a mês do ciclo):
 
 - **Fechar banco de horas**: escolhe o último dia incluído (sugestão: a previsão, se já passou; senão, ontem), o
   saldo exato fica congelado no ciclo `FECHADO` e um novo ciclo começa **do zero** no dia seguinte, com previsão de
-  6 meses. Dá para **desfazer** o último fechamento.
+  6 meses. Dá para **desfazer** o último fechamento. Antes, a tela mostra as **pendências** até o último dia (dias
+  com entrada sem saída, dias úteis sem nenhum registro, diferenças do relatório do RH sem decisão: todos ficam fora
+  do saldo congelado) e só fecha com "Fechar mesmo assim" (`GET /ciclos/pendencias?ultimoDia=`;
+  `POST /ciclos/fechar {…, mesmoComPendencias}`, senão `422 CICLO_COM_PENDENCIAS`).
 - **Período**: corrige o início/previsão do ciclo aberto (o primeiro ciclo nasce de
   `ponto.banco-horas.inicio-primeiro-ciclo`, padrão `2026-05-25` — dia seguinte ao zeramento de 24/05/2026). O
   saldo do ciclo é apurado na hora, a partir do início: mudar o período muda o banco do painel, da auditoria e da
@@ -1007,7 +1010,9 @@ mês, porque o horário de segunda a sexta não fecha a carga):
   terminou como **conferido** (com observação), e os números da hora ficam guardados. O mês fica **travado** para
   mudanças à mão (ajuste, lançamento, batida de dia passado, exclusão, lançamento no banco, folgas e o horário que
   valeria nele); os PDFs do relógio continuam entrando, e a tela avisa que os números mudaram depois da conferência.
-  **Reabrir** pede o motivo; tudo fica no histórico e a pessoa é avisada no sino.
+  **Reabrir** pede o motivo; tudo fica no histórico e a pessoa é avisada no sino. Antes de conferir, a tela mostra
+  as **pendências** do mês (as mesmas do fechamento do banco, com as datas) e só confere com "Conferir mesmo assim";
+  quem conferiu com pendências fica no log.
 - **Sino:** faltando horas da carga e restando 2 fins de semana (ou 1) no mês; o mês que terminou faltando horas; e
   7 dias seguidos sem folga (a partir de 16/12/2026, semana sem nenhuma folga). Todo dia à 01:00, na subida e quando
   um dia sem expediente é lançado.
