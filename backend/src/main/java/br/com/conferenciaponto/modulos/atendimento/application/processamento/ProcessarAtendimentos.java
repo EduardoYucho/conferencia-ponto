@@ -188,6 +188,28 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         return progresso(atendimentoId);
     }
 
+    /**
+     * O vigia retoma sozinho uma pausa cujo motivo costuma passar (VigiaDosAtendimentos): o mesmo do Retomar, sem
+     * dono. Só vale para o atendimento ainda pausado: se a pessoa retomou ou cancelou nesse meio-tempo, nada muda.
+     *
+     * @return true se retomou
+     */
+    public boolean retomarSozinho(UUID atendimentoId) {
+        Instant agora = clock.instant();
+        if (!atendimentos.mudarSituacaoSe(atendimentoId, Set.of(SituacaoDoAtendimento.PAUSADO),
+                SituacaoDoAtendimento.PROCESSANDO, null, agora)) {
+            return false;
+        }
+        int retomadas = tarefas.retomarDoAtendimento(atendimentoId, agora);
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        int textos = redacao.refazerAsQueFalharam(atendimentoId, agora);
+        log.info("Atendimento {} retomado sozinho: {} tarefa(s) de volta à fila, {} análise(s) e {} texto(s) pedidos de novo",
+                atendimentoId, retomadas, analises, textos);
+        atualizarSituacao(atendimentoId);
+        publicador.publicar(atendimentoId);
+        return true;
+    }
+
     /** Tenta de novo o download de um anexo que falhou ou a análise de um arquivo pronto que ainda não tem. */
     public ProgressoView tentarDeNovo(Usuario usuario, UUID atendimentoId, UUID arquivoId) {
         EstadoDoAtendimento estado = doDono(usuario, atendimentoId);

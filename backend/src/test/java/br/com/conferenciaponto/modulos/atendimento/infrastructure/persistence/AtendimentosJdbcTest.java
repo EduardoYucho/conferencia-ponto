@@ -3,6 +3,7 @@ package br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence;
 import br.com.conferenciaponto.modulos.PostgresDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.PdfDigisacDeTeste;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoGuardado;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.AtendimentoParaOVigia;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.NovoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.ResumoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
@@ -148,5 +149,47 @@ class AtendimentosJdbcTest {
         assertThat(atendimentos.buscar(novo.id(), maria)).isEmpty();
         assertThat(jdbc.sql("SELECT count(*) FROM atendimento.arquivo WHERE atendimento_id = ?").param(novo.id())
                 .query(Long.class).single()).isZero();
+    }
+
+    @Test
+    void oVigiaVeOsNovosOsPausadosEOsQueVaoPerderOsArquivos() {
+        UUID ana = PostgresDeTeste.novoUsuario(true);
+        Instant base = agora.plus(9000, ChronoUnit.DAYS); // ninguém mais tem arquivos para sair perto disto
+        NovoAtendimento novoSemProcessar = novo(ana, base);
+        NovoAtendimento pausado = novo(ana, base.plus(1, ChronoUnit.MINUTES));
+        NovoAtendimento prontoComTexto = novo(ana, base.plus(2, ChronoUnit.MINUTES));
+        NovoAtendimento prontoSemTexto = novo(ana, base.plus(3, ChronoUnit.MINUTES));
+        NovoAtendimento prontoLonge = novo(ana, base.plus(10, ChronoUnit.DAYS));
+        for (NovoAtendimento n : List.of(novoSemProcessar, pausado, prontoComTexto, prontoSemTexto, prontoLonge)) {
+            atendimentos.salvarNovo(n);
+        }
+        atendimentos.mudarSituacao(pausado.id(), SituacaoDoAtendimento.PAUSADO, "A IA local não respondeu.", base);
+        for (NovoAtendimento n : List.of(prontoComTexto, prontoSemTexto, prontoLonge)) {
+            atendimentos.mudarSituacao(n.id(), SituacaoDoAtendimento.PRONTO, null, base);
+        }
+        jdbc.sql("INSERT INTO atendimento.saida (id, atendimento_id, tipo, versao, situacao) VALUES (?, ?, 'resumo', 1, 'pronta')")
+                .params(UUID.randomUUID(), prontoComTexto.id()).update();
+
+        // os arquivos dos três primeiros saem em base + 30 dias; olha até base + 31
+        List<AtendimentoParaOVigia> vistos = atendimentos.paraOVigia(base.plus(31, ChronoUnit.DAYS)).stream()
+                .filter(a -> a.usuarioId().equals(ana)).toList();
+
+        assertThat(vistos).extracting(AtendimentoParaOVigia::id)
+                .containsExactly(novoSemProcessar.id(), pausado.id(), prontoComTexto.id(), prontoSemTexto.id());
+        AtendimentoParaOVigia p = vistos.get(1);
+        assertThat(p.situacao()).isEqualTo(SituacaoDoAtendimento.PAUSADO);
+        assertThat(p.motivoPausa()).isEqualTo("A IA local não respondeu.");
+        assertThat(p.atualizadoEm()).isEqualTo(base);
+        assertThat(p.apagarArquivosEm()).isEqualTo(pausado.apagarArquivosEm());
+        assertThat(p.arquivosApagadosEm()).isNull();
+        assertThat(p.chamado()).isNotBlank();
+        assertThat(vistos.get(2).textoPronto()).isTrue();
+        assertThat(vistos.get(3).textoPronto()).isFalse();
+
+        // depois que a limpeza apaga, o pronto sai da lista; o pausado continua (o vigia avisa que ficou parado)
+        atendimentos.marcarArquivosApagados(prontoSemTexto.id(), base.plus(30, ChronoUnit.DAYS));
+        atendimentos.marcarArquivosApagados(pausado.id(), base.plus(30, ChronoUnit.DAYS));
+        assertThat(atendimentos.paraOVigia(base.plus(31, ChronoUnit.DAYS)).stream().filter(a -> a.usuarioId().equals(ana))
+                .map(AtendimentoParaOVigia::id)).containsExactly(novoSemProcessar.id(), pausado.id(), prontoComTexto.id());
     }
 }

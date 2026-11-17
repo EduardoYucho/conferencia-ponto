@@ -1,11 +1,13 @@
 package br.com.conferenciaponto.application.usecase;
 
+import br.com.conferenciaponto.application.evento.AvisoDeModulo;
 import br.com.conferenciaponto.application.evento.NotificacaoCriadaEvento;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.model.Notificacao;
 import br.com.conferenciaponto.domain.model.TipoNotificacao;
 import br.com.conferenciaponto.domain.port.NotificacaoRepository;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -49,6 +51,22 @@ public class NotificacoesUseCase {
         repository.salvar(nova);
         eventos.publishEvent(new NotificacaoCriadaEvento(nova, repository.contarNaoLidas(usuarioId)));
         return Optional.of(nova);
+    }
+
+    /**
+     * O aviso que um módulo pede ({@link AvisoDeModulo}): o sino é do ponto, e o módulo não conhece esta classe. Cada
+     * parte é cortada no tamanho da tabela; a chave ganha o prefixo "MODULO:".
+     */
+    @EventListener
+    @Transactional
+    public void aoPedirAviso(AvisoDeModulo aviso) {
+        notificar(aviso.usuarioId(), TipoNotificacao.MODULO, cortar("MODULO:" + aviso.chave(), 120),
+                cortar(aviso.titulo(), 120), cortar(aviso.mensagem(), 500),
+                aviso.link() == null ? null : cortar(aviso.link(), 200));
+    }
+
+    private static String cortar(String texto, int tamanho) {
+        return texto.length() <= tamanho ? texto : texto.substring(0, tamanho - 1) + "…";
     }
 
     @Transactional

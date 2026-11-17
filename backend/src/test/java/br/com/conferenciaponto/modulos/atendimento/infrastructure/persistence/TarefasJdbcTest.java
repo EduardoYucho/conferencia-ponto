@@ -300,4 +300,18 @@ class TarefasJdbcTest {
         assertThat(situacao(denovo.id())).isEqualTo("cancelada");
         assertThat(tarefas.ativas(atendimento)).isEqualTo(2);
     }
+
+    @Test
+    void osMotivosDaPausaSaoOsCodigosDasTarefasQuePausaramPorSi() {
+        UUID atendimento = novo(3);
+        assertThat(tarefas.motivosDaPausa(atendimento)).isEmpty();
+        List<Tarefa> pegas = pegar(2, 10);
+        tarefas.pausar(pegas.get(0).id(), "IA_LOCAL_PARADA", "parada", agora);
+        tarefas.pausar(pegas.get(1).id(), "DISCO_CHEIO", "cheio", agora);
+        tarefas.pausarDoAtendimento(atendimento, agora); // a terceira pausa junto, sem motivo próprio
+
+        assertThat(tarefas.motivosDaPausa(atendimento)).containsExactly("DISCO_CHEIO", "IA_LOCAL_PARADA");
+        tarefas.retomarDoAtendimento(atendimento, agora);
+        assertThat(tarefas.motivosDaPausa(atendimento)).isEmpty();
+    }
 }

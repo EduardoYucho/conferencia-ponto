@@ -80,4 +80,10 @@ public interface Atendimentos {
 
     /** Quantos estão pausados agora (disco cheio), para o aviso ao administrador. */
     int pausados();
+
+    /**
+     * Os que o vigia olha (sem conferir o dono): os novos, os pausados e os que têm os arquivos para sair até
+     * {@code arquivosAte}, do mais antigo para o mais novo.
+     */
+    List<AtendimentoParaOVigia> paraOVigia(Instant arquivosAte);
 }

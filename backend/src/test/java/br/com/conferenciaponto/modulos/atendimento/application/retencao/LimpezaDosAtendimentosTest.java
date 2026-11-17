@@ -9,6 +9,8 @@ import br.com.conferenciaponto.modulos.atendimento.application.atendimento.Geren
 import br.com.conferenciaponto.modulos.atendimento.application.processamento.PublicadorDeProgresso;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Arquivos;
 import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.EstadoDoAtendimento;
+import br.com.conferenciaponto.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.armazenamento.PastaEmDisco;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.pdf.ExtratorPdfBox;
 import br.com.conferenciaponto.modulos.atendimento.infrastructure.persistence.RepositoriosDeTeste;
@@ -76,5 +78,24 @@ class LimpezaDosAtendimentosTest {
         assertThat(atendimentos.existe(id, maria.id())).isFalse();
         assertThat(raiz.resolve(id.toString())).doesNotExist();
         assertThat(atendimentos.existe(recente, joao.id())).isTrue();
+    }
+
+    @Test
+    void oPausadoSemOsArquivosFicaComFalhasEONovoContinuaNovo() {
+        Usuario ana = new Usuario(PostgresDeTeste.novoUsuario(true), "ana", "ana", "h", true, Acesso.usuario(),
+                null, null, false);
+        Instant criado = Instant.now().plus(Duration.ofDays(5000)); // depois do teste acima
+        Usuario bia = new Usuario(PostgresDeTeste.novoUsuario(true), "bia", "bia", "h", true, Acesso.usuario(),
+                null, null, false);
+        UUID pausado = criar(ana, criado);
+        UUID novo = criar(bia, criado.plus(Duration.ofMinutes(1))); // o mesmo PDF da mesma pessoa abriria o mesmo atendimento
+        atendimentos.mudarSituacao(pausado, SituacaoDoAtendimento.PAUSADO, "A cota diária acabou.", criado);
+
+        limpeza(criado.plus(Duration.ofDays(31))).limpar();
+
+        EstadoDoAtendimento depois = atendimentos.estado(pausado).orElseThrow();
+        assertThat(depois.situacao()).as("sem arquivos, não há o que retomar").isEqualTo(SituacaoDoAtendimento.COM_FALHAS);
+        assertThat(depois.motivoPausa()).as("o motivo da pausa saiu").isNull();
+        assertThat(atendimentos.estado(novo).orElseThrow().situacao()).isEqualTo(SituacaoDoAtendimento.NOVO);
     }
 }

@@ -56,6 +56,9 @@ function rotulo(codigo) {
 const espera = computed(() => {
   const s = atual.value
   if (!s) return ''
+  if (props.atendimento.arquivosApagadosEm && props.atendimento.situacao !== 'processando') {
+    return 'Os arquivos deste atendimento foram apagados pela limpeza de 30 dias. O texto pode ser gerado com a conversa e o que já foi analisado.'
+  }
   if (props.atendimento.situacao === 'pausado') return props.atendimento.motivoPausa ?? 'O processamento está pausado.'
   if (props.atendimento.situacao === 'cancelado') return 'O processamento foi cancelado. Clique em Processar para continuar.'
   if (s.situacao === 'redigindo') return 'Escrevendo o texto…'
