@@ -19,6 +19,7 @@ import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
+import org.springframework.security.authentication.CredentialsExpiredException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
@@ -75,6 +76,8 @@ import java.util.Collection;
 public class SecurityConfig {
 
     public static final String CLAIM_NOME = "nome";
+    /** A impressão da senha de quando o token foi emitido (JwtEmissorToken.impressaoDaSenha). */
+    public static final String CLAIM_SENHA = "sv";
 
     private static final Logger log = LoggerFactory.getLogger(SecurityConfig.class);
 
@@ -148,19 +151,29 @@ public class SecurityConfig {
 
     /**
      * As authorities são as permissões que valem agora para o login do token, relidas do banco a cada requisição.
-     * Usuário que não existe mais ou foi desativado: 401 (ACESSO_DESATIVADO), e a tela volta ao login.
+     * Usuário que não existe mais ou foi desativado: 401 (ACESSO_DESATIVADO). Senha trocada depois que o token foi
+     * emitido: 401 (SESSAO_ENCERRADA). Nos dois casos a tela volta ao login, com o motivo.
      */
     @Bean
     public JwtAuthenticationConverter jwtAuthenticationConverter(UsuarioRepository usuarios) {
         JwtAuthenticationConverter conversor = new JwtAuthenticationConverter();
-        conversor.setJwtGrantedAuthoritiesConverter(jwt -> permissoesDe(usuarios, jwt.getSubject()));
+        conversor.setJwtGrantedAuthoritiesConverter(jwt -> permissoesDe(usuarios, jwt.getSubject(),
+                jwt.getClaimAsString(CLAIM_SENHA)));
         return conversor;
     }
 
     static Collection<GrantedAuthority> permissoesDe(UsuarioRepository usuarios, String login) {
+        return permissoesDe(usuarios, login, null);
+    }
+
+    /** @param impressao a da senha no token ({@code null} = token de antes desta regra: vale até vencer) */
+    static Collection<GrantedAuthority> permissoesDe(UsuarioRepository usuarios, String login, String impressao) {
         Usuario usuario = login == null ? null : usuarios.buscarPorLogin(login).filter(Usuario::ativo).orElse(null);
         if (usuario == null) {
             throw new DisabledException(RespostasSeguranca.ACESSO_DESATIVADO);
+        }
+        if (impressao != null && !impressao.equals(JwtEmissorToken.impressaoDaSenha(usuario.senhaHash()))) {
+            throw new CredentialsExpiredException(RespostasSeguranca.SESSAO_ENCERRADA);
         }
         return usuario.acesso().permissoes().stream()
                 .map(p -> (GrantedAuthority) new SimpleGrantedAuthority(p))

@@ -47,8 +47,9 @@ configurarAutenticacao({
   obterToken: () => auth.token,
   obterUsuarioVisto: () => auth.loginConsultado(),
   aoPrecisarTrocarSenha: irTrocarSenha,
-  // 401: sessão expirada ou acesso desativado pelo administrador (o servidor diz qual)
-  aoNaoAutenticado: (codigo, mensagem) => encerrarSessao(codigo === 'ACESSO_DESATIVADO' && mensagem ? mensagem : undefined),
+  // 401: sessão expirada, acesso desativado pelo administrador ou senha trocada em outro lugar (o servidor diz qual)
+  aoNaoAutenticado: (codigo, mensagem) =>
+    encerrarSessao(['ACESSO_DESATIVADO', 'SESSAO_ENCERRADA'].includes(codigo) && mensagem ? mensagem : undefined),
 })
 auth.definirAoExpirar(() => encerrarSessao())
 usePontoStore(pinia).definirAoPerderSessao((_status, codigo) => (codigo === 'TROCAR_SENHA' ? irTrocarSenha() : encerrarSessao()))

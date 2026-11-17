@@ -408,7 +408,7 @@ class SegurancaRbacWebTest {
     @DisplayName("Login é público")
     void loginPublico() throws Exception {
         Usuario leitora = Usuario.novo("coordenacao", "Coordenação", "hash", Acesso.coordenador());
-        when(autenticar.autenticar(any(), any())).thenReturn(new SessaoView("token", Instant.now(), leitora));
+        when(autenticar.autenticar(any(), any(), any())).thenReturn(new SessaoView("token", Instant.now(), leitora));
 
         mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
                         .content("{\"login\":\"coordenacao\",\"senha\":\"x\"}"))
@@ -784,5 +784,37 @@ class SegurancaRbacWebTest {
                             .with(jwt().jwt(j -> j.subject(login)).authorities(perfil(p))))
                     .andExpect(status().isAccepted());
         }
+    }
+
+    @Test
+    @DisplayName("Senha trocada depois do token: 401 SESSAO_ENCERRADA; token de antes da regra (sem a impressão) vale")
+    void senhaTrocadaEncerraASessao() throws Exception {
+        mesVazio();
+        String token = tokenDe("maria"); // emitido com o hash "x", o mesmo de doBanco
+        mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token)).andExpect(status().isOk());
+
+        when(usuarios.buscarPorLogin("maria")).thenReturn(Optional.of(new Usuario(idDe("maria"), "maria", "Maria",
+                "hash-da-senha-nova", true, Acesso.usuario(), null)));
+        mvc.perform(get("/api/v1/jornadas").header(HttpHeaders.AUTHORIZATION, token))
+                .andExpect(status().isUnauthorized())
+                .andExpect(jsonPath("$.erros[0].codigo").value("SESSAO_ENCERRADA"))
+                .andExpect(jsonPath("$.erros[0].mensagem").value(org.hamcrest.Matchers.containsString("Entre de novo")));
+
+        // um token sem a claim "sv" (emitido antes desta versão) continua valendo até vencer
+        mvc.perform(get("/api/v1/jornadas").with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER))))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    @DisplayName("Login bloqueado por tentativas: 429 LOGIN_BLOQUEADO com Retry-After")
+    void loginBloqueado() throws Exception {
+        when(autenticar.autenticar(any(), any(), any())).thenThrow(new br.com.conferenciaponto.domain.exception
+                .MuitasTentativasException("LOGIN_BLOQUEADO", "Muitas senhas erradas para este login.", java.time.Duration.ofMinutes(15)));
+
+        mvc.perform(post("/api/v1/auth/login").contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"login\":\"maria\",\"senha\":\"x\"}"))
+                .andExpect(status().isTooManyRequests())
+                .andExpect(header().string(HttpHeaders.RETRY_AFTER, "900"))
+                .andExpect(jsonPath("$.erros[0].codigo").value("LOGIN_BLOQUEADO"));
     }
 }

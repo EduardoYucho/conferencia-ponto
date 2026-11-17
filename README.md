@@ -792,7 +792,7 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 |---|---|---|
 | POST | `/auth/login` | `{login, senha}` → `{token, tipo, expiraEm, usuario{login, nome, perfis, permissoes}}` |
 | GET | `/auth/me` | Usuário da sessão (`perfis`, `permissoes`, `titular`, `podeVerTodos`, `podeEscrever`, `trocarSenha`, `pastaComprovantes`) |
-| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer pessoa; encerra a senha provisória |
+| PUT | `/auth/senha` | `{senhaAtual, novaSenha}` (mín. 8 caracteres) — qualquer pessoa; encerra a senha provisória e as outras sessões e devolve a sessão nova |
 | GET | `/usuarios/titulares` | Pessoas com dados de ponto que o usuário pode consultar |
 | GET/POST | `/usuarios` | lista (`usuarios.gerenciar` ou `acessos.gerenciar`) · cria `{login, nome, perfis?, senhaProvisoria, pastaComprovantes?}` (`usuarios.gerenciar`; os perfis, só com `acessos.gerenciar`) |
 | PUT | `/usuarios/{id}` · `/{id}/senha` · `/{id}/pasta` | `{nome, ativo}` · `{senhaProvisoria}` (`usuarios.gerenciar`) · `{pasta}` (`ponto.equipe.configurar`) |
@@ -852,10 +852,15 @@ mensagem) e `500 COMPROVANTE_CORROMPIDO` (arquivo alterado em disco). Ver "Erros
 
 ## Permissões nas rotas
 
-Autenticação **stateless** com JWT HS256 (claims `sub` e `nome`; validade de 8 h), senhas com BCrypt. O token não
-leva as permissões: a cada requisição o conversor do Spring Security relê a pessoa e as authorities são as
+Autenticação **stateless** com JWT HS256 (claims `sub`, `nome` e `sv`; validade de 8 h), senhas com BCrypt. O token
+não leva as permissões: a cada requisição o conversor do Spring Security relê a pessoa e as authorities são as
 permissões que valem para ela agora (veja [Controle de acessos](#controle-de-acessos)); pessoa desativada ou
-apagada recebe `401 ACESSO_DESATIVADO` com o mesmo token. As regras ficam em `SecurityConfig`; a escrita é
+apagada recebe `401 ACESSO_DESATIVADO` com o mesmo token. A claim `sv` é uma impressão do hash da senha: **senha
+trocada** (pela pessoa ou pelo administrador, com a senha provisória) encerra as sessões abertas com a antiga
+(`401 SESSAO_ENCERRADA`, e a tela volta ao login dizendo o motivo); quem trocou a própria senha continua na tela
+com o token novo que `PUT /auth/senha` devolve. **Senhas erradas**: 5 para o mesmo login em 15 minutos bloqueiam
+esse login por 15 minutos, e 20 vindas do mesmo computador bloqueiam o computador (`429 LOGIN_BLOQUEADO`, com
+`Retry-After`; `TentativasDeLogin`, na memória: reiniciar libera). As regras ficam em `SecurityConfig`; a escrita é
 decidida **pelo método HTTP**, então uma rota nova de escrita já nasce protegida:
 
 | Rota | Exige |

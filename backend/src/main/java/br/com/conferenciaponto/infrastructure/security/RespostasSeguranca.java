@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.security.access.AccessDeniedException;
+import org.springframework.security.authentication.CredentialsExpiredException;
 import org.springframework.security.authentication.DisabledException;
 import org.springframework.security.core.AuthenticationException;
 import org.springframework.security.web.AuthenticationEntryPoint;
@@ -22,6 +23,8 @@ public class RespostasSeguranca implements AuthenticationEntryPoint, AccessDenie
 
     /** O token é válido, mas o usuário foi desativado (ou não existe mais). */
     public static final String ACESSO_DESATIVADO = "ACESSO_DESATIVADO";
+    /** O token é válido, mas a senha foi trocada depois que ele foi emitido. */
+    public static final String SESSAO_ENCERRADA = "SESSAO_ENCERRADA";
 
     private final ObjectMapper objectMapper;
 
@@ -36,6 +39,11 @@ public class RespostasSeguranca implements AuthenticationEntryPoint, AccessDenie
         if (ex instanceof DisabledException) {
             escrever(response, HttpServletResponse.SC_UNAUTHORIZED, ACESSO_DESATIVADO,
                     "Seu acesso ao sistema foi desativado. Procure o administrador.");
+            return;
+        }
+        if (ex instanceof CredentialsExpiredException) {
+            escrever(response, HttpServletResponse.SC_UNAUTHORIZED, SESSAO_ENCERRADA,
+                    "Sua senha foi trocada (por você ou pelo administrador). Entre de novo com a senha nova.");
             return;
         }
         escrever(response, HttpServletResponse.SC_UNAUTHORIZED, "NAO_AUTENTICADO",

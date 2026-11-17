@@ -106,4 +106,43 @@ class AutenticarUsuarioUseCaseTest {
         useCase.alterarSenha("coordenacao", "senha-forte", "nova-senha-123");
         assertThat(useCase.autenticar("coordenacao", "nova-senha-123").token()).isEqualTo("token-coordenacao");
     }
+
+    @Test
+    @DisplayName("A senha nova volta com uma sessão nova (as outras deixam de valer pelo token)")
+    void alterarSenhaDevolveASessaoNova() {
+        cadastrar("maria", "senha-forte", Perfil.ROLE_USER);
+
+        SessaoView sessao = useCase.alterarSenha("maria", "senha-forte", "outra-senha-456");
+
+        assertThat(sessao.token()).isEqualTo("token-maria");
+        assertThat(sessao.usuario().senhaHash()).isEqualTo("h:outra-senha-456");
+        assertThat(sessao.usuario().trocarSenha()).isFalse();
+    }
+
+    @Test
+    @DisplayName("Cinco senhas erradas bloqueiam o login: nem a certa entra até passar o bloqueio")
+    void bloqueioPorTentativas() {
+        cadastrar("maria", "senha-forte", Perfil.ROLE_USER);
+        for (int i = 0; i < 5; i++) {
+            assertThatThrownBy(() -> useCase.autenticar("maria", "errada", "10.0.0.5"))
+                    .isInstanceOf(CredenciaisInvalidasException.class);
+        }
+        assertThatThrownBy(() -> useCase.autenticar("maria", "senha-forte", "10.0.0.5"))
+                .isInstanceOf(br.com.conferenciaponto.domain.exception.MuitasTentativasException.class)
+                .hasMessageContaining("Muitas senhas erradas");
+        assertThat(banco.get("maria").ultimoLoginEm()).isNull();
+    }
+
+    @Test
+    @DisplayName("Entrar com a senha certa zera as erradas do login")
+    void aSenhaCertaZeraOsErros() {
+        cadastrar("maria", "senha-forte", Perfil.ROLE_USER);
+        for (int rodada = 0; rodada < 3; rodada++) {
+            for (int i = 0; i < 4; i++) {
+                assertThatThrownBy(() -> useCase.autenticar("maria", "errada", null))
+                        .isInstanceOf(CredenciaisInvalidasException.class);
+            }
+            assertThat(useCase.autenticar("maria", "senha-forte", null).token()).isEqualTo("token-maria");
+        }
+    }
 }

@@ -144,13 +144,18 @@ export const useAuthStore = defineStore('auth', () => {
     return usuario.value
   }
 
+  /** A senha nova encerra as outras sessões: esta continua com o token novo que o servidor devolve. */
   async function alterarSenha(senhaAtual, novaSenha) {
-    await authApi.alterarSenha(senhaAtual, novaSenha)
-    if (usuario.value?.trocarSenha) {
-      usuario.value = { ...usuario.value, trocarSenha: false }
-      persistir()
-      await carregarTitulares().catch(() => {})
+    const sessao = await authApi.alterarSenha(senhaAtual, novaSenha)
+    const eraProvisoria = !!usuario.value?.trocarSenha
+    if (sessao?.token) {
+      token.value = sessao.token
+      expiraEm.value = sessao.expiraEm
+      agendarExpiracao()
     }
+    usuario.value = sessao?.usuario ? { ...sessao.usuario, trocarSenha: false } : { ...usuario.value, trocarSenha: false }
+    persistir()
+    if (eraProvisoria) await carregarTitulares().catch(() => {})
   }
 
   /**

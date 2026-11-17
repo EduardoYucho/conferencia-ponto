@@ -9,6 +9,7 @@ import br.com.conferenciaponto.infrastructure.web.dto.ApiResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.LoginRequest;
 import br.com.conferenciaponto.infrastructure.web.dto.SessaoResponse;
 import br.com.conferenciaponto.infrastructure.web.dto.UsuarioResponse;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -23,8 +24,9 @@ import org.springframework.web.bind.annotation.RestController;
  * <pre>
  * POST /api/v1/auth/login   {login, senha} -> {token, tipo: "Bearer", expiraEm, usuario}
  * GET  /api/v1/auth/me      usuário do token
- * PUT  /api/v1/auth/senha   {senhaAtual, novaSenha}
+ * PUT  /api/v1/auth/senha   {senhaAtual, novaSenha} -> a sessão nova (as abertas com a senha antiga deixam de valer)
  * </pre>
+ * Senhas erradas demais para um login (ou do mesmo computador) bloqueiam por 15 minutos: 429 LOGIN_BLOQUEADO.
  */
 @RestController
 @RequestMapping("/api/v1/auth")
@@ -45,9 +47,9 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ApiResponse<SessaoResponse> login(@Valid @RequestBody LoginRequest request) {
+    public ApiResponse<SessaoResponse> login(@Valid @RequestBody LoginRequest request, HttpServletRequest http) {
         try {
-            SessaoView sessao = autenticar.autenticar(request.login(), request.senha());
+            SessaoView sessao = autenticar.autenticar(request.login(), request.senha(), http.getRemoteAddr());
             ContextoDeLog.comUsuario(sessao.usuario().login(), () -> log.info("Entrou no sistema"));
             return ApiResponse.ok(SessaoResponse.de(sessao));
         } catch (CredenciaisInvalidasException e) {
@@ -63,9 +65,10 @@ public class AuthController {
     }
 
     @PutMapping("/senha")
-    public ApiResponse<Void> alterarSenha(@AuthenticationPrincipal Jwt jwt,
-                                          @Valid @RequestBody AlterarSenhaRequest request) {
-        autenticar.alterarSenha(jwt.getSubject(), request.senhaAtual(), request.novaSenha());
-        return ApiResponse.ok(null);
+    public ApiResponse<SessaoResponse> alterarSenha(@AuthenticationPrincipal Jwt jwt,
+                                                    @Valid @RequestBody AlterarSenhaRequest request) {
+        SessaoView sessao = autenticar.alterarSenha(jwt.getSubject(), request.senhaAtual(), request.novaSenha());
+        log.info("Trocou a própria senha (as outras sessões deixam de valer)");
+        return ApiResponse.ok(SessaoResponse.de(sessao));
     }
 }
