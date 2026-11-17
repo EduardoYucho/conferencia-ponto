@@ -102,6 +102,8 @@ public class SecurityConfig {
                         .requestMatchers(HttpMethod.GET, "/api/v1/usuarios")
                         .hasAnyAuthority(PermissoesDaAdministracao.USUARIOS, PermissoesDaAdministracao.ACESSOS)
                         .requestMatchers(HttpMethod.PUT, "/api/v1/usuarios/*/pasta").hasAuthority(PermissoesDoPonto.CONFIGURAR_EQUIPE)
+                        // comprovante no ponto da pessoa errada: quem configura a equipe o manda para a pessoa certa
+                        .requestMatchers(HttpMethod.POST, "/api/v1/comprovantes/*/mover").hasAuthority(PermissoesDoPonto.CONFIGURAR_EQUIPE)
                         .requestMatchers("/api/v1/usuarios", "/api/v1/usuarios/**").hasAuthority(PermissoesDaAdministracao.USUARIOS)
                         .requestMatchers("/api/v1/integracoes", "/api/v1/integracoes/**")
                         .hasAuthority(PermissoesDaAdministracao.INTEGRACOES)

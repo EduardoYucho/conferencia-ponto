@@ -32,6 +32,7 @@ import java.util.UUID;
  *   <li>O arquivo final é marcado como somente leitura (proteção contra alteração acidental);
  *       a integridade é conferida pelo hash a cada download.</li>
  *   <li>Se a transação que registrou o comprovante sofrer rollback, o arquivo é removido.</li>
+ *   <li>O PDF de uma importação desfeita vai para {@code <raiz>/desfeitos/<ano>/<mês>/} depois da gravação.</li>
  *   <li>Toda resolução de caminho é confinada à raiz (bloqueia path traversal).</li>
  * </ul>
  */
@@ -93,6 +94,36 @@ public class ArmazenamentoLocalComprovantes implements ArmazenamentoComprovantes
     @Override
     public URI uriDeAcesso(UUID id) {
         return URI.create("%s/%s/download".formatted(urlBase, id));
+    }
+
+    @Override
+    public void guardarComoDesfeito(String caminhoArquivo) {
+        Path origem = resolver(caminhoArquivo);
+        Path destino = resolver("desfeitos/" + caminhoArquivo);
+        Runnable mover = () -> {
+            try {
+                Files.createDirectories(destino.getParent());
+                origem.toFile().setWritable(true);
+                mover(origem, destino);
+                if (!destino.toFile().setReadOnly()) {
+                    log.debug("Não foi possível marcar {} como somente leitura", destino);
+                }
+                log.info("Comprovante de importação desfeita guardado em desfeitos/{}", caminhoArquivo);
+            } catch (IOException | RuntimeException e) {
+                log.warn("O comprovante {} não pôde ir para os desfeitos (continua onde estava): {}", caminhoArquivo,
+                        e.toString());
+            }
+        };
+        if (!TransactionSynchronizationManager.isSynchronizationActive()) {
+            mover.run();
+            return;
+        }
+        TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+            @Override
+            public void afterCommit() {
+                mover.run();
+            }
+        });
     }
 
     public Path getRaiz() {

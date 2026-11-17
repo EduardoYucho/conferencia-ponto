@@ -12,7 +12,14 @@ public interface ComprovantePontoRepository {
 
     boolean existeHash(String hashSha256);
 
-    Optional<ComprovanteImportado> buscarPorHash(String hashSha256);
+    /** O registro deste PDF no ponto da pessoa (um por pessoa). */
+    Optional<ComprovanteImportado> buscarPorHash(UUID usuarioId, String hashSha256);
+
+    /** O PDF está no ponto de outra pessoa (importado, ou arquivado como prova de uma batida dela)? */
+    boolean noPontoDeOutraPessoa(String hashSha256, UUID usuarioId);
+
+    /** A importação foi desfeita: o registro fica, como DESFEITO, com o motivo. */
+    void marcarDesfeito(UUID id, String mensagem);
 
     /** Já existe comprovante IMPORTADO com esta data/hora? */
     boolean existeImportado(UUID usuarioId, LocalDateTime dataHoraBatida);

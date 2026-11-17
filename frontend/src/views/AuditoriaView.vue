@@ -487,7 +487,7 @@ async function exportarExcel() {
                   </summary>
                   <ul class="mt-1 w-60 space-y-1.5 whitespace-normal">
                     <li v-for="a in l.ajustes" :key="a.id" class="rounded-[2px] bg-papel px-2 py-1.5">
-                      <span class="block text-tinta-suave">{{ formatarMomento(a.ajustadoEm) }} · {{ a.usuario }}<template v-if="a.origem === 'EXCLUSAO'"> · excluiu o dia</template><template v-else-if="a.origem === 'MANUAL'"> · lançou à mão</template></span>
+                      <span class="block text-tinta-suave">{{ formatarMomento(a.ajustadoEm) }} · {{ a.usuario }}<template v-if="a.origem === 'EXCLUSAO'"> · excluiu o dia</template><template v-else-if="a.origem === 'MANUAL'"> · lançou à mão</template><template v-else-if="a.origem === 'DESFEITO'"> · tirou o comprovante (não era deste ponto)</template></span>
                       <span class="carimbo block">{{ listaHoras(a.antes) }} → {{ listaHoras(a.depois) }}</span>
                       <span class="block italic">“{{ a.justificativa }}”</span>
                     </li>

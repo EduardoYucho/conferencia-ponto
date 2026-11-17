@@ -5,6 +5,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.LocalDateTime;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -13,7 +14,10 @@ interface ComprovantePontoJpaRepository extends JpaRepository<ComprovantePontoEn
 
     boolean existsByHashSha256(String hashSha256);
 
-    Optional<ComprovantePontoEntity> findByHashSha256(String hashSha256);
+    Optional<ComprovantePontoEntity> findByUsuarioIdAndHashSha256(UUID usuarioId, String hashSha256);
+
+    boolean existsByHashSha256AndUsuarioIdNotAndStatusIn(String hashSha256, UUID usuarioId,
+                                                         Collection<StatusImportacao> status);
 
     boolean existsByUsuarioIdAndDataHoraBatidaAndStatus(UUID usuarioId, LocalDateTime dataHoraBatida,
                                                         StatusImportacao status);

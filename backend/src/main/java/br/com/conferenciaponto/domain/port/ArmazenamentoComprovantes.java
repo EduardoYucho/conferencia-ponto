@@ -22,4 +22,11 @@ public interface ArmazenamentoComprovantes {
 
     /** URI de acesso (download) do comprovante. */
     URI uriDeAcesso(UUID id);
+
+    /**
+     * O PDF de uma importação desfeita sai do arquivo do ponto e fica guardado à parte ({@code desfeitos/...}).
+     * Numa transação, só depois da gravação (se ela não acontecer, o arquivo fica onde está); uma falha ao mover vai
+     * para o log, sem desfazer o que foi gravado.
+     */
+    void guardarComoDesfeito(String caminhoArquivo);
 }

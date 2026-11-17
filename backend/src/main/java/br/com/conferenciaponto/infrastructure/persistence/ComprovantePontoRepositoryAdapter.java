@@ -26,8 +26,20 @@ class ComprovantePontoRepositoryAdapter implements ComprovantePontoRepository {
     }
 
     @Override
-    public Optional<ComprovanteImportado> buscarPorHash(String hashSha256) {
-        return jpa.findByHashSha256(hashSha256).map(ComprovantePontoEntity::paraDominio);
+    public Optional<ComprovanteImportado> buscarPorHash(UUID usuarioId, String hashSha256) {
+        return jpa.findByUsuarioIdAndHashSha256(usuarioId, hashSha256).map(ComprovantePontoEntity::paraDominio);
+    }
+
+    @Override
+    public boolean noPontoDeOutraPessoa(String hashSha256, UUID usuarioId) {
+        return jpa.existsByHashSha256AndUsuarioIdNotAndStatusIn(hashSha256, usuarioId,
+                List.of(StatusImportacao.IMPORTADO, StatusImportacao.DUPLICADO));
+    }
+
+    @Override
+    public void marcarDesfeito(UUID id, String mensagem) {
+        jpa.findById(id).ifPresent(e -> e.desfazer(mensagem));
+        jpa.flush();
     }
 
     @Override

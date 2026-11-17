@@ -121,7 +121,7 @@ function mostrar(texto) {
   timerAviso = setTimeout(() => (aviso.value = ''), 5000)
 }
 
-const ROTULO_STATUS = { IMPORTADO: 'importado', DUPLICADO: 'já existia', REJEITADO: 'recusado', INVALIDO: 'inválido' }
+const ROTULO_STATUS = { IMPORTADO: 'importado', DUPLICADO: 'já existia', REJEITADO: 'recusado', INVALIDO: 'inválido', DESFEITO: 'tirado' }
 const quando = (iso) => {
   const d = new Date(iso)
   return `${dataBR(dataISO(d))} ${d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}`

@@ -32,7 +32,7 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
     @Column(name = "nome_arquivo", nullable = false, length = 255)
     private String nomeArquivo;
 
-    @Column(name = "hash_sha256", nullable = false, length = 64, unique = true)
+    @Column(name = "hash_sha256", nullable = false, length = 64) // único por pessoa (V19)
     private String hashSha256;
 
     @Column(name = "data_hora_batida")
@@ -66,6 +66,12 @@ public class ComprovantePontoEntity implements Persistable<UUID> {
         e.mensagem = truncar(c.mensagem(), 500);
         e.processadoEm = c.processadoEm().atOffset(ZoneOffset.UTC);
         return e;
+    }
+
+    /** A importação foi desfeita (o PDF era de outra pessoa). */
+    void desfazer(String motivo) {
+        this.status = StatusImportacao.DESFEITO;
+        this.mensagem = truncar(motivo, 500);
     }
 
     ComprovanteImportado paraDominio() {

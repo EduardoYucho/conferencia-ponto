@@ -71,6 +71,12 @@ export const pontoApi = {
 
   desfazerFechamento: () => http.post('/ciclos/desfazer-fechamento'),
 
+  // ------------------------------------------------ comprovante no ponto errado
+  /** O comprovante não é meu: a batida que ele trouxe sai do meu ponto e a minha pasta não o importa de novo. */
+  desfazerImportacao: (id, motivo) => http.post(`/comprovantes/${id}/desfazer`, { motivo }),
+  /** Quem configura a equipe manda o comprovante para o ponto da pessoa certa. */
+  moverComprovante: (id, usuario, motivo) => http.post(`/comprovantes/${id}/mover`, { usuario, motivo }),
+
   // ------------------------------------------------------- notificações
   notificacoes: () => http.get('/notificacoes'),
   marcarNotificacaoLida: (id) => http.post(`/notificacoes/${id}/lida`),

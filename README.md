@@ -847,6 +847,7 @@ Todas as rotas, exceto o login, exigem `Authorization: Bearer <token>`.
 | POST | `/planilha/sincronizar` · DELETE `/planilha` | Regrava agora · deixa de gravar (idem) |
 | GET/PUT/DELETE | `/integracoes/google` | (`integracoes.gerenciar`) conta de serviço: consulta · envia a chave `{chave: "<conteúdo do .json>"}` · desliga |
 | GET | `/comprovantes/{id}/download` | PDF original (`attachment`); também em `/api/comprovantes/{id}/download` |
+| POST | `/comprovantes/{id}/desfazer` · `/comprovantes/{id}/mover` | O comprovante não é deste ponto: sai do próprio ponto `{motivo}` · vai para o ponto da pessoa certa `{usuario, motivo}` (`ponto.equipe.configurar`) — veja [Comprovante no ponto errado](#comprovante-no-ponto-errado) |
 | GET | `/presenca` | Equipe agora: todos os usuários ativos com `{online, situacao, situacaoRotulo, motivo, desde, horario, ...}` |
 | GET | `/logs/ao-vivo?depois=&nivel=&login=&texto=&semConsultas=` | (`logs.ver`) últimas linhas de log, para a tela consultar a cada 2 s |
 | GET | `/logs/arquivos` · `/logs/arquivo?login=&data=&hora=` | (`logs.ver`) pastas por usuário → dias → horas · o log daquela hora |
@@ -910,7 +911,8 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V1` — `tb_registro_jornada` (batidas reais com segundos, saldo desnormalizado, `CHECK` de sequência/cronologia/saldo)
 - `V2` — `tb_feriado` com os feriados **nacionais** de 2026 (inclua os estaduais/municipais)
 - `V3` — `vw_saldo_mensal` (saldo mensal + acumulado anual via window function)
-- `V4` — `tb_comprovante_ponto` (auditoria dos PDFs: hash único + índice único parcial por data/hora importada)
+- `V4` — `tb_comprovante_ponto` (auditoria dos PDFs: hash único — por pessoa desde a V19 — + índice único parcial
+  por data/hora importada)
 - `V5` — `tb_comprovante` (PDF arquivado, 1:N com `tb_registro_jornada`, `ON DELETE RESTRICT`,
   `UNIQUE(registro_jornada_id, tipo_batida)` *deferrable*), `tb_role` (ADMIN/USER/VIEWER),
   `tb_usuario` e `tb_usuario_role`
@@ -935,6 +937,9 @@ Migrações em `backend/src/main/resources/db/migration`:
 - `V18` — monitor fiscal, no schema `fiscal`: `situacao_atual`, `mudanca`, `incidente` (um aberto por
   autorizador), `resumo_hora`, `rodada`, `fonte` e `aviso`; "Ver o monitor fiscal" entra nos perfis Usuário e
   Coordenador (com a linha no histórico de acessos)
+- `V19` — comprovante no ponto errado: em `tb_comprovante_ponto` o hash do PDF passa a ser único **por pessoa**
+  (era no sistema todo) e entra o status `DESFEITO`; `tb_ajuste_jornada.origem` ganha `DESFEITO`. Nenhum registro
+  existente muda
 
 Os schemas dos módulos só se ligam ao ponto por `tb_usuario`; para desfazê-los sem tocar no ponto, veja
 [Backup](#backup). `MigracoesPostgresTest` aplica todas as migrações num PostgreSQL temporário (o mesmo 18.6,
@@ -1113,9 +1118,9 @@ PDFBox + regex) → `ImportarComprovanteUseCase` (aloca a batida) → `EmissorEv
 2. **Roteamento:** a data/hora do PDF define `data_referencia`; o horário entra na primeira coluna livre
    em ordem cronológica (`entrada_1` → `saida_1` → `entrada_2` → `saida_2`). PDFs baixados fora de ordem
    são encaixados na posição certa.
-3. **Sem duplicidade:** o mesmo arquivo (hash SHA-256) nunca é reprocessado; a mesma data/hora não gera
-   duas batidas; e uma batida a menos de 1 min de outra já registrada (ex.: pelo botão "Bater ponto")
-   é tratada como a mesma marcação (`DUPLICADO`).
+3. **Sem duplicidade:** o mesmo arquivo (hash SHA-256) nunca é reprocessado para a mesma pessoa nem entra no ponto
+   de duas pessoas; a mesma data/hora não gera duas batidas; e uma batida a menos de 1 min de outra já registrada
+   (ex.: pelo botão "Bater ponto") é tratada como a mesma marcação (`DUPLICADO`).
 4. **Ao iniciar**, os PDFs que já estavam na pasta são processados (útil se o serviço estava desligado).
    Arquivos com mais de 30 s dispensam a espera de "download terminando", então centenas de PDFs antigos
    entram em segundos.
@@ -1123,7 +1128,28 @@ PDFBox + regex) → `ImportarComprovanteUseCase` (aloca a batida) → `EmissorEv
    para a pasta monitorada: a linha do dia 28/09 muda na tela em menos de 1 segundo.
 
 Status de cada PDF (tabela `tb_comprovante_ponto` e `GET /importacoes`):
-`IMPORTADO`, `DUPLICADO`, `REJEITADO` (ex.: 5ª batida, data futura) ou `INVALIDO` (padrão não encontrado).
+`IMPORTADO`, `DUPLICADO`, `REJEITADO` (ex.: 5ª batida, data futura), `INVALIDO` (padrão não encontrado) ou
+`DESFEITO` (tirado do ponto: era de outra pessoa).
+
+### Comprovante no ponto errado
+
+O PDF não diz de quem é: o texto tem só "Comprovante de Ponto - data hora" e o rodapé, o nome e o CPF estão na
+imagem, e a assinatura digital é a mesma em todos (a da empresa). Então, se o PDF de uma colega cair na pasta de
+alguém, ele entra no ponto dessa pessoa, e quem corrige é gente, na tela **Banco de horas** ("não é daqui?" ao lado
+do PDF da batida):
+
+- **A própria pessoa tira do ponto dela.** A batida que o PDF trouxe sai do dia (o dia sai se ela era a única); se a
+  batida veio do botão "Bater ponto" e o PDF só a comprovava, só o PDF sai. O PDF vai para
+  `comprovantes/desfeitos/<ano>/<mês>/` (não é apagado), o registro dele fica `DESFEITO` com o motivo, e a pasta
+  dessa pessoa não o importa de novo. A pessoa certa pode importá-lo pela pasta dela (na próxima subida) ou pelo
+  botão "Enviar PDFs".
+- **Quem configura o ponto da equipe** (`ponto.equipe.configurar`) também pode mandar o PDF direto para a pessoa
+  certa: ele sai de um ponto e entra no outro numa gravação só; se não puder entrar (a pessoa já o tirou do ponto
+  dela, por exemplo), nada muda.
+
+Fica no histórico do dia (origem `DESFEITO`, com o motivo e quem fez). Mês conferido de quem tem o PDF não muda: reabra
+antes. Enquanto o PDF está no ponto de alguém, a outra pessoa que o importar recebe "já importado no ponto de outra
+pessoa", com o que fazer.
 
 ### Pasta de rede (comprovantes salvos em outro computador)
 

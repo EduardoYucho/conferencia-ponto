@@ -8,6 +8,8 @@ import { usePontoStore } from '@/stores/ponto'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import ModalAjusteBatidas from '@/components/ModalAjusteBatidas.vue'
 import ModalLancamentoManual from '@/components/ModalLancamentoManual.vue'
+import ModalComprovanteErrado from '@/components/ModalComprovanteErrado.vue'
+import { PONTO_CONFIGURAR_EQUIPE } from '@/utils/permissoes'
 import { salvarResposta } from '@/utils/download'
 import { mensagemDe } from '@/utils/erros'
 import { dataBR, dataCurta, diaSemanaCurto, formatarDuracao, formatarSaldo, nomeMes } from '@/utils/tempo'
@@ -144,7 +146,7 @@ const ORIGEM = {
   ajustada: { rotulo: 'ajustada à mão', classe: 'bg-tinta/10 text-tinta', titulo: 'Incluída ou corrigida à mão (veja o histórico do dia)' },
   manual: { rotulo: 'lançada à mão', classe: 'bg-carimbo/10 text-carimbo', titulo: 'Dia sem expediente digitado à mão' },
 }
-const ORIGEM_DO_HISTORICO = { AJUSTE: 'ajuste das batidas', RH: 'conforme o RH', MANUAL: 'lançamento à mão', EXCLUSAO: 'exclusão do dia' }
+const ORIGEM_DO_HISTORICO = { AJUSTE: 'ajuste das batidas', RH: 'conforme o RH', MANUAL: 'lançamento à mão', EXCLUSAO: 'exclusão do dia', DESFEITO: 'comprovante tirado (não era deste ponto)' }
 const rotuloDoHistorico = (a) =>
   (a.origem === 'AJUSTE' && a.justificativa?.startsWith('Conforme relatório do RH') ? 'conforme o RH' : ORIGEM_DO_HISTORICO[a.origem] ?? 'ajuste')
 
@@ -294,6 +296,20 @@ function ajustar(linha) {
 }
 function aoSalvar(registro) {
   mostrarAviso(`${dataCurta(registro.data)} salvo · saldo do dia ${formatarSaldo(registro.saldoDiarioSegundos)}`)
+  carregar()
+}
+
+// ------------------------------------------------------------------ comprovante no ponto errado
+/** A própria pessoa tira do ponto; quem configura a equipe também manda para a pessoa certa. Mês conferido não muda. */
+const podeMoverComprovante = computed(() => auth.pode(PONTO_CONFIGURAR_EQUIPE) && !travado.value)
+const comprovanteErrado = ref(null)
+const comprovanteErradoAberto = ref(false)
+function naoEDaqui(pdf) {
+  comprovanteErrado.value = pdf
+  comprovanteErradoAberto.value = true
+}
+function aoTirarComprovante(resposta) {
+  mostrarAviso(resposta?.mensagem ?? 'Comprovante tirado do ponto.')
   carregar()
 }
 
@@ -588,6 +604,14 @@ const listaHoras = (horarios) => (horarios.length ? horarios.join(' ') : 'sem ba
                         :title="`Baixar o comprovante (${b.pdf.nomeOriginal})`"
                         @click="baixar(b.pdf)"
                       >PDF ⤓</button>
+                      <button
+                        v-if="b.pdf && (podeEditar || podeMoverComprovante)"
+                        type="button"
+                        class="text-[0.65rem] text-tinta-apagada underline-offset-2 hover:text-carimbo hover:underline"
+                        :aria-label="`O comprovante da ${b.rotulo} de ${dataCurta(l.data)} não é deste ponto`"
+                        title="O comprovante caiu no ponto errado"
+                        @click="naoEDaqui(b.pdf)"
+                      >não é daqui?</button>
                     </span>
                     <span v-if="!l.batidas.length" class="text-xs text-tinta-apagada">sem batidas</span>
                   </div>
@@ -676,6 +700,16 @@ const listaHoras = (horarios) => (horarios.length ? horarios.join(' ') : 'sem ba
       :registro="registroManual"
       @salvo="aoSalvar"
     />
+    <ModalComprovanteErrado
+      v-model="comprovanteErradoAberto"
+      :comprovante="comprovanteErrado"
+      :dono="auth.pessoaEmTela"
+      :proprio="podeEditar"
+      :pode-mover="podeMoverComprovante"
+      :pessoas="auth.titulares"
+      @concluido="aoTirarComprovante"
+    />
+
     <ModalAjusteBatidas
       v-if="auth.podeEscrever"
       v-model="ajusteAberto"

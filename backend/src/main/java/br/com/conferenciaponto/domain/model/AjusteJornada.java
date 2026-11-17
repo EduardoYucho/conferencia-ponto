@@ -29,7 +29,9 @@ public record AjusteJornada(UUID id, UUID usuarioId, UUID registroJornadaId, Loc
         /** Lançamento à mão de um dia sem expediente (fim de semana, feriado). */
         MANUAL,
         /** O dia foi excluído. */
-        EXCLUSAO
+        EXCLUSAO,
+        /** A batida saiu porque a importação do comprovante dela foi desfeita (o PDF era de outra pessoa). */
+        DESFEITO
     }
 
     public AjusteJornada {

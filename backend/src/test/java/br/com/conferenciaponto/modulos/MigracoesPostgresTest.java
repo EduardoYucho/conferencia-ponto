@@ -37,6 +37,7 @@ class MigracoesPostgresTest {
     private static List<String> pontoDepoisDaV13;
     private static List<String> pontoDepoisDosModulos;
     private static List<String> pontoAntesDoMonitorFiscal;
+    private static List<String> pontoDepoisDoMonitorFiscal;
 
     @BeforeAll
     static void subirOBancoEAplicarAsMigracoes() throws Exception {
@@ -57,6 +58,8 @@ class MigracoesPostgresTest {
         pontoDepoisDosModulos = estruturaDoPonto();
         flyway().target("17").load().migrate();
         pontoAntesDoMonitorFiscal = estruturaDoPonto();
+        flyway().target("18").load().migrate();
+        pontoDepoisDoMonitorFiscal = estruturaDoPonto();
         flyway().load().migrate();
     }
 
@@ -85,12 +88,28 @@ class MigracoesPostgresTest {
     /** A V18 (monitor fiscal) cria o schema fiscal e só acrescenta a permissão nova aos perfis: o ponto não muda. */
     @Test
     void oMonitorFiscalNaoMudaOPonto() {
-        assertThat(estruturaDoPonto()).containsExactlyElementsOf(pontoAntesDoMonitorFiscal);
+        assertThat(pontoDepoisDoMonitorFiscal).containsExactlyElementsOf(pontoAntesDoMonitorFiscal);
         assertThat(jdbc.queryForList("""
                 SELECT schemaname || '.' || tablename || ' ' || tableowner FROM pg_tables WHERE schemaname = 'fiscal'""",
                 String.class)).containsExactlyInAnyOrder("fiscal.situacao_atual ponto", "fiscal.mudanca ponto",
                 "fiscal.incidente ponto", "fiscal.resumo_hora ponto", "fiscal.rodada ponto", "fiscal.fonte ponto",
                 "fiscal.aviso ponto");
+    }
+
+    /**
+     * A V19 (desfazer a importação de um comprovante) só troca a chave única do PDF (de única no sistema para única por
+     * pessoa, com um índice pelo hash) e acrescenta DESFEITO às listas de status e de origem.
+     */
+    @Test
+    void aV19SoMudaAChaveDoPdfEAsListas() {
+        List<String> depois = estruturaDoPonto();
+        List<String> saiu = pontoDepoisDoMonitorFiscal.stream().filter(l -> !depois.contains(l)).toList();
+        List<String> entrou = depois.stream().filter(l -> !pontoDepoisDoMonitorFiscal.contains(l)).toList();
+
+        assertThat(saiu).hasSize(4).allMatch(l -> l.contains("uk_comprovante_ponto_hash")
+                || l.contains("ck_comprovante_ponto_status") || l.contains("ck_ajuste_jornada_origem"));
+        assertThat(entrou).hasSize(5).allMatch(l -> l.contains("uk_comprovante_ponto_usuario_hash")
+                || l.contains("ix_comprovante_ponto_hash") || l.contains("'DESFEITO'"));
     }
 
     @Test

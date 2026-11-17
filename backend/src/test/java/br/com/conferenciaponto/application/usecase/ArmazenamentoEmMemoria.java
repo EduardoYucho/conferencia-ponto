@@ -31,6 +31,18 @@ class ArmazenamentoEmMemoria implements ArmazenamentoComprovantes {
         return conteudo.clone();
     }
 
+    /** Os que foram para os desfeitos (caminho de antes). */
+    final java.util.List<String> desfeitos = new java.util.ArrayList<>();
+
+    @Override
+    public void guardarComoDesfeito(String caminhoArquivo) {
+        byte[] conteudo = arquivos.remove(caminhoArquivo);
+        if (conteudo != null) {
+            arquivos.put("desfeitos/" + caminhoArquivo, conteudo);
+        }
+        desfeitos.add(caminhoArquivo);
+    }
+
     @Override
     public URI uriDeAcesso(UUID id) {
         return URI.create("/api/comprovantes/" + id + "/download");

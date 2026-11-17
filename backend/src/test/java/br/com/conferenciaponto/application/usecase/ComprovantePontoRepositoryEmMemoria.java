@@ -21,8 +21,21 @@ class ComprovantePontoRepositoryEmMemoria implements ComprovantePontoRepository 
     }
 
     @Override
-    public Optional<ComprovanteImportado> buscarPorHash(String hashSha256) {
-        return salvos.stream().filter(c -> c.hashSha256().equals(hashSha256)).findFirst();
+    public Optional<ComprovanteImportado> buscarPorHash(UUID usuarioId, String hashSha256) {
+        return salvos.stream().filter(c -> c.usuarioId().equals(usuarioId) && c.hashSha256().equals(hashSha256))
+                .findFirst();
+    }
+
+    @Override
+    public boolean noPontoDeOutraPessoa(String hashSha256, UUID usuarioId) {
+        return salvos.stream().anyMatch(c -> c.hashSha256().equals(hashSha256) && !c.usuarioId().equals(usuarioId)
+                && (c.status() == StatusImportacao.IMPORTADO || c.status() == StatusImportacao.DUPLICADO));
+    }
+
+    @Override
+    public void marcarDesfeito(UUID id, String mensagem) {
+        salvos.replaceAll(c -> c.id().equals(id) ? new ComprovanteImportado(c.id(), c.usuarioId(), c.nomeArquivo(),
+                c.hashSha256(), c.dataHoraBatida(), StatusImportacao.DESFEITO, mensagem, c.processadoEm()) : c);
     }
 
     @Override
@@ -33,6 +46,9 @@ class ComprovantePontoRepositoryEmMemoria implements ComprovantePontoRepository 
 
     @Override
     public void salvar(ComprovanteImportado comprovante) {
+        if (buscarPorHash(comprovante.usuarioId(), comprovante.hashSha256()).isPresent()) {
+            throw new IllegalStateException("uk_comprovante_ponto_usuario_hash");
+        }
         salvos.add(comprovante);
     }
 

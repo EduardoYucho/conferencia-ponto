@@ -155,6 +155,8 @@ class SegurancaRbacWebTest {
     @MockitoBean
     private BaixarComprovanteUseCase baixar;
     @MockitoBean
+    private br.com.conferenciaponto.application.usecase.DesfazerImportacaoUseCase desfazerImportacao;
+    @MockitoBean
     private ConsultarAuditoriaUseCase auditoria;
     @MockitoBean
     private AutenticarUsuarioUseCase autenticar;
@@ -520,6 +522,43 @@ class SegurancaRbacWebTest {
                 .andExpect(jsonPath("$.dados.titular").value(false))
                 .andExpect(jsonPath("$.dados.perfis[0]").value("Atendente"))
                 .andExpect(jsonPath("$.dados.permissoes[0]").value("atendimentos.usar"));
+    }
+
+    @Test
+    @DisplayName("Comprovante no ponto errado: desfazer é do próprio ponto; mover para outra pessoa, só de quem configura a equipe")
+    void comprovanteNoPontoErrado() throws Exception {
+        UUID id = UUID.randomUUID();
+        var resultado = new br.com.conferenciaponto.application.usecase.DesfazerImportacaoUseCase.Resultado(
+                "Batida tirada.", LocalDate.of(2026, 11, 3), null);
+        when(desfazerImportacao.desfazer(any(), eq(id), any(), any())).thenReturn(resultado);
+        when(desfazerImportacao.mover(eq(id), any(), any(), any())).thenReturn(resultado);
+
+        mvc.perform(post("/api/v1/comprovantes/{id}/desfazer", id)
+                        .with(jwt().jwt(j -> j.subject("coordenacao")).authorities(perfil(Perfil.ROLE_VIEWER)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"motivo\":\"Não é meu\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/comprovantes/{id}/desfazer", id)
+                        .with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"motivo\":\"Não é meu\"}"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.dados.mensagem").value("Batida tirada."))
+                .andExpect(jsonPath("$.dados.data").value("2026-11-03"))
+                .andExpect(jsonPath("$.dados.diaRemovido").value(true));
+        verify(desfazerImportacao).desfazer(eq(idDe("maria")), eq(id), eq("Não é meu"), eq("maria"));
+
+        mvc.perform(post("/api/v1/comprovantes/{id}/mover", id)
+                        .with(jwt().jwt(j -> j.subject("maria")).authorities(perfil(Perfil.ROLE_USER)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"usuario\":\"ana\",\"motivo\":\"É da Ana\"}"))
+                .andExpect(status().isForbidden());
+        mvc.perform(post("/api/v1/comprovantes/{id}/mover", id)
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"motivo\":\"É da Ana\"}"))
+                .andExpect(status().isBadRequest());
+        mvc.perform(post("/api/v1/comprovantes/{id}/mover", id)
+                        .with(jwt().jwt(j -> j.subject("eduardo")).authorities(perfil(Perfil.ROLE_ADMIN)))
+                        .contentType(MediaType.APPLICATION_JSON).content("{\"usuario\":\"ana\",\"motivo\":\"É da Ana\"}"))
+                .andExpect(status().isOk());
+        verify(desfazerImportacao).mover(eq(id), eq(idDe("ana")), eq("É da Ana"), eq("eduardo"));
     }
 
     @Test

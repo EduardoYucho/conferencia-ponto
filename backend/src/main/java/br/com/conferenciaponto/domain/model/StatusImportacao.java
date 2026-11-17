@@ -9,5 +9,10 @@ public enum StatusImportacao {
     /** Comprovante válido, mas a batida violou uma regra (ex.: 5ª batida, data futura). */
     REJEITADO,
     /** O PDF não contém o padrão "Comprovante de Ponto - dd/MM/yyyy HH:mm:ss". */
-    INVALIDO
+    INVALIDO,
+    /**
+     * A importação foi desfeita (o PDF era de outra pessoa): a batida saiu do ponto, o PDF ficou guardado e a pasta
+     * desta pessoa não o importa de novo. Outra pessoa pode importá-lo.
+     */
+    DESFEITO
 }

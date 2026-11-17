@@ -57,4 +57,11 @@ class ComprovanteArquivadoRepositoryAdapter implements ComprovanteArquivadoRepos
     public long contarPorRegistro(UUID registroJornadaId) {
         return jpa.countByRegistroJornadaId(registroJornadaId);
     }
+
+    /** Já gravado ao voltar: o mesmo PDF pode entrar logo em seguida no ponto de outra pessoa (o hash é único). */
+    @Override
+    public void excluir(UUID id) {
+        jpa.deleteById(id);
+        jpa.flush();
+    }
 }

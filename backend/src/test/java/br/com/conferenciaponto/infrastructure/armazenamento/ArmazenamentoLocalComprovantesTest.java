@@ -37,6 +37,21 @@ class ArmazenamentoLocalComprovantesTest {
     }
 
     @Test
+    @DisplayName("O PDF de uma importação desfeita vai para desfeitos/ (não é apagado); sem arquivo, só avisa no log")
+    void guardaComoDesfeito() throws Exception {
+        ArmazenamentoLocalComprovantes armazenamento = new ArmazenamentoLocalComprovantes(raiz, "/api/comprovantes");
+        String caminho = armazenamento.armazenar(UUID.randomUUID(), "%PDF-1.4".getBytes(), LocalDate.of(2026, 9, 28));
+
+        armazenamento.guardarComoDesfeito(caminho); // fora de transação: na hora
+
+        assertThat(raiz.resolve(caminho)).doesNotExist();
+        assertThat(raiz.resolve("desfeitos").resolve(caminho)).hasContent("%PDF-1.4");
+        armazenamento.guardarComoDesfeito(caminho); // já saiu: não lança
+        assertThatThrownBy(() -> armazenamento.guardarComoDesfeito("../fora.pdf"))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
     @DisplayName("Gera a URI de download do comprovante")
     void uri() {
         ArmazenamentoLocalComprovantes armazenamento = new ArmazenamentoLocalComprovantes(raiz, "/api/comprovantes/");

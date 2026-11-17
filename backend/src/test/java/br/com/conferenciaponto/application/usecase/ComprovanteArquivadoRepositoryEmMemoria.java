@@ -44,6 +44,11 @@ class ComprovanteArquivadoRepositoryEmMemoria implements ComprovanteArquivadoRep
     }
 
     @Override
+    public void excluir(UUID id) {
+        salvos.remove(id);
+    }
+
+    @Override
     public long contarPorRegistro(UUID registroJornadaId) {
         return listarPorRegistro(registroJornadaId).size();
     }

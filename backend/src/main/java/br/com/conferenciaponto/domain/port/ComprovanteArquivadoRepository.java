@@ -22,4 +22,7 @@ public interface ComprovanteArquivadoRepository {
     boolean existeHash(String hashSha256);
 
     long contarPorRegistro(UUID registroJornadaId);
+
+    /** Tira o PDF do dia (a importação foi desfeita); o arquivo vai para os desfeitos pelo armazenamento. */
+    void excluir(UUID id);
 }
