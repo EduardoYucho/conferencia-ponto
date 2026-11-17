@@ -149,7 +149,8 @@ num único processo, em **http://localhost:8080**. Depois:
 | `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
 | `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida) |
 | `ponto voltar` | Volta para a versão de antes do último `ponto atualizar` (rodar de novo desfaz) — veja abaixo |
-| `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados (veja [Backup](#backup)) |
+| `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados e a regra de guarda (veja [Backup](#backup)) |
+| `ponto restaurar [pasta]` | Volta o banco para um backup: pergunta qual, pede confirmação e faz um backup de agora antes |
 | `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
 | `ponto desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
 
@@ -170,49 +171,51 @@ O banco não volta junto. Se a versão que saiu aplicou uma migração (o `ponto
 
 ## Backup
 
+**A aplicação faz um backup por dia sozinha**: depois das 12:15 (`ponto.backup.horario`), se ainda não houver um
+backup do dia (o do `ponto atualizar` conta), ela roda `ponto backup diario`. Com o PC desligado no horário, o
+backup sai assim que ele ligar. Se falhar, tenta de novo a cada hora e avisa no sino de quem vê os logs; o `ponto`
+mostra o último backup e avisa quando passam 2 dias sem nenhum. Para desligar: `ponto.backup.automatico: false`.
+
 `ponto backup` copia o banco inteiro (`pg_dump`, formato *custom*) para `%USERPROFILE%\.conferencia-ponto\backups\`,
-uma pasta por backup: `<aaaa-mm-dd_hhmmss>[_motivo]\banco.dump` e `backup.json` (data, motivo, tamanho, ramo e
-commit do projeto). Antes de terminar, o arquivo é conferido com `pg_restore --list`: um backup que não pode ser
-lido não conta como feito.
+uma pasta por backup: `<aaaa-mm-dd_hhmmss>[_motivo]\banco.dump` e `backup.json` (data, motivo, tamanho, versão do
+banco, ramo e commit do projeto). Antes de terminar, o arquivo é conferido com `pg_restore --list`: um backup que não
+pode ser lido não conta como feito.
 
 - `ponto backup` · `ponto backup antes-da-mudanca` (o motivo vai no nome da pasta) · `ponto backup lista`.
 - **O `ponto atualizar` faz o backup sozinho**, depois de compilar e antes de trocar a versão (é a versão nova que
   aplica as migrações do banco). Se o backup falhar (PostgreSQL parado, senha errada, disco cheio), a atualização
   é cancelada e a versão instalada continua a mesma.
-- Ficam os **10** backups mais recentes feitos pelo comando; os mais antigos são apagados. Arquivos `.dump` soltos
-  na pasta (backups feitos à mão) nunca são apagados.
+- **Guarda**: ficam os **10** backups mais recentes, o mais recente de cada um dos últimos **14 dias** e o mais
+  recente de cada **versão do banco** (o de antes de cada migração, que é o que desfaz uma atualização). Os outros
+  são apagados. Arquivos `.dump` soltos na pasta (backups feitos à mão) nunca são apagados.
 - Junto com o banco vão as imagens da base de conhecimento (`atendimentos\base\`) e a chave mestra que protege as
-  chaves do Gemini, quando existirem — por isso, **não compartilhe a pasta de backups**. Os PDFs arquivados
-  (`comprovantes\`) não entram: copie essa pasta à parte, se quiser.
+  chaves do Gemini, quando existirem — por isso, **não compartilhe a pasta de backups**.
+- **Cópia fora do PC** (desligada até você escolher onde): com `ponto.backup.copia.pasta` na configuração (`ponto
+  config`; ou a variável de ambiente `PONTO_BACKUP_COPIA`), por exemplo `"E:/Backups"` para um HD externo ou pen
+  drive, cada backup espelha a pasta dos backups em `E:\Backups\ConferenciaPonto\backups\` (a mesma guarda) e soma os
+  PDFs dos comprovantes em `...\ConferenciaPonto\comprovantes\` (lá nada é apagado). Se a pasta não estiver
+  acessível, o backup no PC vale do mesmo jeito, o sino avisa e o próximo leva o que faltou.
 - Banco, usuário e senha vêm da configuração do serviço (`spring.datasource.*` ou `DB_URL`, `DB_USER`,
-  `DB_PASSWORD`); a senha vai para o `pg_dump` só pelo ambiente do processo (`PGPASSWORD`), nunca na tela. O
-  `pg_dump` e o `pg_restore` são procurados em `PONTO_PG_BIN`, no PATH e na versão mais nova em
+  `DB_PASSWORD`); a senha vai para o `pg_dump`, o `pg_restore` e o `psql` só pelo ambiente do processo
+  (`PGPASSWORD`), nunca na tela. Eles são procurados em `PONTO_PG_BIN`, no PATH e na versão mais nova em
   `C:\Program Files\PostgreSQL\`.
 
-**Restaurar um backup** — só por decisão sua: o banco volta a ser exatamente o do backup (o que foi feito depois
-dele se perde). A restauração é feita num banco esvaziado: as tabelas e os schemas criados depois do backup (por
-uma atualização, por exemplo) também saem. Restaurar por cima, com `pg_restore --clean`, não serve: o `--clean` só
-apaga o que está no backup, e uma tabela nova que aponta para as antigas (a `tb_conferencia_mes` aponta para
-`tb_usuario`, por exemplo) faz a restauração parar no meio.
+**Restaurar um backup** — só por decisão sua: **`ponto restaurar`** mostra os backups, pergunta qual e pede para
+digitar `RESTAURAR`. O banco volta a ser exatamente o do backup (o que foi feito depois dele se perde):
 
-```powershell
-ponto parar
-$env:PGPASSWORD = Read-Host 'Senha do banco (padrão: ponto)'   # digitada aqui, não fica no histórico
-$bin = 'C:\Program Files\PostgreSQL\18\bin'
-# 1. esvazia o banco (o usuário ponto é o dono dele)
-& "$bin\psql.exe" --host=localhost --username=ponto --dbname=conferencia_ponto -v ON_ERROR_STOP=1 `
-    -c 'DROP SCHEMA IF EXISTS atendimento, conhecimento, fiscal CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;'
-# 2. restaura (inteiro ou nada)
-& "$bin\pg_restore.exe" --no-owner --single-transaction --exit-on-error `
-    --host=localhost --username=ponto --dbname=conferencia_ponto "$HOME\.conferencia-ponto\backups\<pasta>\banco.dump"
-Remove-Item Env:PGPASSWORD
-```
+1. faz um backup de agora (`antes-de-restaurar`), que desfaz a restauração (`ponto restaurar <essa pasta>`);
+2. para a aplicação;
+3. esvazia o banco e restaura o backup **numa transação só** (`psql --single-transaction`): se algo falhar no meio,
+   o banco continua como estava. As tabelas e os schemas criados depois do backup também saem;
+4. põe de volta as imagens da base e a chave mestra do backup (as de agora ficam ao lado, com o sufixo
+   `.antes-de-restaurar-<data>`) e sobe a aplicação.
 
-Se o passo 2 falhar, o banco fica vazio: corrija o que a mensagem disser e rode o passo 2 de novo (o passo 1 também,
-se algo chegou a ser restaurado). Se o backup tiver `atendimentos-base\` e `chave-mestra`, copie-os de volta para
-`%USERPROFILE%\.conferencia-ponto\atendimentos\` (`base\` e `chave-mestra`). Se o backup é de antes de uma
-atualização, volte também para a versão do sistema daquela época (veja [Voltar para a versão
-anterior](#voltar-para-a-versão-anterior)) antes de `ponto iniciar`: a versão nova aplicaria de novo as migrações.
+`ponto restaurar <pasta>` vai direto a um backup (o nome na pasta dos backups ou o caminho, como o da cópia fora
+do PC). Se o backup é de uma versão do banco anterior à de agora, o comando avisa antes: ao subir, a versão
+instalada aplica de novo as migrações que faltam; para ficar na versão antiga do sistema, rode `ponto voltar`
+antes (veja [Voltar para a versão anterior](#voltar-para-a-versão-anterior)). Restaurar por cima, com
+`pg_restore --clean`, não serve: o `--clean` só apaga o que está no backup, e uma tabela nova que aponta para as
+antigas faz a restauração parar no meio.
 
 **Desfazer a migração de um módulo ainda não aprovado** — apaga só os schemas dos módulos (`atendimento` e
 `conhecimento`) e as linhas dessas migrações no histórico do Flyway; nenhuma tabela do ponto é tocada:

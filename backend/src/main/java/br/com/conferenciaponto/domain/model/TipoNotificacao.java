@@ -14,5 +14,7 @@ public enum TipoNotificacao {
     /** Semana (ou 7 dias seguidos) sem a folga que a lei pede. */
     SEM_FOLGA,
     /** O mês foi conferido (ou a conferência foi reaberta). */
-    MES_CONFERIDO
+    MES_CONFERIDO,
+    /** O backup automático do dia falhou (ou a cópia dele fora do PC não foi feita). Para quem vê os logs. */
+    BACKUP
 }
