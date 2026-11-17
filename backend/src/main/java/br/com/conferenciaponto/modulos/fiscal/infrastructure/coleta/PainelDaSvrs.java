@@ -34,6 +34,7 @@ public class PainelDaSvrs implements FonteDeLeituras {
     static final ZoneId FUSO = ZoneId.of("America/Sao_Paulo");
     static final String IDENTIFICACAO = "ConferenciaPonto-MonitorFiscal/1.0 (uma consulta a cada 5 minutos)";
     private static final int TAMANHO_MAXIMO = 5 * 1024 * 1024;
+    private static final String RESPONDEU_HTTP_5 = "O portal respondeu HTTP 5";
     private static final Pattern CHARSET = Pattern.compile("(?i)charset\\s*=\\s*\"?([\\w.:-]+)");
 
     private final Documento documento;
@@ -41,10 +42,18 @@ public class PainelDaSvrs implements FonteDeLeituras {
     private final HttpClient http;
     private final Duration tempoLimite;
     private final Duration verificacaoAntiga;
+    private final Duration esperaAntesDeRepetir;
     private final LeitorDoPainelSvrs leitor = new LeitorDoPainelSvrs();
 
     public PainelDaSvrs(Documento documento, String endereco, HttpClient http, Duration tempoLimite,
                         Duration verificacaoAntiga) {
+        this(documento, endereco, http, tempoLimite, verificacaoAntiga, Duration.ofSeconds(2));
+    }
+
+    /** @param esperaAntesDeRepetir quanto esperar antes da segunda tentativa, quando a primeira não deu certo */
+    PainelDaSvrs(Documento documento, String endereco, HttpClient http, Duration tempoLimite, Duration verificacaoAntiga,
+                 Duration esperaAntesDeRepetir) {
+        this.esperaAntesDeRepetir = esperaAntesDeRepetir;
         this.documento = documento;
         this.endereco = URI.create(endereco.strip());
         this.http = http;
@@ -61,8 +70,30 @@ public class PainelDaSvrs implements FonteDeLeituras {
         return documento;
     }
 
+    /**
+     * Uma falha passageira do portal (sem resposta, HTTP 5xx) ganha uma segunda tentativa na mesma rodada: sem ela, o
+     * quadro dos estados da SVRS ficava cinza por 5 minutos a cada soluço do portal.
+     */
     @Override
     public Resultado ler(Instant agora) {
+        Resultado primeira = tentar(agora);
+        if (!passageira(primeira)) {
+            return primeira;
+        }
+        try {
+            Thread.sleep(esperaAntesDeRepetir.toMillis());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return primeira;
+        }
+        return tentar(agora);
+    }
+
+    private static boolean passageira(Resultado r) {
+        return r.erro() != null && (!r.alcancou() || r.erro().startsWith(RESPONDEU_HTTP_5));
+    }
+
+    private Resultado tentar(Instant agora) {
         HttpRequest pedido = HttpRequest.newBuilder(endereco)
                 .timeout(tempoLimite)
                 .header("User-Agent", IDENTIFICACAO)

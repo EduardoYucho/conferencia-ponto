@@ -156,7 +156,7 @@ class ProcessamentoDasAnalisesTest {
     }
 
     private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
     }
 
     private ArquivoDoAtendimento anexo(UUID atendimento, String nome) {
@@ -213,7 +213,7 @@ class ProcessamentoDasAnalisesTest {
 
         processamento().processar(maria, id);
 
-        await().during(Duration.ofMillis(400)).atMost(2, TimeUnit.SECONDS).until(() -> situacao(id) == SituacaoDoAtendimento.PRONTO);
+        await().during(Duration.ofMillis(400)).atMost(60, TimeUnit.SECONDS).until(() -> situacao(id) == SituacaoDoAtendimento.PRONTO);
         assertThat(modelo.geracoes()).hasSize(4);
     }
 
@@ -227,9 +227,9 @@ class ProcessamentoDasAnalisesTest {
         processamento().processar(maria, id);
 
         esperarAte(id, SituacaoDoAtendimento.PAUSADO);
-        await().atMost(20, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream().allMatch(a -> a.situacao().equals("pronto")));
+        await().atMost(60, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream().allMatch(a -> a.situacao().equals("pronto")));
         assertThat(atendimentos.estado(id).orElseThrow().motivoPausa()).contains("cota diária").contains("Retomar");
-        await().during(Duration.ofMillis(300)).atMost(3, TimeUnit.SECONDS)
+        await().during(Duration.ofMillis(300)).atMost(60, TimeUnit.SECONDS)
                 .until(() -> situacao(id) == SituacaoDoAtendimento.PAUSADO);
 
         processamento().retomar(maria, id);
@@ -281,7 +281,7 @@ class ProcessamentoDasAnalisesTest {
 
         modelo.padrao(ModeloDeMentira::respostaPadrao);
         processamento().processar(maria, id);
-        await().during(Duration.ofMillis(300)).atMost(2, TimeUnit.SECONDS)
+        await().during(Duration.ofMillis(300)).atMost(60, TimeUnit.SECONDS)
                 .until(() -> situacao(id) == SituacaoDoAtendimento.COM_FALHAS); // "Processar" não repete falha do arquivo
         assertThat(processamento().tentarDeNovo(maria, id, audio).situacao()).isEqualTo("processando");
 

@@ -8,6 +8,7 @@ import br.com.conferenciaponto.modulos.fiscal.domain.EstadoAtual;
 import br.com.conferenciaponto.modulos.fiscal.domain.Incidente;
 import br.com.conferenciaponto.modulos.fiscal.domain.MapaDosEstados;
 import br.com.conferenciaponto.modulos.fiscal.domain.NomesDosAutorizadores;
+import br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal;
 import br.com.conferenciaponto.modulos.fiscal.domain.RegistroDoMonitor;
 import br.com.conferenciaponto.modulos.fiscal.domain.Situacao;
 import org.springframework.stereotype.Component;
@@ -76,10 +77,14 @@ public class ConsultarMonitor {
     public record ContagemView(int normal, int instavel, int fora, int semInformacao) {
     }
 
+    /**
+     * @param redeOscilando na última leitura, muitos servidores ficaram sem resposta ao mesmo tempo (a internet deste
+     *                      computador, não a SEFAZ): a tela avisa no alto
+     */
     public record PainelView(Instant agora, boolean coletaAtiva, long intervaloMinutos, RodadaView ultimaRodada,
                              List<DocumentoView> documentos, List<EstadoView> estados,
                              List<AutorizadorView> autorizadores, ContagemView contagem, List<FonteView> fontes,
-                             List<AvisoView> avisos) {
+                             List<AvisoView> avisos, boolean redeOscilando) {
     }
 
     public record IncidenteView(long id, String documento, String rotuloDocumento, String autorizador, String nome,
@@ -149,9 +154,11 @@ public class ConsultarMonitor {
                 a.documento().rotulo(), a.texto(), a.desde())).toList();
         List<DocumentoView> documentos = java.util.Arrays.stream(Documento.values())
                 .map(d -> new DocumentoView(d.name(), d.rotulo())).toList();
+        boolean redeOscilando = estados.values().stream()
+                .anyMatch(e -> ProblemaLocal.REDE_OSCILANDO.equals(e.leitura().detalhe()));
         return new PainelView(agora, configuracao.coleta().ativa(), configuracao.coleta().intervalo().toMinutes(),
                 ultima, documentos, quadro, autorizadores, new ContagemView(normal, instavel, fora, semInformacao),
-                fontes, avisos);
+                fontes, avisos, redeOscilando);
     }
 
     public List<IncidenteView> incidentes(int dias) {

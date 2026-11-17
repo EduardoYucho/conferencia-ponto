@@ -12,7 +12,10 @@ public interface Tarefas {
 
     /**
      * Cria a tarefa, a menos que já exista uma pendente, em execução ou pausada do mesmo tipo para o mesmo arquivo
-     * (ou atendimento/saída). Fica pronta para rodar já ({@code agora}). @return true se criou
+     * (ou atendimento/saída). Fica pronta para rodar já ({@code agora}). A linha do tempo só entra com o atendimento
+     * sem download nem análise pendente ou em execução (o texto espera por eles), conferido na mesma gravação.
+     *
+     * @return true se criou
      */
     boolean criar(TipoDeTarefa tipo, UUID atendimentoId, UUID arquivoId, UUID saidaId, int maxTentativas, Instant agora);
 

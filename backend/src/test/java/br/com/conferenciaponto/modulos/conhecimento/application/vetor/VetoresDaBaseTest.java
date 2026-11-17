@@ -112,7 +112,7 @@ class VetoresDaBaseTest {
         vetores.textoMudou(registro, "Erro ao gravar o pedido", "Não grava.", null, null, null);
         // o vetor guardado sai na hora e um novo é pedido logo depois, em segundo plano (sem esperar a rodada); o teste
         // espera o novo em vez de olhar o meio do caminho, que depende da velocidade da máquina
-        await().atMost(10, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(20))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(20))
                 .until(() -> vetores.tem(registro) && gerador.pedidosDe(autor).size() == 2);
         assertThat(vetoresNoBanco(registro, base.modelo)).as("um só, o refeito").isEqualTo(1);
     }

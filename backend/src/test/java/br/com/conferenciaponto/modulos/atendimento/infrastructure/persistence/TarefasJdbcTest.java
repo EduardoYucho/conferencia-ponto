@@ -90,6 +90,24 @@ class TarefasJdbcTest {
     }
 
     @Test
+    void aLinhaDoTempoSoEntraSemDownloadNemAnalisePendenteOuEmExecucao() {
+        List<UUID> criado = atendimentoComTarefas(PostgresDeTeste.novoUsuario(true), 1);
+        UUID atendimento = criado.get(0);
+
+        assertThat(tarefas.criar(TipoDeTarefa.LINHA_DO_TEMPO, atendimento, null, null, 2, Instant.now()))
+                .as("o download está na fila: o texto espera").isFalse();
+
+        // pausada não segura (o atendimento pausado nem chega aqui); concluída também não
+        tarefas.pausarDoAtendimento(atendimento, Instant.now());
+        assertThat(tarefas.criar(TipoDeTarefa.LINHA_DO_TEMPO, atendimento, null, null, 2, Instant.now())).isTrue();
+        assertThat(tarefas.criar(TipoDeTarefa.LINHA_DO_TEMPO, atendimento, null, null, 2, Instant.now()))
+                .as("a repetida continua não entrando").isFalse();
+
+        // a regra é só da linha do tempo: uma análise entra com a linha do tempo ativa
+        assertThat(tarefas.criar(TipoDeTarefa.ANALISAR, atendimento, criado.get(1), null, 2, Instant.now())).isTrue();
+    }
+
+    @Test
     void doisPedidosAoMesmoTempoParaOMesmoItemCriamUmaTarefaSo() throws Exception {
         UUID usuario = PostgresDeTeste.novoUsuario(true);
         List<UUID> criado = atendimentoComTarefas(usuario, 1);

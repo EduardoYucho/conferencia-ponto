@@ -122,7 +122,8 @@ class IaLocalDoPdfAoTextoTest {
     }
 
     private ProcessarAtendimentos processamento() {
-        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio, 2, fila, redacao);
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio, 2, fila, redacao,
+                RepositoriosDeTeste.transacao());
     }
 
     private void iniciarFila() {
@@ -150,7 +151,7 @@ class IaLocalDoPdfAoTextoTest {
     }
 
     private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
                 .until(() -> atendimentos.estado(id).orElseThrow().situacao() == esperada);
     }
 

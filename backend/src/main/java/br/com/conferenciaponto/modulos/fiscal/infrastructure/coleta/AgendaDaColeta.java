@@ -53,10 +53,11 @@ public class AgendaDaColeta {
         log.info("Monitor fiscal: coleta a cada {} (a primeira em {})", c.intervalo(), c.primeiraVez());
     }
 
+    /** Nada pode escapar daqui: uma exceção (ou um Error) cancelaria a coleta para sempre, sem aviso. */
     void rodar() {
         try {
             coleta.executar();
-        } catch (RuntimeException e) {
+        } catch (RuntimeException | Error e) {
             log.error("Monitor fiscal: a rodada falhou; a próxima roda no horário", e);
         }
     }

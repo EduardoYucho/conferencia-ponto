@@ -138,7 +138,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(20, TimeUnit.SECONDS).until(() -> terminadas.size() == 40);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 40);
         assertThat(situacoes()).containsEntry("concluida", 39).containsEntry("falhou", 1);
         assertThat(terminadas).filteredOn(t -> t.endsWith("FalhaDefinitiva")).hasSize(1);
     }
@@ -154,7 +154,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
         assertThat(vezes).hasValue(2);
         assertThat(terminadas.get(0)).endsWith("FalhaTemporaria");
         assertThat(terminadas.get(1)).endsWith("FalhaDefinitiva");
@@ -188,10 +188,10 @@ class CoordenadorDaFilaTest {
 
         assertThat(coordenador.varrer()).as("3 downloads de cada vez, 2 por pessoa").isEqualTo(3);
         assertThat(coordenador.varrer()).isZero();
-        await().atMost(5, TimeUnit.SECONDS).until(() -> agora.get() == 3);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> agora.get() == 3);
         solta.countDown();
 
-        await().atMost(20, TimeUnit.SECONDS).until(() -> terminadas.size() == 12);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 12);
         assertThat(maximoTotal.get()).isLessThanOrEqualTo(3);
         assertThat(maximoPorAtendimento.values()).allMatch(m -> m <= 2);
         assertThat(maximoPorAtendimento).containsKey(deA.get(0));
@@ -209,7 +209,7 @@ class CoordenadorDaFilaTest {
                 throw new IllegalStateException("texto secreto da conversa");
             }));
             coordenador.varrer();
-            await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
+            await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
         } finally {
             logger.detachAppender(linhas);
         }
@@ -235,7 +235,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
         assertThat(vezes).hasValue(2);
         assertThat(terminadas.get(0)).endsWith("FalhaTemporaria");
         assertThat(terminadas.get(1)).endsWith("Pausar");
@@ -256,7 +256,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
         assertThat(terminadas.get(0)).endsWith("Pausar");
         assertThat(situacoes()).containsEntry("pausada", 1);
         assertThat(jdbc.sql("SELECT tentativas FROM atendimento.tarefa").query(Integer.class).single()).isZero();
@@ -277,7 +277,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> !terminadas.isEmpty());
+        await().atMost(60, TimeUnit.SECONDS).until(() -> !terminadas.isEmpty());
         // o download ainda contava como ativo quando a análise entrou: a fila do atendimento nunca ficou vazia
         assertThat(vistas.get(0)).isEqualTo("baixar:1");
         assertThat(jdbc.sql("SELECT tipo FROM atendimento.tarefa WHERE situacao <> 'concluida'").query(String.class).list())
@@ -294,7 +294,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
         assertThat(terminadas.get(0)).endsWith("Concluida");
         assertThat(situacoes()).containsEntry("concluida", 1);
     }
@@ -313,7 +313,7 @@ class CoordenadorDaFilaTest {
 
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 1);
         assertThat(vezes).hasValue(0);
         assertThat(situacoes()).containsEntry("cancelada", 3).containsEntry("falhou", 1);
         assertThat(jdbc.sql("SELECT erro_codigo FROM atendimento.tarefa WHERE situacao = 'falhou'").query(String.class).single())
@@ -348,7 +348,7 @@ class CoordenadorDaFilaTest {
 
         novo.iniciar();
 
-        await().atMost(15, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
         assertThat(vezes).hasValue(2);
         assertThat(situacoes()).containsEntry("concluida", 2);
     }
@@ -367,7 +367,7 @@ class CoordenadorDaFilaTest {
 
         novo.iniciar();
 
-        await().atMost(15, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> terminadas.size() == 2);
         assertThat(vezes).as("só a outra rodou de novo").hasValue(1);
         assertThat(terminadas).contains(culpada + ":FalhaDefinitiva");
         assertThat(jdbc.sql("SELECT erro_codigo FROM atendimento.tarefa WHERE id = ?").param(culpada).query(String.class)

@@ -4,6 +4,7 @@ import br.com.conferenciaponto.modulos.fiscal.application.coleta.FonteDeLeituras
 import br.com.conferenciaponto.modulos.fiscal.domain.Documento;
 import br.com.conferenciaponto.modulos.fiscal.domain.Leitura;
 import br.com.conferenciaponto.modulos.fiscal.domain.Origem;
+import br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal;
 import br.com.conferenciaponto.modulos.fiscal.domain.Situacao;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -80,7 +81,7 @@ class TestesDeConexaoTest {
     @Test
     @DisplayName("Ninguém respondeu: a fonte não alcançou ninguém (pode ser a internet deste computador)")
     void ninguemRespondeu() {
-        SondaDeConexao.Resposta semDns = new SondaDeConexao.Resposta(Situacao.FORA, "Endereço não encontrado (DNS).",
+        SondaDeConexao.Resposta semDns = new SondaDeConexao.Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS,
                 null, false);
         TestesDeConexao testes = new TestesDeConexao(conexoes(Documento.NFE, "SP", "sp.exemplo", Documento.NFE, "MG",
                 "mg.exemplo"), new SondaFalsa(Map.of("sp.exemplo", semDns, "mg.exemplo", semDns)), 4, Duration.ofSeconds(1));
@@ -89,7 +90,47 @@ class TestesDeConexaoTest {
 
         assertThat(r.alcancou()).isFalse();
         assertThat(r.erro()).isEqualTo(TestesDeConexao.NINGUEM_RESPONDEU);
-        assertThat(r.leituras()).hasSize(2).allMatch(l -> l.situacao() == Situacao.FORA);
+        assertThat(r.leituras()).hasSize(2).allMatch(l -> l.situacao() == Situacao.SEM_INFORMACAO);
+    }
+
+    @Test
+    @DisplayName("Muitos servidores sem resposta na mesma leitura: a internet deste computador oscilou; ficam sem informação, não fora")
+    void redeDesteComputadorOscilando() {
+        SondaDeConexao.Resposta semResposta = new SondaDeConexao.Resposta(Situacao.FORA, "Sem resposta em 15 s (conexão).",
+                null, false);
+        SondaDeConexao.Resposta semDns = new SondaDeConexao.Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
+        TestesDeConexao testes = new TestesDeConexao(conexoes(Documento.NFE, "SP", "sp.exemplo", Documento.NFE, "MG",
+                "mg.exemplo", Documento.NFE, "PR", "pr.exemplo", Documento.NFE, "BA", "ba.exemplo", Documento.NFE, "GO",
+                "go.exemplo"), new SondaFalsa(Map.of("sp.exemplo", semResposta, "mg.exemplo", semDns, "pr.exemplo",
+                semResposta)), 4, Duration.ofSeconds(1));
+
+        FonteDeLeituras.Resultado r = testes.ler(AGORA);
+
+        assertThat(r.alcancou()).isTrue();
+        assertThat(r.erro()).isEqualTo("Muitos servidores sem resposta ao mesmo tempo (3 de 5): provavelmente a internet deste computador.");
+        assertThat(r.leituras()).filteredOn(l -> l.situacao() == Situacao.SEM_INFORMACAO).hasSize(3)
+                .allMatch(l -> ProblemaLocal.REDE_OSCILANDO.equals(l.detalhe()));
+        assertThat(r.leituras()).filteredOn(l -> l.situacao() == Situacao.NORMAL).hasSize(2);
+    }
+
+    @Test
+    @DisplayName("Um ou dois servidores fora entre muitos: é deles, fica fora")
+    void poucosForaContinuamFora() {
+        SondaDeConexao.Resposta recusada = new SondaDeConexao.Resposta(Situacao.FORA, "Conexão recusada pelo servidor.",
+                null, true);
+        Object[] pares = new Object[3 * 10];
+        for (int i = 0; i < 10; i++) {
+            pares[3 * i] = Documento.NFE;
+            pares[3 * i + 1] = "A" + i;
+            pares[3 * i + 2] = "a" + i + ".exemplo";
+        }
+        TestesDeConexao testes = new TestesDeConexao(conexoes(pares),
+                new SondaFalsa(Map.of("a0.exemplo", recusada, "a1.exemplo", recusada)), 4, Duration.ofSeconds(1));
+
+        FonteDeLeituras.Resultado r = testes.ler(AGORA);
+
+        assertThat(r.erro()).isNull();
+        assertThat(r.leituras()).filteredOn(l -> l.situacao() == Situacao.FORA).hasSize(2);
     }
 
     @Test

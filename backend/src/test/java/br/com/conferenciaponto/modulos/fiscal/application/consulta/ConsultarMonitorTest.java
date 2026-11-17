@@ -129,7 +129,9 @@ class ConsultarMonitorTest {
         assertThat(svc.contingencia()).isTrue();
         assertThat(svc.estados()).containsExactly("ES", "SC", "SP");
         assertThat(svc.tempoMs()).isEqualTo(300);
-        assertThat(p.contagem()).isEqualTo(new ConsultarMonitor.ContagemView(1, 1, 1, 1));
+        assertThat(p.contagem()).as("SP sem resposta pela primeira vez: instável até a segunda leitura")
+                .isEqualTo(new ConsultarMonitor.ContagemView(1, 2, 0, 1));
+        assertThat(p.redeOscilando()).isFalse();
         assertThat(p.fontes()).extracting(ConsultarMonitor.FonteView::rotulo)
                 .containsExactly("Painel da SVRS · NF-e", "Testes de conexão");
         assertThat(p.ultimaRodada().semInternet()).isFalse();
@@ -160,6 +162,18 @@ class ConsultarMonitorTest {
     }
 
     @Test
+    @DisplayName("Internet deste computador oscilando: a tela avisa no alto e nada fica fora")
+    void redeOscilando() {
+        doPainel.add(new Leitura(new br.com.conferenciaponto.modulos.fiscal.domain.Alvo(Documento.NFE, "SVRS", "Autorização"),
+                br.com.conferenciaponto.modulos.fiscal.domain.Origem.TESTE_DE_CONEXAO, Situacao.SEM_INFORMACAO,
+                br.com.conferenciaponto.modulos.fiscal.domain.ProblemaLocal.REDE_OSCILANDO, null, null, agora));
+        coleta.executar();
+
+        ConsultarMonitor.PainelView p = consulta.painel();
+        assertThat(p.redeOscilando()).isTrue();
+    }
+
+    @Test
     @DisplayName("Ler agora: recusa se a última rodada foi há menos de 1 minuto")
     void lerAgora() {
         var ler = LerAgoraDeTeste.criar(coleta, registro, clock);
@@ -168,5 +182,31 @@ class ConsultarMonitorTest {
                 .hasMessageContaining("menos de 1 minuto");
         agora = agora.plusSeconds(61);
         assertThat(ler.executar().inicio()).isEqualTo(agora);
+    }
+
+    @Test
+    @DisplayName("Ler agora com dois cliques ao mesmo tempo: uma leitura só, a outra é recusada")
+    void lerAgoraDuasVezesAoMesmoTempo() throws Exception {
+        var ler = LerAgoraDeTeste.criar(coleta, registro, clock);
+        java.util.concurrent.ExecutorService dois = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.CountDownLatch largada = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Callable<String> clique = () -> {
+                largada.await();
+                try {
+                    ler.executar();
+                    return "leu";
+                } catch (RegraNegocioException e) {
+                    return e.getCodigo();
+                }
+            };
+            var primeiro = dois.submit(clique);
+            var segundo = dois.submit(clique);
+            largada.countDown();
+            assertThat(List.of(primeiro.get(), segundo.get())).containsExactlyInAnyOrder("leu", "LEITURA_RECENTE");
+        } finally {
+            dois.shutdownNow();
+        }
+        assertThat(registro.ultimaRodada()).isPresent();
     }
 }

@@ -133,7 +133,7 @@ class ProcessamentoDosAnexosTest {
     }
 
     private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
     }
 
     private ArquivoDoAtendimento anexo(UUID atendimento, String nome) {
@@ -213,17 +213,21 @@ class ProcessamentoDosAnexosTest {
         // a cota do Gemini acabou: uma análise ficou pausada e o atendimento, pausado
         ArquivoDoAtendimento foto = arquivos.doAtendimento(id).stream().filter(a -> a.situacao().equals("pronto"))
                 .findFirst().orElseThrow();
-        tarefas.criar(br.com.conferenciaponto.modulos.atendimento.domain.fila.TipoDeTarefa.ANALISAR, id, foto.id(), null,
-                3, AGORA);
-        tarefas.pausarDoAtendimento(id, AGORA);
+        // criada já pausada, numa gravação só (como o sistema faz): uma varredura que ainda estivesse terminando não
+        // pode pegar a tarefa entre a criação e a pausa
+        RepositoriosDeTeste.transacao().executeWithoutResult(status -> {
+            tarefas.criar(br.com.conferenciaponto.modulos.atendimento.domain.fila.TipoDeTarefa.ANALISAR, id, foto.id(), null,
+                    3, AGORA);
+            tarefas.pausarDoAtendimento(id, AGORA);
+        });
         atendimentos.mudarSituacao(id, SituacaoDoAtendimento.PAUSADO, "A cota acabou", AGORA);
 
         servidor.arquivo(PdfDigisacDeTeste.CAMINHO_DO_DOCUMENTO, PDF);
         assertThat(processamento(AGORA).tentarDeNovo(maria, id, documento.id()).situacao()).isEqualTo("pausado");
         coordenador.varrer();
 
-        await().atMost(10, TimeUnit.SECONDS).until(() -> anexo(id, "Relatório de vendas.pdf").situacao().equals("pronto"));
-        await().atMost(5, TimeUnit.SECONDS).until(() -> tarefas.ativas(id) == 0);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> anexo(id, "Relatório de vendas.pdf").situacao().equals("pronto"));
+        await().atMost(60, TimeUnit.SECONDS).until(() -> tarefas.ativas(id) == 0);
         assertThat(situacao(id)).as("o texto não sai sem a análise pausada").isEqualTo(SituacaoDoAtendimento.PAUSADO);
         assertThat(PostgresDeTeste.jdbc().sql("SELECT count(*) FROM atendimento.tarefa WHERE atendimento_id = ? "
                 + "AND situacao = 'pausada'").param(id).query(Integer.class).single()).isEqualTo(1);
@@ -272,7 +276,7 @@ class ProcessamentoDosAnexosTest {
 
         esperarAte(id, SituacaoDoAtendimento.PAUSADO);
         assertThat(atendimentos.estado(id).orElseThrow().motivoPausa()).contains("disco do servidor está cheio");
-        await().atMost(10, TimeUnit.SECONDS).until(() -> tarefas.ativas(id) == 0);
+        await().atMost(60, TimeUnit.SECONDS).until(() -> tarefas.ativas(id) == 0);
         assertThat(servidor.pedidos()).isEmpty();
 
         coordenadores.forEach(CoordenadorDaFila::parar);

@@ -303,11 +303,14 @@ public class CoordenadorDaFila {
         return Duration.ofMillis(resultado);
     }
 
+    /** Nada pode escapar daqui: uma exceção (ou um Error) cancelaria a varredura para sempre, sem aviso. */
     private void varrerSemFalhar() {
         try {
             varrer();
         } catch (RuntimeException e) {
             log.warn("A varredura da fila do gerador falhou (tenta de novo na próxima): {}", e.toString());
+        } catch (Error e) {
+            log.error("A varredura da fila do gerador falhou com um erro grave (tenta de novo na próxima)", e);
         }
     }
 
@@ -322,6 +325,8 @@ public class CoordenadorDaFila {
             }
         } catch (RuntimeException e) {
             log.warn("A manutenção da fila do gerador falhou: {}", e.toString());
+        } catch (Error e) {
+            log.error("A manutenção da fila do gerador falhou com um erro grave", e);
         }
     }
 }
