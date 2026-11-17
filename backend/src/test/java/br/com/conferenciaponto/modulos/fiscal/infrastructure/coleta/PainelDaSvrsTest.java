@@ -24,6 +24,8 @@ class PainelDaSvrsTest {
     private static final Instant AGORA = Instant.parse("2026-11-09T19:55:00Z");
     private HttpServer servidor;
     private final AtomicReference<String> userAgent = new AtomicReference<>();
+    private final java.util.concurrent.atomic.AtomicInteger pedidosAoMdfe = new java.util.concurrent.atomic.AtomicInteger();
+    private final java.util.concurrent.atomic.AtomicInteger pedidosAoSoluco = new java.util.concurrent.atomic.AtomicInteger();
     private final HttpClient http = HttpClient.newBuilder().version(HttpClient.Version.HTTP_1_1)
             .connectTimeout(Duration.ofSeconds(1)).build();
 
@@ -46,7 +48,21 @@ class PainelDaSvrsTest {
             troca.close();
         });
         servidor.createContext("/Mdfe/Disponibilidade", troca -> {
+            pedidosAoMdfe.incrementAndGet();
             troca.sendResponseHeaders(503, -1);
+            troca.close();
+        });
+        // o portal soluça: a primeira resposta é 503, a segunda traz a página
+        servidor.createContext("/Soluco/Disponibilidade", troca -> {
+            if (pedidosAoSoluco.incrementAndGet() == 1) {
+                troca.sendResponseHeaders(503, -1);
+                troca.close();
+                return;
+            }
+            byte[] corpo = LeitorDoPainelSvrsTest.pagina("painel-nfe.html");
+            troca.getResponseHeaders().add("Content-Type", "text/html; charset=utf-8");
+            troca.sendResponseHeaders(200, corpo.length);
+            troca.getResponseBody().write(corpo);
             troca.close();
         });
         servidor.createContext("/Nfce/Disponibilidade", troca -> {
@@ -68,7 +84,7 @@ class PainelDaSvrsTest {
 
     private PainelDaSvrs painel(Documento documento, String caminho) {
         return new PainelDaSvrs(documento, "http://127.0.0.1:" + servidor.getAddress().getPort() + caminho, http,
-                Duration.ofSeconds(1), Duration.ofMinutes(30));
+                Duration.ofSeconds(1), Duration.ofMinutes(30), Duration.ofMillis(20));
     }
 
     @Test
@@ -83,6 +99,16 @@ class PainelDaSvrsTest {
         assertThat(r.documentoDoAviso()).isEqualTo(Documento.NFE);
         assertThat(r.aviso()).startsWith("Não há manutenção prevista");
         assertThat(userAgent.get()).startsWith("ConferenciaPonto-MonitorFiscal/");
+    }
+
+    @Test
+    @DisplayName("Um soluço do portal (HTTP 503 e depois a página) não deixa a rodada sem leitura")
+    void solucoDoPortal() {
+        FonteDeLeituras.Resultado r = painel(Documento.NFE, "/Soluco/Disponibilidade").ler(AGORA);
+
+        assertThat(r.erro()).isNull();
+        assertThat(r.leituras()).hasSize(8);
+        assertThat(pedidosAoSoluco.get()).isEqualTo(2);
     }
 
     @Test
@@ -102,13 +128,14 @@ class PainelDaSvrsTest {
         assertThat(indisponivel.erro()).isEqualTo("O portal respondeu HTTP 503.");
         assertThat(indisponivel.leituras()).isEmpty();
         assertThat(indisponivel.documentoDoAviso()).as("sem leitura, o aviso anterior fica").isNull();
+        assertThat(pedidosAoMdfe.get()).as("uma nova tentativa, e só uma").isEqualTo(2);
 
         FonteDeLeituras.Resultado lento = painel(Documento.NFCE, "/Nfce/Disponibilidade").ler(AGORA);
         assertThat(lento.alcancou()).isFalse();
         assertThat(lento.erro()).isEqualTo("O portal não respondeu em 1 s.");
 
         PainelDaSvrs fechado = new PainelDaSvrs(Documento.NFE, "http://127.0.0.1:" + ServidoresDeTeste.fechada() + "/",
-                http, Duration.ofSeconds(1), Duration.ofMinutes(30));
+                http, Duration.ofSeconds(1), Duration.ofMinutes(30), Duration.ofMillis(20));
         FonteDeLeituras.Resultado semConexao = fechado.ler(AGORA);
         assertThat(semConexao.alcancou()).isFalse();
         assertThat(semConexao.erro()).startsWith("Não conectou ao portal");

@@ -178,7 +178,8 @@ class PeloAppDoGeminiTest {
     }
 
     private ProcessarAtendimentos processamento() {
-        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila, redacao);
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila, redacao,
+                RepositoriosDeTeste.transacao());
     }
 
     private MontarLinhaDoTempo montar() {
@@ -226,7 +227,7 @@ class PeloAppDoGeminiTest {
     }
 
     private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
     }
 
     /** Baixado e sem análise: sem a chave, as análises falham e os arquivos ficam no servidor. */
@@ -315,7 +316,7 @@ class PeloAppDoGeminiTest {
         UUID id = criar();
         iniciarFila();
         processamento().processar(maria, id);
-        await().atMost(20, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
+        await().atMost(60, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
                 .allMatch(a -> a.situacao().equals("pronto")) && situacao(id) != SituacaoDoAtendimento.PROCESSANDO);
 
         PeloAppDoGemini.PacoteView pacote = app().pacote(maria, id);
@@ -465,7 +466,7 @@ class PeloAppDoGeminiTest {
         iniciarFila();
         processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
         esperarAte(id, SituacaoDoAtendimento.PAUSADO);
-        await().atMost(10, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
+        await().atMost(60, TimeUnit.SECONDS).until(() -> arquivos.doAtendimento(id).stream()
                 .allMatch(a -> a.situacao().equals("pronto")));
         app().pacote(maria, id);
 

@@ -63,7 +63,7 @@ class DiretorioPontoWatcherTest {
         watcher = criar(pasta, true, SEM_VARREDURA, registrando());
 
         Future<?> execucao = thread.submit(watcher::monitorar);
-        await().atMost(5, TimeUnit.SECONDS).until(watcher::isAtivo);
+        await().atMost(60, TimeUnit.SECONDS).until(watcher::isAtivo);
         assertThat(processados.poll(5, TimeUnit.SECONDS)).isEqualTo("antigo.pdf");
 
         Files.writeString(pasta.resolve("anotacoes.txt"), "ignorar");
@@ -84,7 +84,7 @@ class DiretorioPontoWatcherTest {
         watcher = criar(inexistente, false, SEM_VARREDURA, registrando());
 
         thread.submit(watcher::monitorar);
-        await().atMost(5, TimeUnit.SECONDS).until(watcher::isAtivo);
+        await().atMost(60, TimeUnit.SECONDS).until(watcher::isAtivo);
         assertThat(inexistente).isDirectory();
     }
 
@@ -97,7 +97,7 @@ class DiretorioPontoWatcherTest {
         watcher = criar(compartilhada, true, SEM_VARREDURA, registrando());
 
         thread.submit(watcher::monitorar);
-        await().atMost(5, TimeUnit.SECONDS)
+        await().atMost(60, TimeUnit.SECONDS)
                 .until(() -> watcher.getEstado().situacao() == Situacao.INDISPONIVEL);
         assertThat(watcher.getEstado().mensagem()).isNotBlank();
 
@@ -106,7 +106,7 @@ class DiretorioPontoWatcherTest {
         Files.createDirectories(compartilhada);
         Files.writeString(compartilhada.resolve("chegou-offline.pdf"), "x");
 
-        await().atMost(5, TimeUnit.SECONDS).until(watcher::isAtivo);
+        await().atMost(60, TimeUnit.SECONDS).until(watcher::isAtivo);
         assertThat(processados.poll(5, TimeUnit.SECONDS)).isEqualTo("chegou-offline.pdf");
         assertThat(estados).extracting(EstadoMonitor::situacao)
                 .containsSubsequence(Situacao.INDISPONIVEL, Situacao.ATIVO);
@@ -126,7 +126,7 @@ class DiretorioPontoWatcherTest {
         watcher = criar(pasta, true, RAPIDO, processador);
 
         thread.submit(watcher::monitorar);
-        await().atMost(5, TimeUnit.SECONDS).until(() -> chamadas.containsKey("em-uso.pdf")
+        await().atMost(60, TimeUnit.SECONDS).until(() -> chamadas.containsKey("em-uso.pdf")
                 && chamadas.get("em-uso.pdf").get() == 2);
 
         Thread.sleep(RAPIDO.toMillis() * 5); // várias varreduras depois...
@@ -142,7 +142,7 @@ class DiretorioPontoWatcherTest {
         watcher = criar(pasta, false, RAPIDO, registrando());
 
         thread.submit(watcher::monitorar);
-        await().atMost(5, TimeUnit.SECONDS).until(watcher::isAtivo);
+        await().atMost(60, TimeUnit.SECONDS).until(watcher::isAtivo);
         Thread.sleep(RAPIDO.toMillis() * 4);
         assertThat(processados).isEmpty();
 

@@ -24,6 +24,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.support.TransactionOperations;
 import org.springframework.stereotype.Service;
 
 import java.time.Clock;
@@ -61,12 +62,18 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
     private final int tentativasDoDownload;
     private final EtapaDeAnalise analise;
     private final EtapaDeRedacao redacao;
+    /**
+     * O que entra na fila junto entra numa gravação só: a varredura nunca vê a tarefa nova sem a pausa dela (rodaria
+     * com o atendimento pausado), nem o texto pedido sem a análise que ele espera (seria escrito antes da hora).
+     */
+    private final TransactionOperations transacao;
 
     @Autowired
     public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
                                  PublicadorDeProgresso publicador, Clock clock,
                                  @Value("${atendimento.download.tentativas:5}") int tentativasDoDownload,
-                                 EtapaDeAnalise analise, EtapaDeRedacao redacao) {
+                                 EtapaDeAnalise analise, EtapaDeRedacao redacao, TransactionOperations transacao) {
+        this.transacao = transacao;
         this.atendimentos = atendimentos;
         this.arquivos = arquivos;
         this.tarefas = tarefas;
@@ -75,6 +82,14 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         this.tentativasDoDownload = tentativasDoDownload;
         this.analise = analise;
         this.redacao = redacao;
+    }
+
+    /** Sem transação própria (testes que não dependem dela). */
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload,
+                                 EtapaDeAnalise analise, EtapaDeRedacao redacao) {
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, analise, redacao,
+                TransactionOperations.withoutTransaction());
     }
 
     /** Downloads e análises, sem redação (os testes da etapa da análise). */
@@ -171,13 +186,21 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
         SituacaoDoArquivo situacao = SituacaoDoArquivo.doCodigo(arquivo.situacao());
         Instant agora = clock.instant();
         if (situacao == SituacaoDoArquivo.PRONTO) {
-            if (!analise.pedir(atendimentoId, arquivoId, agora)) {
+            boolean pausado = estado.situacao() == SituacaoDoAtendimento.PAUSADO;
+            boolean pedida = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!analise.pedir(atendimentoId, arquivoId, agora)) {
+                    return false;
+                }
+                if (pausado) {
+                    tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // volta junto com as outras no Retomar
+                }
+                return true;
+            }));
+            if (!pedida) {
                 throw new RegraNegocioException("NADA_A_TENTAR", "Este arquivo já está pronto e analisado (ou a análise "
                         + "dele já está na fila).");
             }
-            if (estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
-                tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // volta junto com as outras no Retomar
-            } else {
+            if (!pausado) {
                 atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
             }
             publicador.publicar(atendimentoId);
@@ -224,13 +247,21 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
                     + "e o texto é gerado no fim.");
         }
         Instant agora = clock.instant();
-        if (!redacao.pedirNova(atendimentoId, tipo, agora)) {
+        // o texto pedido e as análises que ele espera aparecem juntos na fila (e já pausados, se for o caso)
+        Integer pedidas = transacao.execute(status -> {
+            if (!redacao.pedirNova(atendimentoId, tipo, agora)) {
+                return null;
+            }
+            int quantas = analise.pedirParaOAtendimento(atendimentoId, agora);
+            if (quantas > 0 && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+                tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // voltam junto com as outras no Retomar
+            }
+            return quantas;
+        });
+        if (pedidas == null) {
             throw new RegraNegocioException("JA_EM_REDACAO", "Este texto já está sendo gerado. Aguarde terminar.");
         }
-        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
-        if (analises > 0 && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
-            tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // voltam junto com as outras no Retomar
-        }
+        int analises = pedidas;
         if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
             atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
             atualizarSituacao(atendimentoId);
@@ -348,12 +379,20 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
                 return;
             }
             Instant agora = clock.instant();
-            if (!analise.pedir(tarefa.atendimentoId(), tarefa.arquivoId(), agora)) {
+            boolean pausado = estado.situacao() == SituacaoDoAtendimento.PAUSADO;
+            boolean pedida = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!analise.pedir(tarefa.atendimentoId(), tarefa.arquivoId(), agora)) {
+                    return false;
+                }
+                if (pausado) {
+                    tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+                }
+                return true;
+            }));
+            if (!pedida) {
                 return;
             }
-            if (estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
-                tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
-            } else {
+            if (!pausado) {
                 // só desfaz um "pronto" antes da hora: se nesse meio-tempo pausou, a pausa fica
                 atendimentos.mudarSituacaoSe(tarefa.atendimentoId(), FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
             }
@@ -370,10 +409,12 @@ public class ProcessarAtendimentos implements AcompanhamentoDaFila {
                 return;
             }
             Instant agora = clock.instant();
-            if (redacao.redigirAsEsperando(tarefa.atendimentoId(), agora) > 0
-                    && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
-                tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
-            }
+            transacao.executeWithoutResult(status -> {
+                if (redacao.redigirAsEsperando(tarefa.atendimentoId(), agora) > 0
+                        && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+                    tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+                }
+            });
         });
     }
 

@@ -18,9 +18,13 @@ import java.net.UnknownHostException;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * Teste de conexão com um servidor de autorização, sem certificado: acha o endereço (DNS), abre a conexão (TCP) e
+ * Teste de conexão com um servidor de autorização, sem certificado: acha o endereço (DNS; se ele falhar numa leitura,
+ * vale o último endereço achado nas últimas 24 horas), abre a conexão (TCP) e
  * começa a conexão segura (TLS). Nada é enviado além do começo do TLS. Os servidores das SEFAZ pedem o certificado
  * do cliente e encerram o TLS sem ele; isso conta como "respondeu": o que se mede é se o servidor está lá e em
  * quanto tempo responde. Uma falha depois da autenticação não aparece aqui (só com certificado, na etapa M6).
@@ -37,6 +41,21 @@ public class SondaDeConexao {
     }
 
     private static final int PORTA_PADRAO = 443;
+    static final String QUEDA_NA_CONEXAO_SEGURA = "A conexão caiu durante a conexão segura.";
+    /**
+     * Há servidor que derruba, de vez em quando, a conexão segura de quem chega sem certificado (visto em uso: ~6% das
+     * leituras num autorizador que estava no ar). Uma queda só não diz nada: tenta de novo antes de dar como instável.
+     */
+    static final int TENTATIVAS_NA_QUEDA = 3;
+    private static final Duration PAUSA_ENTRE_TENTATIVAS = Duration.ofMillis(300);
+    /** Por quanto tempo o último endereço achado vale quando o DNS falha. */
+    private static final Duration VALIDADE_DO_ENDERECO = Duration.ofHours(24);
+
+    private record EnderecoAchado(InetAddress[] ips, long quandoNanos) {
+    }
+
+    /** O último endereço que o DNS deu para cada nome: se o DNS falha numa leitura, o teste segue com ele. */
+    private final Map<String, EnderecoAchado> ultimosEnderecos = new ConcurrentHashMap<>();
     /** Um nome com vários servidores (DNS round robin): testa até este tanto, um depois do outro. */
     private static final int SERVIDORES_TESTADOS = 3;
 
@@ -73,14 +92,22 @@ public class SondaDeConexao {
             }
         }
         long inicio = System.nanoTime();
+        String nome = host.toLowerCase(Locale.ROOT);
         InetAddress[] ips;
         try {
             ips = resolvedor.resolver(host);
         } catch (UnknownHostException e) {
-            return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
+            ips = null;
         }
         if (ips == null || ips.length == 0) {
-            return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
+            // o DNS falhou nesta leitura: o servidor continua onde estava, então o teste segue com o último endereço
+            EnderecoAchado ultimo = ultimosEnderecos.get(nome);
+            if (ultimo == null || System.nanoTime() - ultimo.quandoNanos() > VALIDADE_DO_ENDERECO.toNanos()) {
+                return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.DNS, null, false);
+            }
+            ips = ultimo.ips();
+        } else {
+            ultimosEnderecos.put(nome, new EnderecoAchado(ips, System.nanoTime()));
         }
         int dnsMs = decorrido(inicio);
         int total = Math.min(ips.length, SERVIDORES_TESTADOS);
@@ -91,6 +118,16 @@ public class SondaDeConexao {
                 break;
             }
             Resposta r = tentar(ips[i], host, porta, resta, dnsMs);
+            int quedas = 1;
+            while (QUEDA_NA_CONEXAO_SEGURA.equals(r.detalhe()) && quedas < TENTATIVAS_NA_QUEDA
+                    && tempoLimite.toMillis() - decorrido(inicio) > PAUSA_ENTRE_TENTATIVAS.toMillis() && pausar()) {
+                r = tentar(ips[i], host, porta, tempoLimite.toMillis() - decorrido(inicio), dnsMs);
+                quedas++;
+            }
+            if (QUEDA_NA_CONEXAO_SEGURA.equals(r.detalhe()) && quedas > 1) {
+                r = new Resposta(Situacao.INSTAVEL, "A conexão caiu %d vezes seguidas durante a conexão segura."
+                        .formatted(quedas), r.tempoMs(), true);
+            }
             if (r.situacao() == Situacao.NORMAL || r.situacao() == Situacao.INSTAVEL) {
                 if (falhas.isEmpty()) {
                     return r;
@@ -127,10 +164,13 @@ public class SondaDeConexao {
                 return new Resposta(Situacao.FORA, "Conexão recusada pelo servidor.", null, true);
             } catch (NoRouteToHostException e) {
                 return new Resposta(Situacao.SEM_INFORMACAO, ProblemaLocal.SEM_ROTA, null, false);
+            } catch (SocketException e) {
+                // o servidor aceitou e derrubou na hora (a conexão nem chegou a ficar de pé): conta como queda
+                return new Resposta(Situacao.INSTAVEL, QUEDA_NA_CONEXAO_SEGURA, dnsMs + decorrido(inicio), true);
             }
             int resta = (int) Math.max(1, limiteMs - decorrido(inicio));
-            socket.setSoTimeout(resta);
             try {
+                socket.setSoTimeout(resta); // já falha aqui se o servidor derrubou a conexão logo depois de aceitar
                 SSLSocket seguro = (SSLSocket) tls.createSocket(socket, host, porta, false);
                 seguro.setSoTimeout(resta);
                 seguro.startHandshake();
@@ -143,13 +183,11 @@ public class SondaDeConexao {
                             .formatted(segundos), null, true);
                 }
                 if (causa(e, SocketException.class)) {
-                    return new Resposta(Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.",
-                            dnsMs + decorrido(inicio), true);
+                    return new Resposta(Situacao.INSTAVEL, QUEDA_NA_CONEXAO_SEGURA, dnsMs + decorrido(inicio), true);
                 }
                 // o servidor respondeu ao TLS (pediu o certificado, recusou o cliente, mandou um alerta): está lá
             } catch (SocketException e) {
-                return new Resposta(Situacao.INSTAVEL, "A conexão caiu durante a conexão segura.",
-                        dnsMs + decorrido(inicio), true);
+                return new Resposta(Situacao.INSTAVEL, QUEDA_NA_CONEXAO_SEGURA, dnsMs + decorrido(inicio), true);
             }
             int ms = dnsMs + decorrido(inicio);
             if (ms > lento.toMillis()) {
@@ -161,6 +199,17 @@ public class SondaDeConexao {
         } catch (IOException e) {
             return new Resposta(Situacao.FORA, "Erro de rede: " + (e.getMessage() == null ? e.getClass().getSimpleName()
                     : e.getMessage()), null, false);
+        }
+    }
+
+    /** @return false se a thread foi interrompida (o teste para por aqui) */
+    private static boolean pausar() {
+        try {
+            Thread.sleep(PAUSA_ENTRE_TENTATIVAS.toMillis());
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return false;
         }
     }
 

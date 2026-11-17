@@ -183,4 +183,30 @@ class ConsultarMonitorTest {
         agora = agora.plusSeconds(61);
         assertThat(ler.executar().inicio()).isEqualTo(agora);
     }
+
+    @Test
+    @DisplayName("Ler agora com dois cliques ao mesmo tempo: uma leitura só, a outra é recusada")
+    void lerAgoraDuasVezesAoMesmoTempo() throws Exception {
+        var ler = LerAgoraDeTeste.criar(coleta, registro, clock);
+        java.util.concurrent.ExecutorService dois = java.util.concurrent.Executors.newFixedThreadPool(2);
+        try {
+            java.util.concurrent.CountDownLatch largada = new java.util.concurrent.CountDownLatch(1);
+            java.util.concurrent.Callable<String> clique = () -> {
+                largada.await();
+                try {
+                    ler.executar();
+                    return "leu";
+                } catch (RegraNegocioException e) {
+                    return e.getCodigo();
+                }
+            };
+            var primeiro = dois.submit(clique);
+            var segundo = dois.submit(clique);
+            largada.countDown();
+            assertThat(List.of(primeiro.get(), segundo.get())).containsExactlyInAnyOrder("leu", "LEITURA_RECENTE");
+        } finally {
+            dois.shutdownNow();
+        }
+        assertThat(registro.ultimaRodada()).isPresent();
+    }
 }

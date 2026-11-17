@@ -55,6 +55,10 @@ class TarefasJdbc implements Tarefas {
                                                   AND arquivo_id IS NOT DISTINCT FROM :arquivo
                                                   AND saida_id IS NOT DISTINCT FROM :saida
                                                   AND situacao IN %s)
+                               AND (:tipo <> 'linha_do_tempo' OR NOT EXISTS (
+                                        SELECT 1 FROM atendimento.tarefa
+                                         WHERE atendimento_id = :atendimento AND tipo IN ('baixar', 'analisar')
+                                           AND situacao IN ('pendente', 'executando')))
                             """.formatted(ATIVA))
                     .param("atendimento", atendimentoId)
                     .param("arquivo", arquivoId)

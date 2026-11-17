@@ -27,12 +27,16 @@ public class LerAgora {
     }
 
     public RegistroDoMonitor.Rodada executar() {
-        registro.ultimaRodada()
-                .filter(r -> r.inicio().isAfter(clock.instant().minus(INTERVALO_MINIMO)))
-                .ifPresent(r -> {
-                    throw new RegraNegocioException("LEITURA_RECENTE",
-                            "A última leitura foi há menos de 1 minuto. Espere um pouco para ler de novo.");
-                });
-        return coleta.executar();
+        // a conferência é feita com a trava da rodada: dois cliques ao mesmo tempo (ou um clique durante a leitura
+        // automática) não viram duas leituras seguidas
+        synchronized (coleta) {
+            registro.ultimaRodada()
+                    .filter(r -> r.inicio().isAfter(clock.instant().minus(INTERVALO_MINIMO)))
+                    .ifPresent(r -> {
+                        throw new RegraNegocioException("LEITURA_RECENTE",
+                                "A última leitura foi há menos de 1 minuto. Espere um pouco para ler de novo.");
+                    });
+            return coleta.executar();
+        }
     }
 }

@@ -638,15 +638,22 @@ outros módulos pelas regras do `ArquiteturaModulosTest`.
   públicos de disponibilidade da SVRS** (NF-e e NFC-e da SEFAZ-RS e da SEFAZ Virtual do RS; CT-e e MDF-e da SVRS:
   cada serviço, a situação e o cStat que o portal publicou) e faz um **teste de conexão** sem certificado (endereço,
   conexão e o começo da conexão segura) nos outros autorizadores e nas contingências (SVC-AN e SVC-RS). O teste de
-  conexão vê queda e lentidão (acima de 3 s é instável), não um erro depois da autenticação. Os painéis nacionais
+  conexão vê queda e lentidão (acima de 5 s é instável), não um erro depois da autenticação. Os painéis nacionais
   (`nfe.fazenda.gov.br`, `cte.fazenda.gov.br`) não são lidos: o `robots.txt` deles não permite.
 - **Quem autoriza cada estado** fica em `backend/src/main/resources/fiscal.yml` (`fiscal.autorizadores` e
   `fiscal.contingencia`), com os painéis e os endereços testados. Um estado que migra para a SVRS muda uma linha lá
   (ou em `config/application.yml`); um estado repetido num documento impede o sistema de subir, com a mensagem.
-- **Falhas:** cada fonte tem tempo limite (15 s) e uma que falha não para as outras; vira "fonte com problema" e o
-  que ela trazia fica *sem informação* (cinza), nunca verde. Página com o formato mudado também. Se nenhuma fonte
-  alcança ninguém, a rodada é **"sem internet neste computador"**: nada abre nem fecha incidente. A coleta só roda
-  com o sistema no ar (o PC desligado deixa um buraco no histórico).
+- **Falhas:** cada fonte tem tempo limite (15 s) e uma que falha não para as outras; vira "fonte com problema" (o
+  motivo vai para o log quando muda) e o que ela trazia fica *sem informação* (cinza), nunca verde. Página com o
+  formato mudado também. Um soluço do portal (sem resposta ou HTTP 5xx) ganha uma segunda tentativa na mesma rodada.
+  A coleta só roda com o sistema no ar (o PC desligado deixa um buraco no histórico).
+- **O que é deste computador não é queda da SEFAZ:** se nenhuma fonte alcança ninguém, a rodada é **"sem internet
+  neste computador"**; se muitos servidores ficam sem resposta na mesma leitura (3 ou mais e pelo menos 30% dos
+  testados), a internet daqui oscilou e eles ficam *sem informação*, com o aviso no alto da tela; endereço que o DNS
+  não acha segue com o último endereço achado (24 h) e, sem nenhum, fica *sem informação*. Nada disso abre incidente.
+- **Menos alarme falso no teste de conexão:** servidor sem resposta só fica *fora* na segunda leitura seguida (na
+  primeira, *instável*); a conexão segura derrubada pelo servidor é tentada 3 vezes antes de contar como instável (há
+  servidor que derruba de vez em quando quem chega sem certificado).
 - **Incidentes:** o resumo de cada autorizador (fora se a autorização está fora; instável se outro serviço está
   ruim ou o teste foi lento) abre um incidente na primeira leitura ruim e fecha na volta ao normal, com o pior
   momento e o motivo informado pela fonte. Ficam para sempre; os resumos por hora (disponibilidade) e as mudanças,

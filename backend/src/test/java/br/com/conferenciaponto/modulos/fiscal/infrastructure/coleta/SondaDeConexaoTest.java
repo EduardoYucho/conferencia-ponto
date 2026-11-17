@@ -103,6 +103,41 @@ class SondaDeConexaoTest {
         assertThat(nenhum.detalhe()).isEqualTo("Conexão recusada pelo servidor (2 de 2 servidores testados).");
     }
 
+    @Test
+    @DisplayName("A conexão segura derrubada uma vez não diz nada: tenta de novo e, respondendo, está no ar; derrubada sempre, instável")
+    void quedaNaConexaoSegura() throws IOException {
+        int umaQueda = servidores.queDerrubaAsPrimeiras(1);
+        SondaDeConexao.Resposta voltou = sonda.testar("127.0.0.1:" + umaQueda);
+        assertThat(voltou.situacao()).isEqualTo(Situacao.NORMAL);
+        assertThat(voltou.detalhe()).startsWith("Respondeu em ");
+
+        int sempre = servidores.queDerrubaAsPrimeiras(100);
+        SondaDeConexao.Resposta instavel = sonda.testar("127.0.0.1:" + sempre);
+        assertThat(instavel.situacao()).as(instavel.detalhe()).isEqualTo(Situacao.INSTAVEL);
+        assertThat(instavel.detalhe()).isEqualTo("A conexão caiu 3 vezes seguidas durante a conexão segura.");
+        assertThat(instavel.respondeu()).isTrue();
+    }
+
+    @Test
+    @DisplayName("O DNS falhou numa leitura: o teste segue com o último endereço achado; sem nenhum, fica sem informação")
+    void dnsQueFalhaUsaOUltimoEndereco() throws IOException {
+        int porta = servidores.queResponde(0);
+        java.util.concurrent.atomic.AtomicInteger consultas = new java.util.concurrent.atomic.AtomicInteger();
+        SondaDeConexao comDnsRuim = new SondaDeConexao(Duration.ofSeconds(2), Duration.ofSeconds(1),
+                (javax.net.ssl.SSLSocketFactory) javax.net.ssl.SSLSocketFactory.getDefault(), host -> {
+                    if (consultas.incrementAndGet() == 1) {
+                        return new InetAddress[] {InetAddress.getByName("127.0.0.1")};
+                    }
+                    throw new java.net.UnknownHostException(host);
+                });
+
+        assertThat(comDnsRuim.testar("sefaz.exemplo:" + porta).situacao()).isEqualTo(Situacao.NORMAL);
+        SondaDeConexao.Resposta semDns = comDnsRuim.testar("SEFAZ.exemplo:" + porta);
+        assertThat(semDns.situacao()).as("o DNS falhou, mas o servidor respondeu no endereço de antes").isEqualTo(Situacao.NORMAL);
+        assertThat(comDnsRuim.testar("outro.exemplo:" + porta).situacao()).as("nunca achado: sem informação")
+                .isEqualTo(Situacao.SEM_INFORMACAO);
+    }
+
     /** O certificado de teste (sintético, só para estes testes) como chave do servidor e como confiança do cliente. */
     private static SSLContext contextoDeTeste() throws Exception {
         KeyStore chaves = KeyStore.getInstance("PKCS12");

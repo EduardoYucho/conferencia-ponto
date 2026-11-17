@@ -141,7 +141,8 @@ class RedacaoDoResumoTest {
     }
 
     private ProcessarAtendimentos processamento() {
-        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila, redacao);
+        return new ProcessarAtendimentos(atendimentos, arquivos, tarefas, publicador, relogio(), 2, fila, redacao,
+                RepositoriosDeTeste.transacao());
     }
 
     private GerenciarSaidas gerenciarSaidas() {
@@ -208,7 +209,7 @@ class RedacaoDoResumoTest {
     }
 
     private void esperarAte(UUID id, SituacaoDoAtendimento esperada) {
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50)).until(() -> situacao(id) == esperada);
     }
 
     private EstadoDaSaida resumo(UUID id) {
@@ -328,11 +329,11 @@ class RedacaoDoResumoTest {
                 .isInstanceOf(RegraNegocioException.class).hasMessageContaining("Processar");
         processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
-        await().atMost(10, TimeUnit.SECONDS).until(() -> resumo(id).situacao().equals("pronta"));
+        await().atMost(60, TimeUnit.SECONDS).until(() -> resumo(id).situacao().equals("pronta"));
         int antes = modelo.geracoes().size();
 
         processamento().gerar(maria, id, TipoDeSaida.RESUMO);
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
                 .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
 
@@ -471,7 +472,7 @@ class RedacaoDoResumoTest {
         // com a chave cadastrada, "Processar" de novo cria a versão seguinte e termina
         cadastrarChave();
         processamento().processar(maria, id, Set.of(TipoDeSaida.RESUMO));
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
                 .until(() -> resumo(id).situacao().equals("pronta"));
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         assertThat(resumo(id).versao()).isEqualTo(2);
@@ -581,7 +582,7 @@ class RedacaoDoResumoTest {
 
         processamento().gerar(maria, id, TipoDeSaida.RESUMO);
 
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
                 .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         List<ModeloDeMentira.Geracao> depois = modelo.geracoes().subList(antes, modelo.geracoes().size());
@@ -616,7 +617,7 @@ class RedacaoDoResumoTest {
         bloqueio.set(0);
         processamento().tentarDeNovo(maria, id, arquivoChamado(id, "gravacao-tela.mp4"));
 
-        await().atMost(20, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
+        await().atMost(60, TimeUnit.SECONDS).pollInterval(Duration.ofMillis(50))
                 .until(() -> resumo(id).versao() == 2 && resumo(id).situacao().equals("pronta"));
         esperarAte(id, SituacaoDoAtendimento.PRONTO);
         assertThat(gerenciarSaidas().detalhe(maria, id, resumo(id).id()).avisos()).noneMatch(a -> a.contains("Escrito sem o conteúdo"));

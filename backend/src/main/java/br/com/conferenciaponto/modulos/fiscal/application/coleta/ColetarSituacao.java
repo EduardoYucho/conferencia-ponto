@@ -109,6 +109,7 @@ public class ColetarSituacao {
                 avisos.add(new Aviso(r.documentoDoAviso(), r.aviso(), inicio, inicio)); // sem texto = o aviso saiu do painel
             }
         }
+        registrarMudancaDasFontes(situacaoDasFontes);
         int comProblema = (int) situacaoDasFontes.stream().filter(SituacaoDaFonte::comProblema).count();
         Rodada rodada = new Rodada(inicio, fim, leituras.size(), comProblema, semInternet);
         List<Leitura> gerais = leituras.stream().filter(l -> l.alvo().ehGeral()).toList();
@@ -137,6 +138,24 @@ public class ColetarSituacao {
         return new Leitura(leitura.alvo(), leitura.origem(), Situacao.INSTAVEL,
                 CONFIRMANDO + "(" + (leitura.detalhe() == null ? "sem detalhe" : leitura.detalhe()) + ")", leitura.cstat(),
                 leitura.tempoMs(), leitura.verificadoEm());
+    }
+
+    /** No log, só quando muda: a fonte que começou a falhar (com o motivo) e a que voltou. */
+    private void registrarMudancaDasFontes(List<SituacaoDaFonte> agora) {
+        Map<String, String> antes = new java.util.HashMap<>();
+        try {
+            registro.fontes().forEach(f -> antes.put(f.nome(), f.erro()));
+        } catch (RuntimeException e) {
+            return; // o log não pode parar a rodada
+        }
+        for (SituacaoDaFonte f : agora) {
+            String erroDeAntes = antes.get(f.nome());
+            if (f.erro() != null && !f.erro().equals(erroDeAntes)) {
+                log.warn("Monitor fiscal: a fonte {} está com problema: {}", f.nome(), f.erro());
+            } else if (f.erro() == null && erroDeAntes != null) {
+                log.info("Monitor fiscal: a fonte {} voltou", f.nome());
+            }
+        }
     }
 
     /** Apaga o histórico que passou do prazo (os incidentes ficam). */

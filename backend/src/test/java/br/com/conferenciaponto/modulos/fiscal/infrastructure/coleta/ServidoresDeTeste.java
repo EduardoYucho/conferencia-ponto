@@ -55,6 +55,26 @@ final class ServidoresDeTeste implements AutoCloseable {
         });
     }
 
+    /**
+     * Derruba (RST) as primeiras {@code quedas} conexões logo depois de aceitar, como o servidor que recusa de vez em
+     * quando quem chega sem certificado; as seguintes respondem.
+     */
+    int queDerrubaAsPrimeiras(int quedas) throws IOException {
+        java.util.concurrent.atomic.AtomicInteger recebidas = new java.util.concurrent.atomic.AtomicInteger();
+        return iniciar(cliente -> {
+            if (recebidas.incrementAndGet() <= quedas) {
+                cliente.setSoLinger(true, 0); // fechar assim manda um RST em vez do encerramento normal
+                cliente.close();
+                return;
+            }
+            OutputStream out = cliente.getOutputStream();
+            out.write("HTTP/1.1 400 isto nao e TLS\r\n\r\n".getBytes(StandardCharsets.US_ASCII));
+            out.flush();
+            Thread.sleep(200);
+            cliente.close();
+        });
+    }
+
     /** Aceita a conexão e não manda nada. */
     int calado() throws IOException {
         return iniciar(cliente -> { /* segura a conexão aberta até o fim do teste */ });
