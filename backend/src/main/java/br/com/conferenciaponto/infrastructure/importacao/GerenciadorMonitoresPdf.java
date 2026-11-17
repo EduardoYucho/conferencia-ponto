@@ -21,6 +21,7 @@ import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -147,6 +148,11 @@ public class GerenciadorMonitoresPdf {
     /** Situação do monitor do usuário (vazio = sem pasta configurada ou monitoramento desligado). */
     public Optional<EstadoMonitor> estado(UUID usuarioId) {
         return Optional.ofNullable(monitores.get(usuarioId)).map(DiretorioPontoWatcher::getEstado);
+    }
+
+    /** A situação de todos os monitores ligados agora. */
+    public List<EstadoMonitor> estados() {
+        return monitores.values().stream().map(DiretorioPontoWatcher::getEstado).toList();
     }
 
     public boolean habilitado() {

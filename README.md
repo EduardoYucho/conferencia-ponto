@@ -708,6 +708,8 @@ e é relatado ao servidor (`POST /erros-de-tela`), caindo no log do usuário.
 | `logs/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log` | **Um arquivo por usuário e por hora** (`sistema` = o que não é de uma pessoa: subida, tarefas agendadas); guardados por `ponto.logs.dias` (30) dias |
 | Tela **Logs** (`logs.ver`) | "Ao vivo" (atualiza a cada 2 s; filtros por pessoa, gravidade e texto/protocolo; pausar) e "Arquivos por pessoa e hora" |
 
+Os avisos das fontes dos PDFs (comprovantes e conversas: "No Unicode mapping...", centenas por semana, sem efeito
+na leitura) ficam fora do log: `org.apache.pdfbox.pdmodel.font` e `org.apache.fontbox` só registram erros.
 Cada requisição da API vira uma linha de acesso (`GET /api/v1/jornadas?ano=…  -> 200 (12 ms)`) no arquivo de
 quem a fez; entradas no sistema e tentativas de login recusadas também ficam registradas (a senha, nunca). O
 que roda em segundo plano por causa de uma pessoa (leitura da pasta de PDFs, conferência do relatório do RH,
@@ -1115,7 +1117,10 @@ Quando o ponto é batido em outro PC e os PDFs caem numa pasta compartilhada, in
   no Explorer marcando *Lembrar minhas credenciais* (ou `cmdkey /add:192.168.0.10 /user:USUARIO /pass`).
 - **Queda da conexão** (VPN caiu, outro PC desligado): o painel mostra *Pasta dos PDFs inacessível ·
   tentando reconectar*, o monitor tenta de novo a cada 15 s (`intervalo-reconexao`) e, quando a pasta
-  volta, confere e importa o que chegou nesse meio-tempo.
+  volta, confere e importa o que chegou nesse meio-tempo. Se ela ficar **mais de 1 hora fora do ar dentro do
+  expediente** da pessoa (dia útil dela, entre a primeira entrada e a última saída do horário), o sino avisa a
+  dona da pasta e quem vê os logs, uma vez por dia (`AvisoDaPastaInacessivel`). A queda da noite, com o outro
+  computador desligado, não avisa: só conta o tempo fora do ar depois do começo do expediente.
 - **Varredura de segurança** a cada 30 s (`varredura-periodica`): em pasta de rede o aviso do Windows sobre
   arquivo novo pode se perder. A varredura lista a pasta numa única ida ao servidor e só lê arquivos novos
   ou alterados (nome + tamanho + data), então não pesa na VPN.
