@@ -18,5 +18,7 @@ public enum TipoNotificacao {
     /** O backup automático do dia falhou (ou a cópia dele fora do PC não foi feita). Para quem vê os logs. */
     BACKUP,
     /** Pedido por um módulo (ex.: um atendimento parado há mais de 1 dia); veja AvisoDeModulo. */
-    MODULO
+    MODULO,
+    /** A pasta dos comprovantes ficou inacessível por mais de 1 hora durante o expediente. */
+    PASTA
 }

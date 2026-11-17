@@ -127,3 +127,7 @@ logging:
     correlation: "[%X{usuario:-sistema}|%X{protocolo:--}] "   # de quem é a linha e o protocolo da requisição
   level:
     br.com.conferenciaponto.infrastructure.importacao: INFO
+    # As fontes dos PDFs (comprovantes, conversas do Digisac) geram centenas de avisos por semana que não mudam a
+    # leitura ("No Unicode mapping...", "Using fallback font..."): só os erros delas vão para o log.
+    org.apache.pdfbox.pdmodel.font: ERROR
+    org.apache.fontbox: ERROR
