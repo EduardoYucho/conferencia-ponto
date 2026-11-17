@@ -18,6 +18,9 @@ public interface RegistroJornadaRepository {
     /** Registros entre as datas (inclusive), ordenados por data. */
     List<RegistroJornada> listarPorPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim);
 
+    /** O dia do primeiro registro da pessoa (vazio = nenhum ainda): antes dele, ela não usava o sistema. */
+    Optional<LocalDate> primeiroDia(UUID usuarioId);
+
     /** Registros de todos os usuários numa data (ex.: feriado cadastrado vale para todos). */
     List<RegistroJornada> listarPorData(LocalDate data);
 

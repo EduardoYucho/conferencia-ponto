@@ -14,6 +14,7 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -23,7 +24,8 @@ import java.util.stream.Collectors;
  * O que ainda está em aberto num período, para avisar antes de conferir o mês ou fechar o banco de horas: dias com
  * entrada sem saída (ficam fora do saldo), dias úteis sem nenhum registro (também fora do saldo: falta, férias não
  * cadastradas ou um PDF que não chegou) e diferenças com o relatório do RH ainda sem decisão. Só conta o que já
- * passou: hoje ainda está em andamento.
+ * passou (hoje ainda está em andamento) e, nos dias sem registro, só a partir do primeiro registro da pessoa: antes
+ * dele ela ainda não usava o sistema.
  */
 @Component
 public class PendenciasDoPeriodo {
@@ -130,7 +132,10 @@ public class PendenciasDoPeriodo {
             }
         }
         List<LocalDate> semRegistro = new ArrayList<>();
-        for (LocalDate d = inicio; !d.isAfter(ate); d = d.plusDays(1)) {
+        // antes do primeiro registro a pessoa não usava o sistema: esses dias não são pendência
+        Optional<LocalDate> primeiro = registros.primeiroDia(usuarioId);
+        LocalDate desde = primeiro.isEmpty() ? ate.plusDays(1) : primeiro.get().isAfter(inicio) ? primeiro.get() : inicio;
+        for (LocalDate d = desde; !d.isAfter(ate); d = d.plusDays(1)) {
             if (!registrados.contains(d) && regras.classificar(usuarioId, d) == TipoDia.UTIL) {
                 semRegistro.add(d);
             }

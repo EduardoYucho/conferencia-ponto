@@ -31,6 +31,11 @@ class RegistroJornadaRepositoryAdapter implements RegistroJornadaRepository {
     }
 
     @Override
+    public Optional<LocalDate> primeiroDia(UUID usuarioId) {
+        return jpa.findFirstByUsuarioIdOrderByDataReferenciaAsc(usuarioId).map(RegistroJornadaEntity::getDataReferencia);
+    }
+
+    @Override
     public List<RegistroJornada> listarPorPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         return jpa.findByUsuarioIdAndDataReferenciaBetweenOrderByDataReferenciaAsc(usuarioId, inicio, fim).stream()
                 .map(RegistroJornadaMapper::paraDominio)

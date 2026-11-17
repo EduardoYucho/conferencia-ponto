@@ -36,6 +36,12 @@ class RegistroJornadaRepositoryEmMemoria implements RegistroJornadaRepository {
     }
 
     @Override
+    public java.util.Optional<LocalDate> primeiroDia(UUID usuarioId) {
+        return registros.values().stream().filter(r -> r.getUsuarioId().equals(usuarioId))
+                .map(RegistroJornada::getDataReferencia).min(Comparator.naturalOrder());
+    }
+
+    @Override
     public List<RegistroJornada> listarPorPeriodo(UUID usuarioId, LocalDate inicio, LocalDate fim) {
         return registros.values().stream()
                 .filter(r -> r.getUsuarioId().equals(usuarioId))

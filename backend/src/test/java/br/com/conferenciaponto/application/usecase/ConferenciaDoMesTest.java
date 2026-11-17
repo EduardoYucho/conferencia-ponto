@@ -171,6 +171,19 @@ class ConferenciaDoMesTest {
 
         // até antes do dia que falta, nada a avisar
         assertThat(c.ciclo.pendenciasDoFechamento(USUARIO, LocalDate.of(2026, 6, 3)).vazia()).isTrue();
+        // quem começou a usar o sistema no meio do ciclo: os dias de antes não são pendência
+        var outra = java.util.UUID.randomUUID();
+        c.horarios.salvar(c.regras.padraoParaGravar(outra, "teste", Instant.EPOCH));
+        LocalDate comecou = LocalDate.of(2026, 9, 29);
+        var r = br.com.conferenciaponto.domain.model.RegistroJornada.novo(outra, comecou, c.regras.classificar(outra, comecou));
+        for (String b : List.of("08:00", "12:00", "13:00", "17:48")) {
+            r.incluirBatida(LocalTime.parse(b), c.regras.motor(outra, comecou));
+        }
+        c.registros.salvar(r);
+        assertThat(c.pendencias.de(outra, LocalDate.of(2026, 5, 25), ultimo).semRegistro())
+                .containsExactly(LocalDate.of(2026, 9, 30));
+        assertThat(c.pendencias.de(java.util.UUID.randomUUID(), LocalDate.of(2026, 5, 25), ultimo).vazia())
+                .as("ninguém sem registro nenhum tem pendência").isTrue();
         assertThat(c.ciclo.fechar(USUARIO, ultimo, "Zerado pelo RH", "carla", true).fechado().ciclo().dataFim())
                 .isEqualTo(ultimo);
     }
