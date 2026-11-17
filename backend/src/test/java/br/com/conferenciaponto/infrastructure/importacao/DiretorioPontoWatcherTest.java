@@ -6,8 +6,10 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
+import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -52,6 +54,16 @@ class DiretorioPontoWatcherTest {
                 evento -> estados.add((EstadoMonitor) evento));
     }
 
+    /**
+     * Um PDF que chega com o monitor rodando, como o navegador faz: grava com outro nome e renomeia no fim. Gravar
+     * direto no nome final deixa o aviso do Windows chegar com o arquivo pela metade (o teste ficava instável).
+     */
+    private static void chegou(Path pasta, String nome) throws IOException {
+        Path parcial = pasta.resolve(nome + ".parcial");
+        Files.writeString(parcial, "x");
+        Files.move(parcial, pasta.resolve(nome), StandardCopyOption.ATOMIC_MOVE);
+    }
+
     private ProcessadorDeComprovantes registrando() {
         return arquivo -> processados.add(arquivo.getFileName().toString());
     }
@@ -67,7 +79,7 @@ class DiretorioPontoWatcherTest {
         assertThat(processados.poll(5, TimeUnit.SECONDS)).isEqualTo("antigo.pdf");
 
         Files.writeString(pasta.resolve("anotacoes.txt"), "ignorar");
-        Files.writeString(pasta.resolve("Comprovante.PDF"), "x");
+        chegou(pasta, "Comprovante.PDF");
 
         assertThat(processados.poll(15, TimeUnit.SECONDS)).isEqualTo("Comprovante.PDF");
         assertThat(processados).isEmpty();
@@ -146,7 +158,7 @@ class DiretorioPontoWatcherTest {
         Thread.sleep(RAPIDO.toMillis() * 4);
         assertThat(processados).isEmpty();
 
-        Files.writeString(pasta.resolve("novo.pdf"), "x");
+        chegou(pasta, "novo.pdf");
         assertThat(processados.poll(15, TimeUnit.SECONDS)).isEqualTo("novo.pdf");
         Thread.sleep(RAPIDO.toMillis() * 4);
         assertThat(processados).isEmpty(); // não reprocessou pela varredura
