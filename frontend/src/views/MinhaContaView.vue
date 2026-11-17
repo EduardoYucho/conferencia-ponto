@@ -86,7 +86,7 @@ async function trocarSenha() {
   try {
     await auth.alterarSenha(s.atual, s.nova)
     senha.value = { atual: '', nova: '', confirmacao: '' }
-    mostrar('Senha alterada.')
+    mostrar('Senha alterada. Quem estava entrado com a senha antiga, em outro computador ou navegador, precisa entrar de novo.')
   } catch (e) {
     erroSenha.value = mensagemDe(e)
   } finally {

@@ -4,6 +4,7 @@ import br.com.conferenciaponto.domain.exception.AcessoNegadoException;
 import br.com.conferenciaponto.domain.exception.ComprovanteCorrompidoException;
 import br.com.conferenciaponto.domain.exception.ConflitoException;
 import br.com.conferenciaponto.domain.exception.CredenciaisInvalidasException;
+import br.com.conferenciaponto.domain.exception.MuitasTentativasException;
 import br.com.conferenciaponto.domain.exception.DominioException;
 import br.com.conferenciaponto.domain.exception.RecursoNaoEncontradoException;
 import br.com.conferenciaponto.domain.exception.RegraNegocioException;
@@ -100,6 +101,14 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(AcessoNegadoException.class)
     public ResponseEntity<ApiResponse<Void>> acessoNegado(AcessoNegadoException ex) {
         return resposta(HttpStatus.FORBIDDEN, ex);
+    }
+
+    @ExceptionHandler(MuitasTentativasException.class)
+    public ResponseEntity<ApiResponse<Void>> muitasTentativas(MuitasTentativasException ex) {
+        log.info("Recusado ({}): {}", ex.getCodigo(), ex.getMessage());
+        return ResponseEntity.status(HttpStatus.TOO_MANY_REQUESTS)
+                .header(HttpHeaders.RETRY_AFTER, String.valueOf(Math.max(1, ex.getEspera().toSeconds())))
+                .body(ApiResponse.falha(ex.getCodigo(), ex.getMessage()));
     }
 
     @ExceptionHandler(ConflitoException.class)
