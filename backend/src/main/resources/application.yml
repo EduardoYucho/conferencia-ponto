@@ -75,6 +75,21 @@ ponto:
     diretorio: ${PONTO_ARMAZENAMENTO_DIR:${user.home}/.conferencia-ponto/comprovantes}
     url-base: /api/comprovantes
 
+  # Backup automático (no Windows, pelo comando "ponto"): todo dia, depois do horário, se ainda não houver um
+  # backup do dia na pasta (o do "ponto atualizar" conta), a aplicação roda "ponto backup diario". Se falhar,
+  # tenta de novo a cada hora e avisa no sino de quem vê os logs. A guarda e a cópia fora do PC são do comando
+  # (README, seção Backup).
+  backup:
+    automatico: true
+    horario: "12:15"
+    pasta: ${PONTO_BACKUP_DIR:${user.home}/.conferencia-ponto/backups}
+    script: ${user.home}/.conferencia-ponto/servico/bin/ponto.ps1
+    verificacao: 15m
+    # Cópia fora do PC (outro disco ou pen drive), lida pelo comando "ponto": vazio = desligada.
+    # Ex.: "E:/Backups" (os backups vão para E:/Backups/ConferenciaPonto/backups e os PDFs para .../comprovantes)
+    copia:
+      pasta: ${PONTO_BACKUP_COPIA:}
+
   # Planilha de conferência no Google Sheets (opcional). O administrador envia pela tela (Usuários) a chave de
   # uma conta de serviço do Google Cloud; cada pessoa compartilha a planilha dela com o e-mail dessa conta e
   # cola o link em "Minha conta". A chave fica neste arquivo, fora do banco de dados.

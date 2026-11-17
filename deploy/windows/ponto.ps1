@@ -24,7 +24,8 @@
     ponto voltar        volta para a versão anterior (a de antes do último "ponto atualizar"; de novo = desfaz)
     ponto backup        copia o banco (e as imagens da base de conhecimento) para a pasta de backups
     ponto backup antes-da-mudanca   o mesmo, com um motivo no nome da pasta
-    ponto backup lista  mostra os backups guardados (ficam os 10 mais recentes feitos pelo comando)
+    ponto backup lista  mostra os backups guardados (e a regra de guarda)
+    ponto restaurar     volta o banco para um backup (pergunta qual e pede confirmação; faz um backup de agora antes)
     ponto console       roda no próprio terminal, com a saída na tela (diagnóstico; Ctrl+C para parar)
     ponto desinstalar   remove a tarefa e o comando (mantém configuração, logs, banco e PDFs)
 
@@ -35,7 +36,8 @@
     config\servico.yml            porta, segredo do login e logs (gerado)
     logs\conferencia-ponto.log    log da aplicação (e build.log da última compilação)
     logs\usuarios\<login>\<aaaa-mm-dd>\<hh>h.log   um arquivo por usuário e por hora (guardados por 30 dias)
-  Backups em %USERPROFILE%\.conferencia-ponto\backups\<aaaa-mm-dd_hhmmss>[_motivo]\ (banco.dump e backup.json)
+  Backups em %USERPROFILE%\.conferencia-ponto\backups\<aaaa-mm-dd_hhmmss>[_motivo]\ (banco.dump e backup.json).
+  A aplicação faz um por dia sozinha ("ponto backup diario", depois de ponto.backup.horario).
 
 .EXAMPLE
   ponto
@@ -44,13 +46,15 @@
 .EXAMPLE
   ponto backup lista
 .EXAMPLE
+  ponto restaurar
+.EXAMPLE
   .\instalar.cmd -Porta 8090
 #>
 [CmdletBinding()]
 param(
     [Parameter(Position = 0)] [string] $Comando = 'status',
     # "ponto logs <usuario>": de quem são as linhas a acompanhar (ou "pasta" para abrir a pasta dos logs);
-    # "ponto backup <motivo>" ou "ponto backup lista"
+    # "ponto backup <motivo>" ou "ponto backup lista"; "ponto restaurar <pasta do backup>"
     [Parameter(Position = 1)] [string] $Alvo = '',
     [int] $Porta = 0,
     [switch] $Testes,
@@ -77,7 +81,12 @@ $LogBuild      = Join-Path $PastaLogs 'build.log'
 $PortaPadrao   = 8080
 # Backups do banco ("ponto backup"); PONTO_BACKUP_DIR troca a pasta (usado nos testes do próprio script)
 $PastaBackups  = if ($env:PONTO_BACKUP_DIR) { $env:PONTO_BACKUP_DIR } else { Join-Path $HOME '.conferencia-ponto\backups' }
+# Guarda: os $BackupsGuardados mais recentes, o mais recente de cada um dos últimos $DiasComBackup dias e o mais
+# recente de cada versão do banco (o de antes de cada migração)
 $BackupsGuardados = 10
+$DiasComBackup = 14
+# Código de saída do "ponto backup" quando o backup foi feito mas a cópia fora do PC não (a aplicação avisa no sino)
+$SaidaSemCopiaFora = 3
 
 # Argumentos da JVM e da aplicação (a tarefa roda com a pasta de instalação como diretório de trabalho,
 # então o Spring Boot lê config\application.yml sozinho; o servico.yml vem por último e prevalece).
@@ -590,21 +599,56 @@ function Configuracao-Servico([string] $chave, [string] $padrao) {
     return (Resolver-Marcador $padrao)
 }
 
+# PONTO_BANCO_URL, PONTO_BANCO_USUARIO e PONTO_BANCO_SENHA trocam o banco (usados nos testes do próprio script,
+# com um PostgreSQL temporário): com eles, o "ponto restaurar" só mexe nesse banco, nunca na aplicação nem nos arquivos.
+function Banco-DeTeste { return [bool] $env:PONTO_BANCO_URL }
+
 function Conexao-Banco {
-    $url = Configuracao-Servico 'spring.datasource.url' '${DB_URL:jdbc:postgresql://localhost:5432/conferencia_ponto}'
+    $url = if (Banco-DeTeste) { $env:PONTO_BANCO_URL } else {
+        Configuracao-Servico 'spring.datasource.url' '${DB_URL:jdbc:postgresql://localhost:5432/conferencia_ponto}' }
     if ($url -notmatch '^jdbc:postgresql://(?<servidor>[^/:?]+)(?::(?<porta>\d+))?/(?<banco>[^?]+)') {
         throw "o endereço do banco não foi reconhecido (spring.datasource.url = $url)."
     }
     $servidor = $Matches['servidor']
     $portaBanco = if ($Matches['porta']) { $Matches['porta'] } else { '5432' }
     $nomeBanco = $Matches['banco']
+    $usuarioBanco = if (Banco-DeTeste) { $env:PONTO_BANCO_USUARIO } else { Configuracao-Servico 'spring.datasource.username' '${DB_USER:ponto}' }
+    $senhaBanco = if (Banco-DeTeste) { $env:PONTO_BANCO_SENHA } else { Configuracao-Servico 'spring.datasource.password' '${DB_PASSWORD:ponto}' }
     return [pscustomobject]@{
         Servidor = $servidor
         Porta    = $portaBanco
         Banco    = $nomeBanco
-        Usuario  = (Configuracao-Servico 'spring.datasource.username' '${DB_USER:ponto}')
-        Senha    = (Configuracao-Servico 'spring.datasource.password' '${DB_PASSWORD:ponto}')
+        Usuario  = $usuarioBanco
+        Senha    = $senhaBanco
     }
+}
+
+# Argumentos de conexão comuns do pg_dump, do pg_restore e do psql (a senha vai só pelo ambiente)
+function Argumentos-Conexao($banco) {
+    return @('--no-password', "--host=$($banco.Servidor)", "--port=$($banco.Porta)", "--username=$($banco.Usuario)")
+}
+
+# Quantas tabelas o banco tem (0 = vazio, um PC novo, por exemplo); -1 com a explicação se não conectou
+function Tabelas-DoBanco($banco) {
+    $psql = Resolver-PgFerramenta 'psql'
+    if (-not $psql) { return [pscustomobject]@{ Quantas = -1; Mensagem = 'o psql não foi encontrado' } }
+    $consulta = Executar-Pg $psql ((Argumentos-Conexao $banco) + @("--dbname=$($banco.Banco)", '--tuples-only', '--no-align',
+        "--command=SELECT count(*) FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE c.relkind = 'r' AND n.nspname NOT LIKE 'pg\_%' AND n.nspname <> 'information_schema'")) $banco.Senha
+    $numero = @($consulta.Linhas | Where-Object { $_ -match '^\s*\d+\s*$' } | Select-Object -First 1)
+    if ($consulta.Codigo -ne 0 -or $numero.Count -eq 0) { return [pscustomobject]@{ Quantas = -1; Mensagem = $consulta.Mensagem } }
+    return [pscustomobject]@{ Quantas = [int] $numero[0].Trim(); Mensagem = '' }
+}
+
+# A versão do banco (a última migração aplicada), para guardar o backup de antes de cada migração. $null se não der:
+# o backup não depende disso.
+function Versao-DoBanco($banco) {
+    $psql = Resolver-PgFerramenta 'psql'
+    if (-not $psql) { return $null }
+    $consulta = Executar-Pg $psql ((Argumentos-Conexao $banco) + @("--dbname=$($banco.Banco)", '--tuples-only',
+        '--no-align', '--command=SELECT version FROM flyway_schema_history WHERE success ORDER BY installed_rank DESC LIMIT 1')) $banco.Senha
+    $versao = @($consulta.Linhas | Where-Object { $_ -match '^\s*\d+(\.\d+)*\s*$' } | Select-Object -First 1)
+    if ($consulta.Codigo -ne 0 -or $versao.Count -eq 0) { return $null }
+    return $versao[0].Trim()
 }
 
 # pg_dump.exe / pg_restore.exe: PONTO_PG_BIN, o PATH ou a versão mais nova em Arquivos de Programas\PostgreSQL
@@ -693,10 +737,44 @@ function Backups-DoComando {
         Sort-Object Name -Descending)
 }
 
-function Limpar-BackupsAntigos {
-    foreach ($antigo in @(Backups-DoComando | Select-Object -Skip $BackupsGuardados)) {
+function Meta-DoBackup($pasta) {
+    try { return (Get-Content -LiteralPath (Join-Path $pasta.FullName 'backup.json') -Raw -Encoding UTF8 | ConvertFrom-Json) }
+    catch { return $null }
+}
+
+# A versão do banco guardada no backup.json ($null nos backups de antes desta regra)
+function Versao-DoBackup($pasta) {
+    $meta = Meta-DoBackup $pasta
+    if ($meta -and $meta.banco -and $meta.banco.versao) { return [string] $meta.banco.versao }
+    return $null
+}
+
+# Os nomes dos backups do comando que ficam (os outros são apagados): os $BackupsGuardados mais recentes, o mais
+# recente de cada um dos últimos $DiasComBackup dias e o mais recente de cada versão do banco, que é o de antes da
+# migração seguinte. $feitos vem do mais novo para o mais antigo (Backups-DoComando).
+function Backups-QueFicam([object[]] $feitos, [datetime] $hoje = (Get-Date)) {
+    $ficam = @{}
+    foreach ($pasta in @($feitos | Select-Object -First $BackupsGuardados)) { $ficam[$pasta.Name] = $true }
+    $desde = $hoje.Date.AddDays(-($DiasComBackup - 1)).ToString('yyyy-MM-dd')
+    $dias = @{}
+    $versoes = @{}
+    foreach ($pasta in $feitos) {
+        $dia = if ($pasta.Name.Length -ge 10) { $pasta.Name.Substring(0, 10) } else { $pasta.Name }
+        if ($dia -ge $desde -and -not $dias.ContainsKey($dia)) { $dias[$dia] = $true; $ficam[$pasta.Name] = $true }
+        $versao = Versao-DoBackup $pasta
+        if ($versao -and -not $versoes.ContainsKey($versao)) { $versoes[$versao] = $true; $ficam[$pasta.Name] = $true }
+    }
+    return $ficam
+}
+
+# $preservar: nomes que não saem nesta limpeza (o backup que o "ponto restaurar" vai usar, por exemplo)
+function Limpar-BackupsAntigos([string[]] $preservar = @()) {
+    $feitos = @(Backups-DoComando)
+    $ficam = Backups-QueFicam $feitos
+    foreach ($antigo in $feitos) {
+        if ($ficam.ContainsKey($antigo.Name) -or $preservar -contains $antigo.Name) { continue }
         Remove-Item -LiteralPath $antigo.FullName -Recurse -Force
-        Passo "Backup antigo apagado (ficam os $BackupsGuardados mais recentes): $($antigo.Name)"
+        Passo "Backup antigo apagado: $($antigo.Name)"
     }
     # restos de um backup interrompido (janela fechada no meio, por exemplo)
     Get-ChildItem -LiteralPath $PastaBackups -Directory -Filter '*.parcial' -ErrorAction SilentlyContinue |
@@ -706,7 +784,7 @@ function Limpar-BackupsAntigos {
 
 # Faz o backup e devolve onde ele ficou. Qualquer problema vira exceção com a explicação: quem chama decide o
 # que dizer (no "ponto atualizar", a atualização é cancelada).
-function Fazer-Backup([string] $motivo) {
+function Fazer-Backup([string] $motivo, [string[]] $preservar = @()) {
     $pgDump = Resolver-PgFerramenta 'pg_dump'
     $pgRestore = Resolver-PgFerramenta 'pg_restore'
     if (-not $pgDump -or -not $pgRestore) {
@@ -737,9 +815,10 @@ function Fazer-Backup([string] $motivo) {
         Passo 'Conferindo se o arquivo pode ser restaurado (pg_restore --list)'
         $conferencia = Executar-Pg $pgRestore @('--list', $dump) $null
         $itens = @($conferencia.Linhas | Where-Object { $_ -and -not $_.StartsWith(';') }).Count
-        if ($conferencia.Codigo -ne 0 -or $itens -eq 0) {
+        if ($conferencia.Codigo -ne 0) {
             throw "o arquivo do backup não pôde ser lido pelo pg_restore ($($conferencia.Mensagem))."
         }
+        if ($itens -eq 0) { throw "o banco $($banco.Banco) está vazio (nenhuma tabela): não há o que copiar." }
 
         $arquivos = @()
         # mesmo padrão que a aplicação usa (atendimento.yml), inclusive a variável de ambiente
@@ -762,6 +841,7 @@ function Fazer-Backup([string] $motivo) {
             data     = (Get-Date).ToString('s')
             motivo   = $rotulo
             banco    = [ordered]@{ nome = $banco.Banco; servidor = $banco.Servidor; porta = $banco.Porta
+                                   versao = (Versao-DoBanco $banco)
                                    itens = $itens; tamanho = (Get-Item -LiteralPath $dump).Length }
             arquivos = @($arquivos)
             tamanho  = $tamanho
@@ -774,8 +854,50 @@ function Fazer-Backup([string] $motivo) {
         Remove-Item -LiteralPath $parcial -Recurse -Force -ErrorAction SilentlyContinue
         throw
     }
-    Limpar-BackupsAntigos
+    Limpar-BackupsAntigos $preservar
     return [pscustomobject]@{ Pasta = $destino; Tamanho = $tamanho; Itens = $itens; Arquivos = @($arquivos) }
+}
+
+# Robocopy sem lista de arquivos na tela. Devolve $null se deu certo (códigos 0 a 7) ou a explicação.
+function Executar-Robocopy([string] $origem, [string] $destino, [string[]] $opcoes) {
+    $eap = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $linhas = @(& robocopy.exe $origem $destino @opcoes '/R:1' '/W:2' '/NP' '/NFL' '/NDL' '/NJH' '/NJS' 2>&1 | ForEach-Object { "$_".Trim() } | Where-Object { $_ })
+        $codigo = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $eap
+    }
+    if ($codigo -lt 8) { return $null }
+    $erro = @($linhas | Where-Object { $_ -match 'ERRO|ERROR' } | Select-Object -First 1)
+    return $(if ($erro.Count -gt 0) { $erro[0] } else { "robocopy terminou com o código $codigo" })
+}
+
+# Cópia fora do PC (ponto.backup.copia.pasta, na configuração): a pasta dos backups espelhada em
+# <pasta>\ConferenciaPonto\backups (mesma guarda: o que sai daqui sai de lá) e os PDFs dos comprovantes somados em
+# <pasta>\ConferenciaPonto\comprovantes (lá nada é apagado). Devolve $null se copiou ou se a cópia está desligada;
+# senão, o motivo (o backup no PC vale do mesmo jeito, e a próxima cópia leva tudo o que faltou).
+function Copiar-ForaDoPc {
+    $destino = Configuracao-Servico 'ponto.backup.copia.pasta' '${PONTO_BACKUP_COPIA:}'
+    if (-not $destino -or -not $destino.Trim()) { return $null }
+    $destino = $destino.Trim().Trim('"')
+    if (-not (Test-Path -LiteralPath $destino -PathType Container)) {
+        return "a pasta $destino não está acessível (o disco ou o pen drive está ligado?)."
+    }
+    if (-not (Get-Command robocopy.exe -CommandType Application -ErrorAction SilentlyContinue)) {
+        return 'o robocopy do Windows não foi encontrado.'
+    }
+    $raiz = Join-Path $destino 'ConferenciaPonto'
+    Passo "Cópia fora do PC: $raiz"
+    $falha = Executar-Robocopy $PastaBackups (Join-Path $raiz 'backups') @('/MIR', '/XD', '*.parcial')
+    if ($falha) { return "os backups não foram copiados para $raiz ($falha)." }
+    $comprovantes = Configuracao-Servico 'ponto.armazenamento.diretorio' '${PONTO_ARMAZENAMENTO_DIR:${user.home}/.conferencia-ponto/comprovantes}'
+    if ($comprovantes) { $comprovantes = [IO.Path]::GetFullPath($comprovantes) }
+    if ($comprovantes -and (Test-Path -LiteralPath $comprovantes -PathType Container)) {
+        $falha = Executar-Robocopy $comprovantes (Join-Path $raiz 'comprovantes') @('/E', '/XO')
+        if ($falha) { return "os PDFs dos comprovantes não foram copiados para $raiz ($falha)." }
+    }
+    return $null
 }
 
 function Cmd-ListarBackups {
@@ -788,7 +910,8 @@ function Cmd-ListarBackups {
             $quando = ([datetime] $meta.data).ToString('dd/MM/yyyy HH:mm')
             $extras = if (@($meta.arquivos).Count -gt 0) { " + $(@($meta.arquivos) -join ', ')" } else { '' }
             $versao = if ($meta.projeto) { "  ($($meta.projeto.ramo) $($meta.projeto.commit))" } else { '' }
-            Info ('{0}  {1,9}  {2}{3}{4}' -f $quando, (Tamanho-Legivel $meta.tamanho), $pasta.Name, $extras, $versao)
+            $banco = if ($meta.banco -and $meta.banco.versao) { "  [banco V$($meta.banco.versao)]" } else { '' }
+            Info ('{0}  {1,9}  {2}{3}{4}{5}' -f $quando, (Tamanho-Legivel $meta.tamanho), $pasta.Name, $extras, $banco, $versao)
         } catch {
             Aviso "$($pasta.Name): backup.json ilegível"
         }
@@ -803,11 +926,22 @@ function Cmd-ListarBackups {
         }
     }
     Write-Host ''
-    Info "O comando guarda os $BackupsGuardados backups mais recentes. Como restaurar: README, seção Backup."
+    Info ("Ficam os $BackupsGuardados mais recentes, o mais recente de cada um dos últimos $DiasComBackup dias e o " +
+          'mais recente de cada versão do banco (o de antes de cada migração).')
+    $copia = Configuracao-Servico 'ponto.backup.copia.pasta' '${PONTO_BACKUP_COPIA:}'
+    if ($copia -and $copia.Trim()) {
+        $raizCopia = Join-Path ($copia.Trim().Trim('"')) 'ConferenciaPonto'
+        Info "Cópia fora do PC: $raizCopia"
+    } else {
+        Info 'Cópia fora do PC: desligada (ponto.backup.copia.pasta na configuração; README, seção Backup).'
+    }
+    Info 'Para voltar a um deles: ponto restaurar'
 }
 
+# Código de saída: 0 = feito; $SaidaSemCopiaFora = feito, sem a cópia fora do PC; 1 = não feito (a aplicação, que
+# roda o "ponto backup diario" todo dia, usa o código para avisar no sino).
 function Cmd-Backup([string] $alvo) {
-    if ($alvo -in 'lista', 'listar') { Cmd-ListarBackups; return }
+    if ($alvo -in 'lista', 'listar') { Cmd-ListarBackups; exit 0 }
     Titulo 'Backup da Conferência de Ponto'
     try { $feito = Fazer-Backup $alvo }
     catch { Falhar "Backup não feito: $($_.Exception.Message)" }
@@ -815,7 +949,189 @@ function Cmd-Backup([string] $alvo) {
     if ($feito.Arquivos.Count -gt 0) { $conteudo += ' + ' + ($feito.Arquivos -join ', ') }
     Ok "Backup feito: $($feito.Pasta)"
     Info "Conteúdo: $conteudo · $(Tamanho-Legivel $feito.Tamanho) · $($feito.Itens) itens conferidos pelo pg_restore"
+    $semCopia = Copiar-ForaDoPc
+    if ($semCopia) {
+        Aviso "Cópia fora do PC não feita: $semCopia"
+        exit $SaidaSemCopiaFora
+    }
     Info 'Todos os backups: ponto backup lista'
+    exit 0
+}
+
+# ------------------------------------------------------------------------------------------ restaurar
+# "ponto restaurar [pasta]": o banco volta a ser exatamente o do backup (o que foi feito depois se perde). Antes, um
+# backup de agora ("antes-de-restaurar"), que desfaz a restauração se for preciso. O banco é esvaziado e restaurado
+# numa transação só (psql --single-transaction): se algo falhar no meio, nada muda. As imagens da base e a chave
+# mestra do backup voltam junto; as de agora ficam ao lado, com o sufixo .antes-de-restaurar-<data>.
+
+# O backup pedido (nome na pasta dos backups ou caminho, como o da cópia fora do PC) ou o escolhido numa lista
+function Escolher-Backup([string] $alvo) {
+    if ($alvo) {
+        $caminho = if (Test-Path -LiteralPath $alvo -PathType Container) { (Resolve-Path -LiteralPath $alvo).Path }
+                   else { Join-Path $PastaBackups $alvo }
+        if (-not (Test-Path -LiteralPath (Join-Path $caminho 'banco.dump') -PathType Leaf)) {
+            Falhar "Não há backup em $caminho (falta o banco.dump). Os backups: ponto backup lista"
+        }
+        return (Get-Item -LiteralPath $caminho)
+    }
+    $feitos = @(Backups-DoComando | Select-Object -First 20)
+    if ($feitos.Count -eq 0) {
+        Falhar 'Nenhum backup feito pelo comando. Para restaurar um .dump feito à mão: README, seção Backup.'
+    }
+    Info 'Backups, do mais novo para o mais antigo:'
+    for ($i = 0; $i -lt $feitos.Count; $i++) {
+        $meta = Meta-DoBackup $feitos[$i]
+        $quando = if ($meta -and $meta.data) { ([datetime] $meta.data).ToString('dd/MM/yyyy HH:mm') } else { '?' }
+        $banco = if ($meta -and $meta.banco -and $meta.banco.versao) { "  [banco V$($meta.banco.versao)]" } else { '' }
+        Info ('{0,3}. {1}  {2}{3}' -f ($i + 1), $quando, $feitos[$i].Name, $banco)
+    }
+    Write-Host ''
+    $resposta = Read-Host '  Número do backup (Enter cancela)'
+    $numero = 0
+    if (-not [int]::TryParse("$resposta".Trim(), [ref] $numero) -or $numero -lt 1 -or $numero -gt $feitos.Count) {
+        Info 'Cancelado: nada mudou.'
+        exit 0
+    }
+    return $feitos[$numero - 1]
+}
+
+# As imagens da base e a chave mestra do backup no lugar das de agora (que ficam ao lado). O que o backup não
+# tem fica como está.
+function Restaurar-Arquivos($backup) {
+    $pastaAtendimentos = Configuracao-Servico 'atendimento.armazenamento.diretorio' '${PONTO_ATENDIMENTOS_DIR:${user.home}/.conferencia-ponto/atendimentos}'
+    $sufixo = ".antes-de-restaurar-$(Get-Date -Format 'yyyy-MM-dd_HHmmss')"
+    $itens = @(
+        [pscustomobject]@{ Nome = 'atendimentos-base'; Destino = (Join-Path $pastaAtendimentos 'base'); Rotulo = 'Imagens da base de conhecimento' },
+        [pscustomobject]@{ Nome = 'chave-mestra'; Rotulo = 'Chave mestra das chaves do Gemini'
+                           Destino = (Configuracao-Servico 'atendimento.chave-mestra.arquivo' (Join-Path $pastaAtendimentos 'chave-mestra')) }
+    )
+    foreach ($item in $itens) {
+        $doBackup = Join-Path $backup.FullName $item.Nome
+        if (-not (Test-Path -LiteralPath $doBackup)) {
+            Passo "$($item.Rotulo): o backup não tem; a de agora fica"
+            continue
+        }
+        if (Test-Path -LiteralPath $item.Destino) { Rename-Item -LiteralPath $item.Destino -NewName ((Split-Path -Leaf $item.Destino) + $sufixo) }
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $item.Destino) | Out-Null
+        Copy-Item -LiteralPath $doBackup -Destination $item.Destino -Recurse
+        Passo "$($item.Rotulo): voltou a do backup (a de agora ficou com o sufixo $sufixo)"
+    }
+}
+
+function Cmd-Restaurar([string] $alvo) {
+    $teste = Banco-DeTeste
+    Titulo 'Restaurar um backup da Conferência de Ponto'
+    if ($teste) {
+        Aviso "Banco de teste ($env:PONTO_BANCO_URL): só ele muda; a aplicação e os arquivos não são tocados."
+        if (-not $alvo) { Falhar 'No teste, diga qual backup: ponto restaurar <pasta>' }
+    } elseif ([Console]::IsInputRedirected) {
+        Falhar 'Rode "ponto restaurar" num terminal: ele pergunta qual backup e pede confirmação.'
+    }
+    $backup = Escolher-Backup $alvo
+    $dump = Join-Path $backup.FullName 'banco.dump'
+    $pgRestore = Resolver-PgFerramenta 'pg_restore'
+    $psql = Resolver-PgFerramenta 'psql'
+    if (-not $pgRestore -or -not $psql) {
+        Falhar ('O pg_restore e o psql não foram encontrados. Eles vêm com o PostgreSQL; se estiverem em outra ' +
+                'pasta, indique a pasta bin deles na variável de ambiente PONTO_PG_BIN.')
+    }
+    Passo 'Conferindo o backup (pg_restore --list)'
+    $lista = Executar-Pg $pgRestore @('--list', $dump) $null
+    if ($lista.Codigo -ne 0) { Falhar "Este backup não pode ser lido, nada mudou: $($lista.Mensagem)" }
+    $banco = Conexao-Banco
+    $meta = Meta-DoBackup $backup
+    $quando = if ($meta -and $meta.data) { ([datetime] $meta.data).ToString('dd/MM/yyyy HH:mm') } else { $backup.Name }
+
+    $tabelas = Tabelas-DoBanco $banco
+    if ($tabelas.Quantas -lt 0) {
+        Falhar "Não deu para conectar ao banco $($banco.Banco) em $($banco.Servidor):$($banco.Porta), nada mudou: $($tabelas.Mensagem)"
+    }
+    $vazio = $tabelas.Quantas -eq 0
+    $versaoDoBackup = if ($meta -and $meta.banco -and $meta.banco.versao) { [string] $meta.banco.versao } else { $null }
+    $versaoDeAgora = if ($vazio) { $null } else { Versao-DoBanco $banco }
+
+    Write-Host ''
+    Aviso "O banco $($banco.Banco) vai voltar a ser exatamente o do backup de $quando ($($backup.Name))."
+    $numeroBackup = 0.0; $numeroAgora = 0.0
+    if ($versaoDoBackup -and $versaoDeAgora -and [double]::TryParse($versaoDoBackup, [ref] $numeroBackup) -and
+        [double]::TryParse($versaoDeAgora, [ref] $numeroAgora) -and $numeroBackup -lt $numeroAgora) {
+        Aviso ("O backup é do banco na V$versaoDoBackup e o de agora está na V${versaoDeAgora}: ao subir, a versão " +
+               'instalada aplica de novo as migrações que faltam. Para ficar na versão antiga do sistema, cancele e rode ' +
+               '"ponto voltar" antes.')
+    }
+    if ($vazio) { Aviso 'O banco de agora está vazio (um PC novo, por exemplo): não há o que guardar antes.' }
+    else { Aviso 'Tudo o que foi feito depois disso se perde. Antes, é feito um backup de agora ("antes-de-restaurar").' }
+    if (-not $teste) { Aviso 'A aplicação para durante a restauração e sobe de novo no fim.' }
+    if ($teste) {
+        if ($env:PONTO_RESTAURAR_CONFIRMACAO -ne $backup.Name) { Falhar 'Teste sem a confirmação (PONTO_RESTAURAR_CONFIRMACAO = nome do backup).' }
+    } else {
+        $digitado = Read-Host '  Para confirmar, digite RESTAURAR (Enter cancela)'
+        if ("$digitado".Trim() -cne 'RESTAURAR') { Info 'Cancelado: nada mudou.'; exit 0 }
+    }
+
+    $antes = $null
+    if (-not $vazio) {
+        Passo 'Backup de agora'
+        try { $antes = Fazer-Backup 'antes-de-restaurar' @($backup.Name) }
+        catch { Falhar "O backup de agora não foi feito, então nada mudou: $($_.Exception.Message)" }
+        Passo "Backup feito: $($antes.Pasta)"
+    }
+
+    if (-not $teste) {
+        Passo 'Parando a aplicação'
+        Parar-Aplicacao -Silencioso
+    }
+    $carimbo = Get-Date -Format 'yyyyMMdd_HHmmss'
+    $doBackup = Join-Path $env:TEMP "ponto-restaurar-$carimbo-backup.sql"
+    $inteiro = Join-Path $env:TEMP "ponto-restaurar-$carimbo.sql"
+    $falha = $null
+    try {
+        Passo 'Preparando a restauração (pg_restore)'
+        $sql = Executar-Pg $pgRestore @('--no-owner', "--file=$doBackup", $dump) $null
+        if ($sql.Codigo -ne 0) { throw "o pg_restore não leu o backup ($($sql.Mensagem))" }
+        # o que existe hoje sai (inclusive tabelas e schemas criados depois do backup) e o backup entra, juntos
+        $esvaziar = @'
+SET client_min_messages = warning;
+DO $$
+DECLARE s record;
+BEGIN
+  FOR s IN SELECT nspname FROM pg_namespace WHERE nspname NOT LIKE 'pg\_%' AND nspname <> 'information_schema' LOOP
+    EXECUTE format('DROP SCHEMA %I CASCADE', s.nspname);
+  END LOOP;
+END $$;
+CREATE SCHEMA public;
+
+'@
+        [IO.File]::WriteAllText($inteiro, $esvaziar, (New-Object Text.UTF8Encoding $false))
+        $saida = [IO.File]::Open($inteiro, 'Append', 'Write')
+        try {
+            $entrada = [IO.File]::OpenRead($doBackup)
+            try { $entrada.CopyTo($saida) } finally { $entrada.Dispose() }
+        } finally {
+            $saida.Dispose()
+        }
+        Passo "Restaurando o banco $($banco.Banco) numa transação só (psql)"
+        $restauracao = Executar-Pg $psql ((Argumentos-Conexao $banco) + @("--dbname=$($banco.Banco)", '--single-transaction',
+            '--set=ON_ERROR_STOP=1', '--quiet', "--file=$inteiro")) $banco.Senha
+        if ($restauracao.Codigo -ne 0) { throw "o banco não foi restaurado e continua como estava ($($restauracao.Mensagem))" }
+    } catch {
+        $falha = $_.Exception.Message
+    } finally {
+        Remove-Item -LiteralPath $doBackup, $inteiro -Force -ErrorAction SilentlyContinue
+    }
+    if ($falha) {
+        if (-not $teste) { Iniciar-Aplicacao }
+        $onde = if ($antes) { " O backup de agora ficou em $($antes.Pasta)." } else { '' }
+        Falhar "Restauração não feita: $falha.$onde"
+    }
+    if (-not $teste) {
+        try { Restaurar-Arquivos $backup }
+        catch { Aviso "O banco foi restaurado, mas as imagens da base ou a chave mestra não: $($_.Exception.Message). Copie-as do backup à mão (README, seção Backup)." }
+    }
+    Ok "Restaurado: o banco voltou ao backup de $quando."
+    if ($antes) { Info "Para desfazer: ponto restaurar $(Split-Path -Leaf $antes.Pasta)" }
+    if (-not $teste) { Iniciar-Aplicacao }
+    exit 0
 }
 
 # ------------------------------------------------------------------------------------------ comandos
@@ -844,6 +1160,8 @@ function Cmd-Instalar([switch] $Atualizacao) {
                     '  A atualização foi cancelada e a versão instalada continua a mesma. Resolva e rode "ponto atualizar" de novo.')
         }
         Passo "Backup feito: $($feito.Pasta)"
+        $semCopia = Copiar-ForaDoPc
+        if ($semCopia) { Aviso "Cópia fora do PC não feita: $semCopia (a atualização segue)" }
     }
 
     Passo "Instalando em $Raiz"
@@ -969,6 +1287,20 @@ function Mostrar-IaLocal {
     }
 }
 
+# O último backup e o automático (a aplicação faz um por dia, depois de ponto.backup.horario)
+function Mostrar-Backup {
+    $ultimo = @(Backups-DoComando | Select-Object -First 1)
+    $automatico = Configuracao-Servico 'ponto.backup.automatico' 'true'
+    $horario = Configuracao-Servico 'ponto.backup.horario' '12:15'
+    $quando = if ($automatico -eq 'false') { 'automático desligado (ponto.backup.automatico)' } else { "automático todo dia depois das $horario" }
+    if ($ultimo.Count -eq 0) { Aviso "Backup:         nenhum ainda ($quando)"; return }
+    $meta = Meta-DoBackup $ultimo[0]
+    $data = if ($meta -and $meta.data) { [datetime] $meta.data } else { $ultimo[0].LastWriteTime }
+    $texto = "Backup:         último em $($data.ToString('dd/MM HH:mm')) ($($ultimo[0].Name)); $quando"
+    if ($automatico -ne 'false' -and $data -lt (Get-Date).AddDays(-2)) { Aviso "$texto. Há mais de 2 dias sem backup: rode ponto backup" }
+    else { Info $texto }
+}
+
 function Cmd-Status {
     Titulo 'Conferência de Ponto'
     $tarefa = Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue
@@ -999,10 +1331,11 @@ function Cmd-Status {
     Info "Logs:           $ArquivoLog"
     $estado = Ler-Estado
     if ($estado -and $estado.repositorio) { Info "Projeto:        $($estado.repositorio)" }
+    Mostrar-Backup
     Mostrar-Ffmpeg
     Mostrar-IaLocal
     Write-Host ''
-    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | backup [lista] | console | desinstalar'
+    Info 'Comandos: ponto abrir | iniciar | parar | reiniciar | logs [usuario] [-Erros] | config | atualizar [-Testes] | backup [lista] | restaurar | console | desinstalar'
 }
 
 # Uma linha do log geral:
@@ -1108,6 +1441,7 @@ switch ($Comando.ToLowerInvariant()) {
     }
     'console'     { Cmd-Console }
     'backup'      { Cmd-Backup $Alvo }
+    'restaurar'   { Cmd-Restaurar $Alvo }
     'desinstalar' { Cmd-Desinstalar }
     'path'        { Alterar-Path; Ok "$PastaBin está no PATH do usuário (vale para terminais novos)." }
     { $_ -in 'ajuda', 'help', '-h', '/?', '--help' } { Get-Help $PSCommandPath -Detailed }

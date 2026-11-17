@@ -95,7 +95,7 @@ const quando = (iso) => {
   return new Date(iso).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' })
 }
 
-const icone = (tipo) => (tipo === 'CONCILIACAO' ? '⇄' : tipo === 'CICLO_VENCIDO' ? '!' : '⏳')
+const icone = (tipo) => (tipo === 'CONCILIACAO' ? '⇄' : tipo === 'CICLO_VENCIDO' || tipo === 'BACKUP' ? '!' : '⏳')
 </script>
 
 <template>
