@@ -93,8 +93,15 @@ http.interceptors.request.use((config) => {
   return config
 })
 
-/** Em downloads (responseType: 'blob') o corpo de erro também vem como Blob. */
+/** Em downloads (responseType: 'blob' ou 'arraybuffer') o corpo de erro também vem nesse formato. */
 async function lerEnvelope(dados) {
+  if (dados instanceof ArrayBuffer) {
+    try {
+      return JSON.parse(new TextDecoder().decode(dados))
+    } catch {
+      return null
+    }
+  }
   if (typeof Blob !== 'undefined' && dados instanceof Blob) {
     try {
       return JSON.parse(await dados.text())
@@ -137,7 +144,7 @@ function tipoPorStatus(status, codigo) {
 http.interceptors.response.use(
   (resposta) => {
     conexao.semServidor = false
-    if (resposta.config.responseType === 'blob') return resposta
+    if (resposta.config.responseType === 'blob' || resposta.config.responseType === 'arraybuffer') return resposta
     const corpo = resposta.data
     // um proxy no caminho (ou o servidor ainda subindo) pode devolver uma página no lugar dos dados
     if (typeof corpo === 'string' && corpo.trimStart().startsWith('<')) {

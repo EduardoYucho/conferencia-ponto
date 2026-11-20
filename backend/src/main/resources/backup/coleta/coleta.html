@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="robots" content="noindex">
+  <title>Coleta de backup</title>
+  <link rel="stylesheet" href="/c/_/coleta.css">
+</head>
+<body>
+<main>
+  <header>
+    <p class="sobretitulo">Coleta de backup</p>
+    <h1 id="cliente">…</h1>
+  </header>
+
+  <div id="erro" class="erro" hidden role="alert"></div>
+
+  <section id="passo-carregando" class="passo">
+    <p>Carregando…</p>
+  </section>
+
+  <section id="passo-vazio" class="passo" hidden>
+    <h2>Este link não está disponível</h2>
+    <p id="texto-vazio"></p>
+  </section>
+
+  <section id="passo-navegador" class="passo" hidden>
+    <h2 id="navegador-titulo">Abra este link no Google Chrome ou no Microsoft Edge</h2>
+    <p id="navegador-texto">Este navegador não consegue ler uma pasta inteira. No Chrome ou no Edge (versão recente)
+      funciona, sem instalar nada.</p>
+  </section>
+
+  <section id="passo-escolher" class="passo" hidden>
+    <h2>1. Escolha a pasta do sistema</h2>
+    <p id="dica-pasta-linha" hidden>Neste cliente: <code id="dica-pasta"></code></p>
+    <p class="nota">O navegador só lê a pasta que você escolher, e só lê: nada é alterado nela.</p>
+    <p id="retomar-servidor" class="info" hidden>O sistema já tem <strong id="retomar-servidor-bytes"></strong>
+      desta coleta. Escolha a <strong>mesma pasta</strong> e as mesmas subpastas: a leitura continua de onde parou.</p>
+    <p id="aviso-receptor" class="alerta" hidden></p>
+    <button id="botao-escolher" class="principal">Escolher pasta…</button>
+  </section>
+
+  <section id="passo-listando" class="passo" hidden>
+    <h2>Listando os arquivos…</h2>
+    <p id="listando-contagem" class="numero">0 arquivos</p>
+    <div class="barra indeterminada"><div></div></div>
+  </section>
+
+  <section id="passo-selecionar" class="passo" hidden>
+    <h2>2. Marque o que vai no backup</h2>
+    <p>Pasta escolhida: <code id="nome-raiz"></code> <button id="botao-trocar" class="link">trocar</button></p>
+    <p id="aviso-raiz" class="alerta" hidden></p>
+    <table class="grupos">
+      <thead><tr><th></th><th>Pasta</th><th class="num">Arquivos</th><th class="num">Tamanho</th></tr></thead>
+      <tbody id="tabela-grupos"></tbody>
+    </table>
+    <p><button id="marcar-todos" class="link">marcar todas</button></p>
+    <p id="aviso-listagem" class="alerta" hidden></p>
+
+    <h3 class="subtitulo">O que mais pesa</h3>
+    <p class="nota">Tudo vai, menos os tipos desmarcados aqui. Arquivos já compactados (.zip, .rar, .7z…) não diminuem
+      nada e são o que mais demora pela internet: vêm desmarcados. Marque se precisar deles.</p>
+    <table class="grupos">
+      <thead><tr><th></th><th>Tipo</th><th class="num">Arquivos</th><th class="num">Tamanho</th></tr></thead>
+      <tbody id="tabela-tipos"></tbody>
+    </table>
+    <details class="maiores">
+      <summary>Os maiores arquivos</summary>
+      <ul id="lista-maiores"></ul>
+    </details>
+    <p class="total">Selecionado: <strong id="total-selecao"></strong></p>
+    <label class="campo">Computador (opcional, para o relatório)
+      <input id="computador" type="text" maxlength="100" placeholder="ex.: SERVIDOR-LOJA">
+    </label>
+    <p class="nota">O pessoal pode continuar usando o sistema. Arquivo que mudar durante a leitura é lido de novo ou
+      marcado no relatório.</p>
+    <button id="botao-iniciar" class="principal">Iniciar coleta</button>
+  </section>
+
+  <section id="passo-retomar" class="passo" hidden>
+    <h2>Coleta interrompida</h2>
+    <p>Há <strong id="retomar-local-pendente"></strong> já compactados neste navegador esperando o envio.</p>
+    <p id="retomar-local-leitura"></p>
+    <button id="botao-retomar" class="principal">Continuar de onde parou</button>
+    <button id="botao-descartar" class="link">descartar e começar de novo</button>
+  </section>
+
+  <section id="passo-executando" class="passo" hidden>
+    <h2>Coletando <span id="nome-arquivo" class="fraco"></span></h2>
+    <p class="nota">Deixe esta aba aberta. Pode minimizar, e pelo WTS pode desconectar a sessão (sem fazer logoff).</p>
+
+    <div class="etapa">
+      <h3>Leitura e compactação</h3>
+      <div class="barra"><div id="barra-leitura"></div></div>
+      <p id="texto-leitura"></p>
+      <p id="arquivo-atual" class="fraco caminho"></p>
+    </div>
+
+    <div class="etapa">
+      <h3>Envio</h3>
+      <div class="barra"><div id="barra-envio"></div></div>
+      <p id="texto-envio"></p>
+      <dl class="numeros">
+        <div><dt>Velocidade</dt><dd id="velocidade">—</dd></div>
+        <div><dt>Previsão</dt><dd id="previsao">—</dd></div>
+        <div><dt>Compactação</dt><dd id="taxa">—</dd></div>
+        <div><dt>Esperando envio</dt><dd id="guardado">—</dd></div>
+      </dl>
+      <p id="aviso-envio" class="alerta" hidden></p>
+      <p id="dica-4g" class="info" hidden>A internet daqui está lenta. Se precisar mais rápido: conecte um celular
+        por cabo USB e ative a <strong>ancoragem USB</strong> (ou o roteador do celular). O envio continua sozinho pela
+        nova conexão.</p>
+    </div>
+    <p id="avisos-leitura" class="alerta" hidden></p>
+    <p id="modo-guarda" class="nota"></p>
+  </section>
+
+  <section id="passo-concluido" class="passo" hidden>
+    <h2 id="resultado-titulo">Concluindo…</h2>
+    <p id="resultado-texto"></p>
+  </section>
+</main>
+<script type="module" src="/c/_/coleta.js"></script>
+</body>
+</html>

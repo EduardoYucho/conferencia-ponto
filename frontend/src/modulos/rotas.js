@@ -1,5 +1,5 @@
 /**
- * Telas dos módulos (atendimentos, base de conhecimento, monitor fiscal), carregadas sob demanda como as do ponto. O router
+ * Telas dos módulos (atendimentos, base de conhecimento, monitor fiscal, backups de clientes), carregadas sob demanda como as do ponto. O router
  * só importa esta lista: as telas, as chamadas à API e o estado ficam todos em src/modulos.
  */
 export const rotasDosModulos = [
@@ -40,6 +40,12 @@ export const rotasDosModulos = [
     name: 'monitor-fiscal',
     component: () => import('./fiscal/views/MonitorFiscalView.vue'),
     meta: { permissao: 'fiscal.ver' },
+  },
+  {
+    path: '/backups-clientes',
+    name: 'backups-clientes',
+    component: () => import('./backup/views/BackupsDeClientesView.vue'),
+    meta: { permissao: 'backup.coletar' },
   },
   // a antiga tela de acessos dos módulos: os acessos agora ficam nos perfis de cada pessoa, em Usuários
   { path: '/acessos', redirect: '/usuarios' },

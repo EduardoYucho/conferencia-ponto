@@ -1,6 +1,5 @@
 # back-end
 backend/target/
-receptor-backup/target/
 backend/ambiente.local.ps1
 backend/config/
 *.class

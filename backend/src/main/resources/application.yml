@@ -2,10 +2,11 @@ spring:
   application:
     name: conferencia-ponto
   config:
-    # módulos (atendimentos e base de conhecimento; monitor fiscal): configuração em arquivo próprio
+    # módulos (atendimentos e base de conhecimento; monitor fiscal; backups de clientes): configuração em arquivo próprio
     import:
       - optional:classpath:atendimento.yml
       - optional:classpath:fiscal.yml
+      - optional:classpath:backup-clientes.yml
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/conferencia_ponto}
     username: ${DB_USER:ponto}
