@@ -248,6 +248,13 @@ DELETE FROM tb_usuario_permissao WHERE permissao LIKE 'fiscal.%'; DELETE FROM fl
 com ela corrigida (`ponto atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
 atrapalham o ponto e são reaproveitadas.
 
+## Receptor de backup dos clientes (aplicação à parte)
+
+`receptor-backup/` é outra aplicação, separada do ponto (não usa o banco nem o servidor dele): traz para a máquina do
+trabalho o backup inteiro das pastas do sistema de um cliente (AppSrc, Data, DDSrc…), enviado pelo Chrome/Edge do
+cliente por um link, compactado com zstd, em pedaços que continuam de onde pararam e conferidos arquivo a arquivo pelo
+SHA-256. Instalação: `instalar-receptor.cmd` e `receptor tunel`; detalhes em [receptor-backup/README.md](receptor-backup/README.md).
+
 ## Menu lateral
 
 As telas ficam num **menu lateral**, agrupadas por área: **Ponto** (Painel, Auditoria, Conciliação RH, Folgas e

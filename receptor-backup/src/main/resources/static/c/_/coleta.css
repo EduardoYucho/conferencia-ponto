@@ -1,0 +1,116 @@
+:root {
+  --fundo: #f6f7f9;
+  --cartao: #ffffff;
+  --texto: #1d2330;
+  --fraco: #5f6878;
+  --borda: #dde1e8;
+  --destaque: #1f6feb;
+  --destaque-texto: #ffffff;
+  --ok: #1a7f37;
+  --ruim: #c4314b;
+  --alerta-fundo: #fff6dd;
+  --alerta-texto: #6b4e00;
+  --info-fundo: #e8f1ff;
+  --info-texto: #1b3f7a;
+  --erro-fundo: #fde8ec;
+  --barra-fundo: #e6e9ef;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --fundo: #14171c;
+    --cartao: #1d2128;
+    --texto: #e6e9ef;
+    --fraco: #9aa3b2;
+    --borda: #2e343e;
+    --destaque: #4c8dff;
+    --ok: #4ac26b;
+    --ruim: #ff6b81;
+    --alerta-fundo: #3a3016;
+    --alerta-texto: #f3d98b;
+    --info-fundo: #17284a;
+    --info-texto: #b8d0ff;
+    --erro-fundo: #45202a;
+    --barra-fundo: #2a3038;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--fundo);
+  color: var(--texto);
+  font: 15px/1.5 "Segoe UI", system-ui, -apple-system, sans-serif;
+}
+main {
+  max-width: 760px;
+  margin: 32px auto;
+  padding: 0 16px;
+}
+header { margin-bottom: 16px; }
+.sobretitulo { margin: 0; color: var(--fraco); font-size: 13px; text-transform: uppercase; letter-spacing: .06em; }
+h1 { margin: 2px 0 0; font-size: 26px; }
+h2 { margin: 0 0 12px; font-size: 19px; }
+h3 { margin: 0 0 8px; font-size: 15px; }
+.passo {
+  background: var(--cartao);
+  border: 1px solid var(--borda);
+  border-radius: 10px;
+  padding: 20px;
+}
+.nota, .fraco { color: var(--fraco); font-size: 13.5px; }
+code { background: var(--barra-fundo); padding: 1px 6px; border-radius: 4px; }
+button.principal {
+  background: var(--destaque);
+  color: var(--destaque-texto);
+  border: 0;
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+}
+button.principal:disabled { opacity: .5; cursor: default; }
+button.link {
+  background: none;
+  border: 0;
+  color: var(--destaque);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 14px;
+  text-decoration: underline;
+}
+.erro { background: var(--erro-fundo); color: var(--ruim); border-radius: 8px; padding: 10px 14px; margin-bottom: 12px; }
+.alerta { background: var(--alerta-fundo); color: var(--alerta-texto); border-radius: 8px; padding: 8px 12px; }
+.info { background: var(--info-fundo); color: var(--info-texto); border-radius: 8px; padding: 8px 12px; }
+table.grupos { width: 100%; border-collapse: collapse; margin: 8px 0; }
+table.grupos th, table.grupos td { padding: 7px 8px; border-bottom: 1px solid var(--borda); text-align: left; }
+table.grupos th { color: var(--fraco); font-weight: 600; font-size: 13px; }
+table.grupos tbody tr { cursor: pointer; }
+table.grupos tbody tr:hover { background: var(--barra-fundo); }
+.num { text-align: right !important; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.total { font-size: 15px; }
+.campo { display: block; margin: 12px 0; color: var(--fraco); font-size: 13.5px; }
+.campo input {
+  display: block;
+  width: 100%;
+  max-width: 340px;
+  margin-top: 4px;
+  padding: 8px 10px;
+  border: 1px solid var(--borda);
+  border-radius: 6px;
+  background: var(--fundo);
+  color: var(--texto);
+  font-size: 15px;
+}
+.etapa { margin: 18px 0; }
+.barra { height: 12px; background: var(--barra-fundo); border-radius: 6px; overflow: hidden; }
+.barra > div { height: 100%; width: 0; background: var(--destaque); transition: width .4s; }
+.barra.indeterminada > div { width: 30%; animation: vai 1.2s infinite ease-in-out; }
+@keyframes vai { 0% { margin-left: -30%; } 100% { margin-left: 100%; } }
+.caminho { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.numero { font-size: 18px; font-variant-numeric: tabular-nums; }
+dl.numeros { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+dl.numeros div { background: var(--fundo); border-radius: 8px; padding: 8px 10px; }
+dl.numeros dt { color: var(--fraco); font-size: 12.5px; }
+dl.numeros dd { margin: 0; font-weight: 600; font-variant-numeric: tabular-nums; }
+.ok { color: var(--ok); }
+.ruim { color: var(--ruim); }

@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Receptor de backup</title>
+  <link rel="stylesheet" href="/c/_/coleta.css">
+  <link rel="stylesheet" href="/admin.css">
+</head>
+<body>
+<main class="largo">
+  <header class="topo">
+    <div>
+      <p class="sobretitulo">Receptor de backup</p>
+      <h1>Coletas</h1>
+    </div>
+    <div id="tunel" class="tunel"></div>
+  </header>
+
+  <div id="erro" class="erro" hidden role="alert"></div>
+
+  <section class="passo">
+    <h2>Nova coleta</h2>
+    <div class="linha">
+      <select id="cliente-coleta"></select>
+      <button id="botao-gerar" class="principal">Gerar link</button>
+      <button id="botao-novo-cliente-atalho" class="link">cadastrar cliente</button>
+    </div>
+    <div id="link-gerado" class="link-gerado" hidden>
+      <p>Abra este link no Chrome ou no Edge do cliente (pelo WTS no servidor, ou pelo UltraViewer):</p>
+      <div class="linha">
+        <input id="link-texto" type="text" readonly>
+        <button id="botao-copiar" class="principal">Copiar</button>
+      </div>
+      <p id="link-aviso" class="nota"></p>
+    </div>
+  </section>
+
+  <section class="passo">
+    <div class="cabeca">
+      <h2>Coletas</h2>
+      <span id="espaco" class="nota"></span>
+    </div>
+    <div id="coletas"></div>
+  </section>
+
+  <section class="passo">
+    <h2>Clientes</h2>
+    <table class="grupos">
+      <thead><tr><th>Nome</th><th>Pasta do sistema</th><th>Última seleção</th><th></th></tr></thead>
+      <tbody id="clientes"></tbody>
+    </table>
+    <form id="form-cliente" class="linha formulario">
+      <input id="cliente-nome" type="text" placeholder="Nome do cliente" maxlength="80" required>
+      <input id="cliente-pasta" type="text" placeholder="Pasta do sistema (ex.: G:\sislojas3)" maxlength="200">
+      <button class="principal" type="submit" id="botao-salvar-cliente">Cadastrar</button>
+      <button class="link" type="button" id="botao-cancelar-edicao" hidden>cancelar</button>
+    </form>
+  </section>
+
+  <p class="nota rodape">Backups em <code id="pasta-dados"></code>. Esta tela só abre nesta máquina; pela internet, o
+    túnel publica apenas a página de coleta.</p>
+</main>
+<script type="module" src="/admin.js"></script>
+</body>
+</html>
