@@ -60,7 +60,8 @@ export const esquecerPastaPadrao = () => remover(PADRAO)
 
 /** {pasta, nome} da coleta recebida neste navegador (ou null). */
 export const pastaDaColeta = (id) => ler(`coleta:${id}`)
-export const gravarPastaDaColeta = (id, pasta, nome) => gravar(`coleta:${id}`, { pasta, nome })
+/** chave: a do link (decifra os pedaços); fica só neste navegador. */
+export const gravarPastaDaColeta = (id, pasta, nome, chave) => gravar(`coleta:${id}`, { pasta, nome, chave })
 export const esquecerPastaDaColeta = (id) => remover(`coleta:${id}`)
 
 /** A permissão de gravar na pasta: 'granted', 'prompt' ou 'denied' (sem pedir). */

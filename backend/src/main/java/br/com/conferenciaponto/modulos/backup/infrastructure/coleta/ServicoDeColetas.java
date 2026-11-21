@@ -480,29 +480,89 @@ public class ServicoDeColetas {
         return coleta;
     }
 
-    public Pedidos.Info info(String token) {
+    public Pedidos.Info info(String token, String sessao) {
         Coleta coleta = porToken(token);
         synchronized (trava(coleta.id)) {
-            return infoDe(coleta);
+            return infoDe(coleta, sessao);
         }
     }
 
-    private Pedidos.Info infoDe(Coleta coleta) {
+    private Pedidos.Info infoDe(Coleta coleta, String sessao) {
         Cliente cliente = clientes.buscar(coleta.cliente).orElse(new Cliente(coleta.cliente, "", List.of()));
         long tamanhoBloco = (long) configuracao.tamanhoBlocoMib() * 1024 * 1024;
+        boolean emOutro = coleta.sessaoHash != null && !coleta.sessaoHash.equals(hashDaSessao(sessao));
         return new Pedidos.Info(coleta.cliente, cliente.pastaSistema(), cliente.ultimaSelecao(),
                 coleta.situacao.name(), coleta.mensagem, configuracao.nivelZstd(), tamanhoBloco,
                 configuracao.maxParteBytes(), coleta.geracao, coleta.proximoSeq, coleta.cursor, coleta.bytesArquivo,
                 coleta.resumo, coleta.conferencia, coleta.nome + ".tar.zst", coleta.raiz, receptorOnline(coleta.id),
-                coleta.criadaPor);
+                coleta.criadaPor, emOutro && coleta.situacao.recebendo());
     }
 
-    public Pedidos.Info iniciarGeracao(String token, Pedidos.Geracao pedido) {
+    // ------------------------------------------------------------------ sessão: o link preso ao primeiro computador
+
+    /** O segredo de sessão que a página gera (32 bytes aleatórios, base64url); guardado aqui só o SHA-256. */
+    private static final Pattern SESSAO = Pattern.compile("[A-Za-z0-9_-]{43}");
+
+    static String hashDaSessao(String sessao) {
+        return sessao == null || !SESSAO.matcher(sessao).matches() ? null
+                : Envelope.sha256(sessao.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    /**
+     * Só o navegador que começou a coleta continua: um link vazado não serve para mandar nada. {@code registrar}: a
+     * primeira leitura grava a sessão (antes disso, qualquer um com o link pode começar).
+     */
+    private void exigirSessao(Coleta coleta, String sessao, boolean registrar) {
+        String hash = hashDaSessao(sessao);
+        if (hash == null) {
+            throw new ErroDeColeta(400, "SEM_SESSAO", "Recarregue a página: ela não se identificou.");
+        }
+        if (coleta.sessaoHash == null && registrar) {
+            coleta.sessaoHash = hash;
+            return;
+        }
+        if (!hash.equals(coleta.sessaoHash)) {
+            throw new ErroDeColeta(409, "OUTRA_SESSAO", "Esta coleta já está em andamento em outro computador. "
+                    + "Para continuar neste, peça a quem gerou o link para liberar (na tela Backups de clientes).");
+        }
+    }
+
+    /** Quem gerou o link libera a coleta para continuar em outro computador (a próxima página que abrir o link). */
+    public void liberar(String id, UUID usuarioId) {
+        Coleta coleta = doReceptor(id, usuarioId);
+        synchronized (trava(id)) {
+            if (!coleta.situacao.recebendo()) {
+                throw new ErroDeColeta(409, "NAO_ESTA_RECEBENDO", "Só dá para liberar uma coleta que ainda está chegando.");
+            }
+            coleta.sessaoHash = null;
+            descartarPendentes(id, new ErroDeColeta(409, "OUTRA_SESSAO", "A coleta foi liberada para outro computador."));
+            repositorio.salvar(coleta);
+            LOG.info("Coleta {}: liberada para outro computador", id);
+        }
+    }
+
+    /**
+     * As conferências baratas antes de ler o corpo de um pedaço (até dezenas de MB): link, situação, geração e sessão.
+     * Sem isso, qualquer um mandaria pedaços enormes com um link inventado e ocuparia a memória do sistema.
+     */
+    public void prepararEnvio(String token, String geracao, String sessao) {
+        Coleta coleta = recebendo(token);
+        synchronized (trava(coleta.id)) {
+            exigirSessao(coleta, sessao, false);
+            if (geracao == null || !geracao.equals(coleta.geracao)) {
+                throw new ErroDeColeta(409, "GERACAO_ANTIGA",
+                        "Esta coleta foi recomeçada em outra janela; feche esta e use a mais nova.");
+            }
+        }
+    }
+
+    public Pedidos.Info iniciarGeracao(String token, Pedidos.Geracao pedido, String sessao) {
         if (pedido.geracao() == null || pedido.geracao().isBlank() || pedido.geracao().length() > 64) {
             throw new ErroDeColeta(400, "GERACAO_INVALIDA", "Geração inválida.");
         }
         Coleta coleta = recebendo(token);
         synchronized (trava(coleta.id)) {
+            exigirSessao(coleta, sessao, true);
             try {
                 if (!pedido.geracao().equals(coleta.geracao)) {
                     descartarPendentes(coleta.id, new ErroDeColeta(409, "GERACAO_ANTIGA",
@@ -532,7 +592,7 @@ public class ServicoDeColetas {
             trava(coleta.id).notifyAll();
             LOG.info("Coleta {}: leitura {} a partir do pedaço {} ({} arquivos, {} bytes)", coleta.id, coleta.geracao,
                     coleta.proximoSeq, coleta.totalArquivos, coleta.totalBytes);
-            return infoDe(coleta);
+            return infoDe(coleta, sessao);
         }
     }
 
@@ -561,8 +621,11 @@ public class ServicoDeColetas {
      * Um pedaço da página do cliente: fica na memória até quem recebe gravar (a resposta só sai depois disso, ou ao
      * fim de {@link #ESPERA_GRAVACAO}, para a página mandar de novo).
      */
-    public Pedidos.ParteAceita receberParte(String token, long seq, String geracao, byte[] corpo) {
+    public Pedidos.ParteAceita receberParte(String token, long seq, String geracao, String sessao, byte[] corpo) {
         Coleta coleta = recebendo(token);
+        synchronized (trava(coleta.id)) {
+            exigirSessao(coleta, sessao, false);
+        }
         if (corpo.length > configuracao.maxParteBytes() + 16L * 1024 * 1024) {
             throw new ErroDeColeta(413, "PEDACO_GRANDE", "Pedaço maior que o permitido.");
         }
@@ -587,6 +650,10 @@ public class ServicoDeColetas {
                 throw new ErroDeColeta(503, "RECEPTOR_AUSENTE", "O computador que recebe ("
                         + Objects.requireNonNullElse(coleta.criadaPor, "quem gerou o link")
                         + ") está com a tela Backups de clientes fechada. O envio continua quando ela for aberta.");
+            }
+            if (coleta.bytesArquivo + envelope.quadro().length > configuracao.limiteColetaBytes()) {
+                throw new ErroDeColeta(413, "COLETA_GRANDE", "Esta coleta passou do tamanho máximo permitido ("
+                        + configuracao.limiteColetaGb() + " GB). Desmarque pastas ou tipos de arquivo e comece de novo.");
             }
             Repasse r = repasse(coleta.id);
             pendente = r.pendentes.get(seq);
@@ -642,9 +709,10 @@ public class ServicoDeColetas {
         }
     }
 
-    public void progresso(String token, Pedidos.Progresso pedido) {
+    public void progresso(String token, Pedidos.Progresso pedido, String sessao) {
         Coleta coleta = recebendo(token);
         synchronized (trava(coleta.id)) {
+            exigirSessao(coleta, sessao, false);
             coleta.progresso = new Coleta.Progresso(limitar(pedido.fase(), 40), pedido.lidoBytes(),
                     pedido.lidoArquivos(), pedido.compactadoBytes(), pedido.bufferBytes(),
                     limitar(pedido.arquivoAtual(), 400), Instant.now());
@@ -652,9 +720,10 @@ public class ServicoDeColetas {
     }
 
     /** Todos os pedaços gravados por quem recebe: falta ele montar o .tar.zst e conferir. */
-    public Pedidos.Info concluir(String token, Pedidos.Conclusao pedido) {
+    public Pedidos.Info concluir(String token, Pedidos.Conclusao pedido, String sessao) {
         Coleta coleta = recebendo(token);
         synchronized (trava(coleta.id)) {
+            exigirSessao(coleta, sessao, false);
             if (coleta.geracao == null || !coleta.geracao.equals(pedido.geracao())) {
                 throw new ErroDeColeta(409, "GERACAO_ANTIGA", "Esta coleta foi recomeçada em outra janela.");
             }
@@ -668,7 +737,7 @@ public class ServicoDeColetas {
             repositorio.salvar(coleta);
             trava(coleta.id).notifyAll();
             LOG.info("Coleta {}: todos os {} pedaços entregues", coleta.id, coleta.proximoSeq);
-            return infoDe(coleta);
+            return infoDe(coleta, sessao);
         }
     }
 

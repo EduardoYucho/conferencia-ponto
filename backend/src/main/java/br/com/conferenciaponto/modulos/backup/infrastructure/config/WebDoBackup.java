@@ -1,6 +1,7 @@
 package br.com.conferenciaponto.modulos.backup.infrastructure.config;
 
 import br.com.conferenciaponto.infrastructure.web.acesso.AcessoUsuarios;
+import br.com.conferenciaponto.modulos.backup.infrastructure.web.Bloqueios;
 import br.com.conferenciaponto.modulos.backup.infrastructure.web.FiltroDaPortaPublica;
 import br.com.conferenciaponto.modulos.backup.infrastructure.web.InterceptorDoBackup;
 import org.apache.catalina.connector.Connector;
@@ -51,9 +52,9 @@ public class WebDoBackup {
     }
 
     @Bean
-    FilterRegistrationBean<FiltroDaPortaPublica> filtroDaPortaPublica(ConfiguracaoDoBackup configuracao) {
+    FilterRegistrationBean<FiltroDaPortaPublica> filtroDaPortaPublica(ConfiguracaoDoBackup configuracao, Bloqueios bloqueios) {
         FilterRegistrationBean<FiltroDaPortaPublica> registro =
-                new FilterRegistrationBean<>(new FiltroDaPortaPublica(configuracao.portaPublica()));
+                new FilterRegistrationBean<>(new FiltroDaPortaPublica(configuracao.portaPublica(), bloqueios));
         registro.setOrder(Ordered.HIGHEST_PRECEDENCE);
         registro.addUrlPatterns("/*");
         return registro;

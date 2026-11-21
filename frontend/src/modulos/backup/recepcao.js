@@ -3,6 +3,10 @@ import { reactive } from 'vue'
 import { backupApi } from '@/modulos/backup/api'
 import { mensagemDe } from '@/utils/erros'
 import { pastaDaColeta, permissao, pedirPermissao, escolherPasta } from '@/modulos/backup/destino'
+import { importarChave, decifrar } from '@/modulos/backup/cifra'
+
+/** Pedaço que não decifra: adulterado no caminho ou link com outra chave. Para tudo e não confirma nada. */
+class PedacoAdulterado extends Error {}
 
 /**
  * O recebimento neste navegador: para cada coleta gerada por este login com a pasta escolhida aqui, pede ao sistema o
@@ -76,7 +80,9 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
     for (const c of coletas) {
       if (!c.minha) continue
       const registro = await pastaDaColeta(c.id)
-      if (registro && !estados[c.id]?.pasta) marcar(c.id, { pasta: registro.pasta.name })
+      if (registro && (!estados[c.id]?.pasta || !estados[c.id]?.chave)) {
+        marcar(c.id, { pasta: registro.pasta.name, chave: registro.chave ?? null })
+      }
       if (!ATIVAS.includes(c.situacao) || lacos.has(c.id)) continue
       if (!registro) {
         marcar(c.id, { fase: 'outro' })
@@ -105,8 +111,10 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
       .finally(() => lacos.delete(id))
   }
 
-  async function receber(id, { pasta, nome }, controle) {
-    marcar(id, { fase: 'recebendo', pasta: pasta.name, mensagem: '' })
+  async function receber(id, { pasta, nome, chave: textoDaChave }, controle) {
+    marcar(id, { fase: 'recebendo', pasta: pasta.name, chave: textoDaChave ?? null, mensagem: '' })
+    if (!textoDaChave) throw new Error('Esta coleta não tem a chave neste navegador: gere um link novo.')
+    const chave = await importarChave(textoDaChave)
     let pausa = 2000
     while (controle.ativo) {
       try {
@@ -128,13 +136,21 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
           const seq = Number(resposta.headers['x-seq'])
           const sha = await shaHex(bytes)
           if (sha !== String(resposta.headers['x-sha256']).toLowerCase()) continue // estragou no caminho: pede de novo
-          await gravarArquivo(partes, nomeDaParte(seq), bytes)
+          // decifra com a chave do link (só este navegador e a página do cliente a têm) e confere a etiqueta do GCM
+          let conteudo
+          try {
+            conteudo = await decifrar(chave, bytes, seq)
+          } catch {
+            throw new PedacoAdulterado('Um pedaço chegou que não abre com a chave deste link (adulterado ou de outro '
+              + 'link). Nada foi confirmado; cancele esta coleta e gere um link novo.')
+          }
+          await gravarArquivo(partes, nomeDaParte(seq), conteudo)
           await backupApi.recebido(id, seq, sha)
           marcar(id, { fase: 'recebendo', bytes: (estados[id]?.bytes ?? 0) + bytes.length, mensagem: '' })
           pausa = 2000
         }
       } catch (e) {
-        if (e?.status === 403 || e?.status === 404) throw e
+        if (e instanceof PedacoAdulterado || e?.status === 403 || e?.status === 404) throw e
         marcar(id, { mensagem: `${mensagemDe(e)} Tentando de novo…` })
         await espera(pausa)
         pausa = Math.min(pausa * 2, 30000)
@@ -208,5 +224,10 @@ export const useRecepcaoStore = defineStore('recepcaoDeBackups', () => {
     }
   }
 
-  return { estados, acompanhar, permitir, extrair }
+  /** Uma coleta gerada agora neste navegador (a pasta e a chave já gravadas em destino.js). */
+  function registrar(id, pasta, chave) {
+    marcar(id, { pasta: pasta.name, chave })
+  }
+
+  return { estados, acompanhar, permitir, extrair, registrar }
 })

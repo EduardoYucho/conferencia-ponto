@@ -16,6 +16,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
@@ -80,19 +81,28 @@ public class ColetaPublicaController {
                 && !host.toLowerCase().endsWith(".localhost");
     }
 
+    /** O segredo de sessão da página (veja ServicoDeColetas#exigirSessao). */
+    static final String SESSAO = "X-Coleta-Sessao";
+
     @GetMapping("/c/{token}/api/coleta")
-    public ResponseEntity<Pedidos.Info> coleta(@PathVariable String token) {
-        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(servico.info(token));
+    public ResponseEntity<Pedidos.Info> coleta(@PathVariable String token,
+                                               @RequestHeader(value = SESSAO, required = false) String sessao) {
+        return ResponseEntity.ok().cacheControl(CacheControl.noStore()).body(servico.info(token, sessao));
     }
 
     @PostMapping("/c/{token}/api/geracao")
-    public Pedidos.Info geracao(@PathVariable String token, @RequestBody Pedidos.Geracao pedido) {
-        return servico.iniciarGeracao(token, pedido);
+    public Pedidos.Info geracao(@PathVariable String token, @RequestBody Pedidos.Geracao pedido,
+                                @RequestHeader(value = SESSAO, required = false) String sessao) {
+        return servico.iniciarGeracao(token, pedido, sessao);
     }
 
     @PutMapping("/c/{token}/api/partes/{seq}")
     public Pedidos.ParteAceita parte(@PathVariable String token, @PathVariable long seq,
-                                     @RequestParam String geracao, HttpServletRequest requisicao) throws IOException {
+                                     @RequestParam String geracao,
+                                     @RequestHeader(value = SESSAO, required = false) String sessao,
+                                     HttpServletRequest requisicao) throws IOException {
+        // link, sessão e geração conferidos ANTES de ler o corpo (que pode ter dezenas de MB)
+        servico.prepararEnvio(token, geracao, sessao);
         long limite = configuracao.maxParteBytes() + 16L * 1024 * 1024;
         long declarado = requisicao.getContentLengthLong();
         if (declarado > limite) {
@@ -108,17 +118,19 @@ public class ColetaPublicaController {
         if (declarado >= 0 && corpo.length != declarado) {
             throw new ErroDeColeta(400, "PEDACO_INCOMPLETO", "O pedaço chegou pela metade; mande de novo.");
         }
-        return servico.receberParte(token, seq, geracao, corpo);
+        return servico.receberParte(token, seq, geracao, sessao, corpo);
     }
 
     @PostMapping("/c/{token}/api/progresso")
-    public ResponseEntity<Void> progresso(@PathVariable String token, @RequestBody Pedidos.Progresso pedido) {
-        servico.progresso(token, pedido);
+    public ResponseEntity<Void> progresso(@PathVariable String token, @RequestBody Pedidos.Progresso pedido,
+                                          @RequestHeader(value = SESSAO, required = false) String sessao) {
+        servico.progresso(token, pedido, sessao);
         return ResponseEntity.noContent().build();
     }
 
     @PostMapping("/c/{token}/api/concluir")
-    public Pedidos.Info concluir(@PathVariable String token, @RequestBody Pedidos.Conclusao pedido) {
-        return servico.concluir(token, pedido);
+    public Pedidos.Info concluir(@PathVariable String token, @RequestBody Pedidos.Conclusao pedido,
+                                 @RequestHeader(value = SESSAO, required = false) String sessao) {
+        return servico.concluir(token, pedido, sessao);
     }
 }

@@ -33,10 +33,27 @@ public final class TratadorDeErrosDaColeta {
     @Order(Ordered.HIGHEST_PRECEDENCE)
     public static class DaPagina {
 
+        private final org.springframework.beans.factory.ObjectProvider<Bloqueios> bloqueios;
+        private final org.springframework.beans.factory.ObjectProvider<
+                br.com.conferenciaponto.modulos.backup.infrastructure.config.ConfiguracaoDoBackup> configuracao;
+
+        /** Opcionais: os testes de tela do ponto carregam os tratadores de erro sem o resto do módulo. */
+        public DaPagina(org.springframework.beans.factory.ObjectProvider<Bloqueios> bloqueios,
+                        org.springframework.beans.factory.ObjectProvider<
+                                br.com.conferenciaponto.modulos.backup.infrastructure.config.ConfiguracaoDoBackup> configuracao) {
+            this.bloqueios = bloqueios;
+            this.configuracao = configuracao;
+        }
+
         @ExceptionHandler(ErroDeColeta.class)
-        public ResponseEntity<Map<String, String>> deColeta(ErroDeColeta erro) {
+        public ResponseEntity<Map<String, String>> deColeta(ErroDeColeta erro, jakarta.servlet.http.HttpServletRequest requisicao) {
             if (erro.status() >= 500) {
                 LOG.warn("{}: {}", erro.codigo(), erro.getMessage());
+            }
+            Bloqueios b = bloqueios.getIfAvailable();
+            var c = configuracao.getIfAvailable();
+            if ("LINK_INVALIDO".equals(erro.codigo()) && b != null && c != null) {
+                b.registrarErro(Bloqueios.enderecoDe(requisicao, c.portaPublica()));
             }
             return ResponseEntity.status(erro.status()).body(Map.of("codigo", erro.codigo(), "mensagem", erro.getMessage()));
         }

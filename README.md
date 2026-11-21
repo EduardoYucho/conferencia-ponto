@@ -752,10 +752,27 @@ continua de onde parou); para um endereço fixo, use um túnel nomeado em `backu
 **Permissões:** *Coletar backups de clientes* (a tela inteira) e *Apagar backups de clientes* (tirar do histórico).
 Nenhum perfil as recebe de fábrica além do Administrador: libere em Perfis de acesso.
 
-**Segurança.** A página de coleta não usa login: a credencial é o token de 32 bytes aleatórios no link (um por coleta;
-vence sem uso; deixa de aceitar pedaços depois de concluída ou cancelada). Só quem gerou o link recebe os pedaços (as
-rotas de receber exigem o login dessa pessoa). Na extração, caminho com `..`, absoluto, com letra de unidade ou nome
-reservado do Windows é ignorado e listado. No cliente, a página só **lê** a pasta escolhida.
+**Segurança.**
+- **Computador do cliente:** a página roda dentro do navegador, só **lê** a pasta que a pessoa escolher (o navegador
+  pede a permissão e não deixa a página ver mais nada) e não instala nem executa nada. Ela só carrega os arquivos do
+  próprio sistema e só fala com ele (política `Content-Security-Policy` rígida, sem conteúdo de terceiros), não abre
+  dentro de outro site e não passa o link adiante (`no-referrer`).
+- **Criptografia de ponta a ponta:** cada pedaço é cifrado no navegador do cliente com AES-256-GCM, com uma chave que
+  nasce na tela de quem gera o link e vai **no link, depois do `#`** (essa parte do endereço o navegador nunca envia a
+  servidor nenhum). O sistema e o túnel (Cloudflare) só veem o conteúdo cifrado; o navegador de quem recebe decifra e
+  confere a etiqueta de cada pedaço (adulterado, trocado de lugar ou de outra chave: não é gravado nem confirmado).
+  Pedaço sem cifra é recusado. O Cloudflare ainda vê os nomes e tamanhos dos arquivos (vão no cabeçalho, para o sistema
+  saber onde a leitura parou).
+- **Link:** token de 32 bytes aleatórios, um por coleta, que vence sem uso e deixa de valer ao concluir ou cancelar.
+  Ao começar, a coleta fica **presa ao navegador do cliente que a começou** (um segredo de sessão gerado por ele): um
+  link vazado não serve para mandar nada; para continuar em outro computador, quem gerou o link usa **Liberar para
+  outro computador**.
+- **Sistema:** pela porta do túnel só passa `/c/...`; o link, a sessão e a geração são conferidos **antes** de ler o
+  corpo de um pedaço; cada coleta tem teto (`limite-coleta-gb`, 200 GB) e cada pedaço também; quem tenta 20 links
+  inexistentes em 10 minutos é barrado por 30 minutos. Só quem gerou o link recebe os pedaços (com o login dessa pessoa).
+- **Computador de quem recebe:** os arquivos só são gravados na pasta escolhida (o navegador não deixa sair dela); na
+  extração, caminho com `..`, absoluto, com letra de unidade ou nome reservado do Windows é ignorado e listado. Um
+  backup traz os arquivos do cliente como estão: não execute programas de dentro dele.
 
 **Limites conhecidos.** Precisa do Chrome ou do Edge nos dois lados. Em Windows Server 2012 R2 o último Chrome que roda lá
 (109) tem o necessário, mas ainda não foi testado num servidor real. O Chrome não deixa escolher a raiz de um disco

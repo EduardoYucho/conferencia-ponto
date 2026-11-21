@@ -84,7 +84,7 @@ public class BackupController {
      * {@code token} só enquanto chega (para montar o link).
      */
     public record Visao(String id, String token, String cliente, String nome, String situacao, String mensagem,
-                        Instant criadaEm, String criadaPor, boolean minha, boolean receptorOnline, Instant expiraEm,
+                        Instant criadaEm, String criadaPor, boolean minha, boolean receptorOnline, boolean vinculada, Instant expiraEm,
                         String link, String raiz, List<String> pastas, String computador, long totalArquivos,
                         long totalBytes, Coleta.Progresso progresso, long proximoSeq, long bytesRecebidos,
                         double velocidade, Long previsaoSegundos, Instant inicioEnvio, Instant ultimoContato,
@@ -192,6 +192,14 @@ public class BackupController {
         return ApiResponse.ok(visao(coletas.buscar(id), acesso.logado()));
     }
 
+    /** A coleta fica presa ao computador que a começou; quem gerou o link libera para continuar em outro. */
+    @PostMapping("/coletas/{id}/liberar")
+    public ApiResponse<Visao> liberar(@PathVariable String id) {
+        Usuario logado = acesso.logado();
+        coletas.liberar(id, logado.id());
+        return ApiResponse.ok(visao(coletas.buscar(id), logado));
+    }
+
     @DeleteMapping("/coletas/{id}")
     public ApiResponse<Void> apagar(@PathVariable String id) {
         if (!acesso.logado().pode(PermissoesDoBackup.APAGAR)) {
@@ -250,7 +258,7 @@ public class BackupController {
         }
         boolean minha = c.criadaPorId == null || c.criadaPorId.equals(logado.id());
         return new Visao(c.id, recebendo ? c.token : null, c.cliente, c.nome, c.situacao.name(), c.mensagem,
-                c.criadaEm, c.criadaPor, minha, coletas.receptorOnline(c.id), c.expiraEm, link, c.raiz, c.pastas,
+                c.criadaEm, c.criadaPor, minha, coletas.receptorOnline(c.id), c.sessaoHash != null, c.expiraEm, link, c.raiz, c.pastas,
                 c.computador, c.totalArquivos, c.totalBytes, c.progresso, c.proximoSeq,
                 c.situacao.terminada() ? c.tamanhoArquivo : c.bytesArquivo, velocidade, previsao, c.inicioEnvio,
                 c.ultimoContato, c.concluidaEm, c.conferidaEm, c.tamanhoArquivo, c.resumo, c.conferencia,

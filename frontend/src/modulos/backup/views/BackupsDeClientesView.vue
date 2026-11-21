@@ -5,6 +5,7 @@ import { useAuthStore } from '@/stores/auth'
 import { backupApi } from '@/modulos/backup/api'
 import { useRecepcaoStore } from '@/modulos/backup/recepcao'
 import { escolherPasta, gravarPastaDaColeta, gravarPastaPadrao, pastaPadrao, permissao, seletorDisponivel } from '@/modulos/backup/destino'
+import { novaChave } from '@/modulos/backup/cifra'
 import EstadoDaTela from '@/components/EstadoDaTela.vue'
 import { mensagemDe } from '@/utils/erros'
 import { ACESSOS } from '@/utils/permissoes'
@@ -129,9 +130,15 @@ const soNestaRede = computed(() => !!tunel.value && ['DESLIGADO', 'SEM_CLOUDFLAR
  * só com o túnel desligado é que vale o desta rede (para testar).
  */
 function linkDe(c) {
-  if (c.link) return c.link
-  return soNestaRede.value && c.token ? `${origem}/c/${c.token}` : null
+  // a chave da criptografia vai depois do "#": o navegador nunca a manda para servidor nenhum (nem o túnel a vê)
+  const chave = recepcao.estados[c.id]?.chave
+  if (!chave) return null
+  if (c.link) return `${c.link}#k=${chave}`
+  return soNestaRede.value && c.token ? `${origem}/c/${c.token}#k=${chave}` : null
 }
+
+/** A chave (e o link completo) só existe no navegador que gerou o link. */
+const semChaveAqui = (c) => !recepcao.estados[c.id]?.chave
 
 /** A coleta do último link gerado (o link acompanha o endereço atual do túnel). */
 const linkGeradoId = ref(null)
@@ -166,7 +173,9 @@ function gerarLink() {
     if (destinoSemPermissao.value) await confirmarDestino()
     if (!destino.value || destinoSemPermissao.value) throw new Error('Escolha a pasta deste computador onde o backup vai ficar.')
     const c = await backupApi.criarColeta(clienteEscolhido.value)
-    await gravarPastaDaColeta(c.id, destino.value, c.nome)
+    const chave = novaChave()
+    await gravarPastaDaColeta(c.id, destino.value, c.nome, chave)
+    recepcao.registrar(c.id, destino.value, chave)
     linkGeradoId.value = c.id
     coletas.value = [c, ...coletas.value.filter((x) => x.id !== c.id)]
     const link = linkDe(c)
@@ -177,6 +186,12 @@ function gerarLink() {
 function apagar(c) {
   if (window.confirm(`Tirar ${c.nome} do histórico? O arquivo que já está no computador de quem recebeu continua lá.`)) {
     acao(() => backupApi.apagar(c.id))
+  }
+}
+
+function liberar(c) {
+  if (window.confirm('Liberar esta coleta para continuar em outro computador? O computador onde ela começou deixa de poder enviar; o próximo que abrir o link continua de onde parou.')) {
+    acao(() => backupApi.liberar(c.id))
   }
 }
 
@@ -474,8 +489,9 @@ onBeforeUnmount(() => clearInterval(relogio))
                 <div class="mt-3 flex flex-wrap gap-2">
                   <template v-if="['AGUARDANDO', 'RECEBENDO'].includes(c.situacao) && c.token">
                     <button type="button" class="botao-primario" :disabled="!linkDe(c)" @click="copiar(linkDe(c), c.id)">
-                      {{ copiado === c.id ? 'Copiado' : c.link ? 'Copiar link' : soNestaRede ? 'Copiar link (só nesta rede)' : 'Esperando o túnel…' }}
+                      {{ copiado === c.id ? 'Copiado' : semChaveAqui(c) ? 'Link só no navegador que o gerou' : c.link ? 'Copiar link' : soNestaRede ? 'Copiar link (só nesta rede)' : 'Esperando o túnel…' }}
                     </button>
+                    <button v-if="c.minha && c.vinculada" type="button" class="botao-secundario" :disabled="ocupado" title="A coleta fica presa ao computador do cliente onde começou" @click="liberar(c)">Liberar para outro computador</button>
                   </template>
                   <button v-if="['AGUARDANDO', 'RECEBENDO', 'FECHANDO'].includes(c.situacao)" type="button" class="botao-secundario text-carimbo" :disabled="ocupado" @click="cancelar(c)">Cancelar</button>
                   <button

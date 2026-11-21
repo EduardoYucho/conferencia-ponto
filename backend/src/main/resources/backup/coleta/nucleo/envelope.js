@@ -1,11 +1,12 @@
-// Um pedaço do envio: "RBK1", tamanho do cabeçalho (4 bytes, big-endian), cabeçalho JSON e o quadro zstd.
+// Um pedaço do envio: "RBK1", tamanho do cabeçalho (4 bytes, big-endian), cabeçalho JSON e o quadro zstd cifrado
+// (veja cifra.js). O SHA-256 vai sobre o cifrado: confere o transporte; o conteúdo, só quem tem a chave lê.
 
 import { sha256Hex } from './sha256.js';
 
 const MAGICO = new TextEncoder().encode('RBK1');
 
 export function montarEnvelope({ seq, geracao, quadro, bruto, fim, arquivos, naoLidos }) {
-  const cabecalho = { seq, geracao, shaQuadro: sha256Hex(quadro), bruto, fim, arquivos, naoLidos };
+  const cabecalho = { seq, geracao, cifrado: true, shaQuadro: sha256Hex(quadro), bruto, fim, arquivos, naoLidos };
   const json = new TextEncoder().encode(JSON.stringify(cabecalho));
   const saida = new Uint8Array(8 + json.length + quadro.length);
   saida.set(MAGICO, 0);

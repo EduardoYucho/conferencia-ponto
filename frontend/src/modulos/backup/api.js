@@ -16,6 +16,8 @@ export const backupApi = {
   coleta: (id) => http.get(`/backup/coletas/${id}`),
   criarColeta: (cliente) => http.post('/backup/coletas', { cliente }),
   cancelar: (id) => http.post(`/backup/coletas/${id}/cancelar`),
+  /** A coleta fica presa ao computador que começou; libera para continuar em outro. */
+  liberar: (id) => http.post(`/backup/coletas/${id}/liberar`),
   /** Tira do histórico (o arquivo no computador de quem recebeu fica). */
   apagar: (id) => http.delete(`/backup/coletas/${id}`),
 

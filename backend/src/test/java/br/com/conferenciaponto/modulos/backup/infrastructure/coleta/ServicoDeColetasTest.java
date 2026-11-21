@@ -60,6 +60,8 @@ class ServicoDeColetasTest {
 
     private final ObjectMapper json = new ObjectMapper().registerModule(new JavaTimeModule());
     private final UUID quem = UUID.randomUUID();
+    /** O segredo de sessão da página (43 caracteres base64url). */
+    private static final String SESSAO = "S".repeat(43);
     private final List<Object> avisos = new CopyOnWriteArrayList<>();
     private final ExecutorService paginas = Executors.newCachedThreadPool();
     private ServicoDeColetas servico;
@@ -68,7 +70,7 @@ class ServicoDeColetasTest {
 
     @BeforeEach
     void preparar() {
-        configuracao = new ConfiguracaoDoBackup(pasta.resolve("estado"), 0, "", "", false, 48, 3, 1, 32, 90);
+        configuracao = new ConfiguracaoDoBackup(pasta.resolve("estado"), 0, "", "", false, 48, 3, 1, 32, 90, 1);
         clientes = new RepositorioDeClientes(configuracao, json);
         clientes.salvar(null, new Cliente("Loja Teste", "G:\\sislojas3", List.of()));
         servico = novoServico();
@@ -113,6 +115,7 @@ class ServicoDeColetasTest {
         ObjectNode cab = json.createObjectNode();
         cab.put("seq", seq);
         cab.put("geracao", geracao);
+        cab.put("cifrado", true);
         cab.put("shaQuadro", Envelope.sha256(quadro));
         cab.put("bruto", bloco.length);
         ObjectNode fim = cab.putObject("fim");
@@ -147,7 +150,7 @@ class ServicoDeColetasTest {
     /** A página do cliente manda o pedaço (a resposta só sai quando quem recebe gravar). */
     private Future<Pedidos.ParteAceita> enviar(String token, int seq, String geracao) throws IOException {
         byte[] corpo = envelope(seq, geracao);
-        return paginas.submit(() -> servico.receberParte(token, seq, geracao, corpo));
+        return paginas.submit(() -> servico.receberParte(token, seq, geracao, SESSAO, corpo));
     }
 
     /** O navegador de quem recebe: pega e confirma {@code quantos} pedaços, guardando os quadros na ordem. */
@@ -183,7 +186,7 @@ class ServicoDeColetasTest {
     @Test
     void repasseForaDeOrdemSemGravarNadaDoBackupEConferenciaNoNavegador() throws Exception {
         Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
-        servico.iniciarGeracao(coleta.token, geracao("g1", null));
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
 
         // a página manda 1 e 2 antes do 0: tudo espera quem recebe, que grava na ordem
         Future<Pedidos.ParteAceita> p1 = enviar(coleta.token, 1, "g1");
@@ -195,7 +198,7 @@ class ServicoDeColetasTest {
         assertThat(p0.get(5, TimeUnit.SECONDS).proximoSeq()).isGreaterThanOrEqualTo(1);
         assertThat(p2.get(5, TimeUnit.SECONDS).proximoSeq()).isEqualTo(3);
         // repetido (a resposta anterior se perdeu): aceito na hora, sem duplicar
-        assertThat(servico.receberParte(coleta.token, 1, "g1", envelope(1, "g1")).proximoSeq()).isEqualTo(3);
+        assertThat(servico.receberParte(coleta.token, 1, "g1", SESSAO, envelope(1, "g1")).proximoSeq()).isEqualTo(3);
 
         // nada do backup no disco do sistema: só os dados de controle
         try (var todos = Files.walk(pasta.resolve("estado"))) {
@@ -203,9 +206,9 @@ class ServicoDeColetasTest {
                     .allMatch(n -> n.equals("coleta.json") || n.equals("blocos.jsonl") || n.equals("clientes.json"));
         }
 
-        assertThatThrownBy(() -> servico.concluir(coleta.token, new Pedidos.Conclusao("g1", 4)))
+        assertThatThrownBy(() -> servico.concluir(coleta.token, new Pedidos.Conclusao("g1", 4), SESSAO))
                 .isInstanceOf(ErroDeColeta.class).hasMessageContaining("faltam");
-        servico.concluir(coleta.token, new Pedidos.Conclusao("g1", 3));
+        servico.concluir(coleta.token, new Pedidos.Conclusao("g1", 3), SESSAO);
         assertThat(servico.buscar(coleta.id).situacao).isEqualTo(Coleta.Situacao.FECHANDO);
 
         byte[] parteFinal = servico.parteFinal(coleta.id, quem);
@@ -233,10 +236,10 @@ class ServicoDeColetasTest {
     @Test
     void semQuemRecebeOPedacoEsperaNoCliente() throws Exception {
         Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
-        servico.iniciarGeracao(coleta.token, geracao("g1", null));
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
         servico.esquecerReceptor(coleta.id);
-        assertThat(servico.info(coleta.token).receptorOnline()).isFalse();
-        assertThatThrownBy(() -> servico.receberParte(coleta.token, 0, "g1", envelope(0, "g1")))
+        assertThat(servico.info(coleta.token, SESSAO).receptorOnline()).isFalse();
+        assertThatThrownBy(() -> servico.receberParte(coleta.token, 0, "g1", SESSAO, envelope(0, "g1")))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> {
                     assertThat(e.status()).isEqualTo(503);
                     assertThat(e.codigo()).isEqualTo("RECEPTOR_AUSENTE");
@@ -252,7 +255,7 @@ class ServicoDeColetasTest {
     @Test
     void soQuemGerouOLinkRecebeEOGravadoPrecisaConferir() throws Exception {
         Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
-        servico.iniciarGeracao(coleta.token, geracao("g1", null));
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
         assertThatThrownBy(() -> servico.proximaParte(coleta.id, UUID.randomUUID(), Duration.ofMillis(10)))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRO_RECEPTOR"));
 
@@ -266,14 +269,14 @@ class ServicoDeColetasTest {
 
         byte[] corrompido = envelope(1, "g1");
         corrompido[corrompido.length - 3] ^= 0x55;
-        assertThatThrownBy(() -> servico.receberParte(coleta.token, 1, "g1", corrompido))
+        assertThatThrownBy(() -> servico.receberParte(coleta.token, 1, "g1", SESSAO, corrompido))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.status()).isEqualTo(422));
     }
 
     @Test
     void voltaParaAntesDeUmArquivoERetomaDepoisDeReiniciar() throws Exception {
         Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
-        servico.iniciarGeracao(coleta.token, geracao("g1", null));
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
         Future<Pedidos.ParteAceita> p0 = enviar(coleta.token, 0, "g1");
         Future<Pedidos.ParteAceita> p1 = enviar(coleta.token, 1, "g1");
         receber(coleta.id, 2);
@@ -282,12 +285,12 @@ class ServicoDeColetasTest {
 
         // o sistema reinicia: o andamento volta dos dados de controle
         servico = novoServico();
-        Pedidos.Info info = servico.info(coleta.token);
+        Pedidos.Info info = servico.info(coleta.token, SESSAO);
         assertThat(info.proximoSeq()).isEqualTo(2);
         assertThat(info.cursor().path("caminho").asText()).isEqualTo("sislojas3/Data/CLIENTES.K1");
 
         // a página pede para voltar ao começo de CLIENTES.DAT (mudou): fica só o pedaço 0
-        Pedidos.Info voltou = servico.iniciarGeracao(coleta.token, geracao("g2", "sislojas3/Data/CLIENTES.DAT"));
+        Pedidos.Info voltou = servico.iniciarGeracao(coleta.token, geracao("g2", "sislojas3/Data/CLIENTES.DAT"), SESSAO);
         assertThat(voltou.proximoSeq()).isEqualTo(1);
         assertThat(voltou.cursor().path("caminho").asText()).isEqualTo("sislojas3/Data/CLIENTES.DAT");
 
@@ -297,26 +300,75 @@ class ServicoDeColetasTest {
         receber(coleta.id, 2);
         n1.get(5, TimeUnit.SECONDS);
         n2.get(5, TimeUnit.SECONDS);
-        servico.concluir(coleta.token, new Pedidos.Conclusao("g2", 3));
+        servico.concluir(coleta.token, new Pedidos.Conclusao("g2", 3), SESSAO);
         String fimDoTar = new String(Zstd.decompress(servico.parteFinal(coleta.id, quem), 100_000), StandardCharsets.UTF_8);
         assertThat(fimDoTar).contains("_coleta/manifesto.json").contains("CLIENTES.K1").contains("CLIENTES.DAT");
     }
 
     @Test
     void linkDesconhecidoCanceladoEHistorico() throws Exception {
-        assertThatThrownBy(() -> servico.info("A".repeat(43)))
+        assertThatThrownBy(() -> servico.info("A".repeat(43), SESSAO))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.status()).isEqualTo(404));
-        assertThatThrownBy(() -> servico.info("../../etc"))
+        assertThatThrownBy(() -> servico.info("../../etc", SESSAO))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.status()).isEqualTo(404));
         Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
-        servico.iniciarGeracao(coleta.token, geracao("g1", null));
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
         Future<Pedidos.ParteAceita> p0 = enviar(coleta.token, 0, "g1");
         Thread.sleep(100);
         servico.cancelar(coleta.id);
         assertThatThrownBy(() -> p0.get(5, TimeUnit.SECONDS)).hasCauseInstanceOf(ErroDeColeta.class);
-        assertThatThrownBy(() -> servico.iniciarGeracao(coleta.token, geracao("g1", null)))
+        assertThatThrownBy(() -> servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO))
                 .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.status()).isEqualTo(410));
         servico.apagar(coleta.id);
         assertThat(servico.listar()).isEmpty();
+    }
+
+    @Test
+    void linkVazadoNaoServeDepoisQueAColetaComecou() throws Exception {
+        Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
+        String intruso = "I".repeat(43);
+        assertThat(servico.info(coleta.token, intruso).emOutroComputador()).isTrue();
+        assertThat(servico.info(coleta.token, SESSAO).emOutroComputador()).isFalse();
+        assertThatThrownBy(() -> servico.iniciarGeracao(coleta.token, geracao("g9", null), intruso))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRA_SESSAO"));
+        assertThatThrownBy(() -> servico.prepararEnvio(coleta.token, "g1", intruso))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRA_SESSAO"));
+        assertThatThrownBy(() -> servico.receberParte(coleta.token, 0, "g1", intruso, envelope(0, "g1")))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRA_SESSAO"));
+        assertThatThrownBy(() -> servico.prepararEnvio(coleta.token, "g1", null))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("SEM_SESSAO"));
+        // só quem gerou o link libera; depois, o outro computador continua
+        assertThatThrownBy(() -> servico.liberar(coleta.id, UUID.randomUUID()))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRO_RECEPTOR"));
+        servico.liberar(coleta.id, quem);
+        servico.iniciarGeracao(coleta.token, geracao("g2", null), intruso);
+        assertThatThrownBy(() -> servico.prepararEnvio(coleta.token, "g2", SESSAO))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("OUTRA_SESSAO"));
+    }
+
+    @Test
+    void linkInventadoEhRecusadoAntesDeLerOCorpoEPedacoSemCifraNaoEntra() throws Exception {
+        assertThatThrownBy(() -> servico.prepararEnvio("Z".repeat(43), "g1", SESSAO))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("LINK_INVALIDO"));
+        Coleta coleta = servico.criar("Loja Teste", quem, "eduardo");
+        servico.iniciarGeracao(coleta.token, geracao("g1", null), SESSAO);
+        byte[] quadro = Zstd.compress("conteudo em claro".repeat(50).getBytes(StandardCharsets.UTF_8), 3);
+        ObjectNode cab = json.createObjectNode();
+        cab.put("seq", 0);
+        cab.put("geracao", "g1");
+        cab.put("cifrado", false);
+        cab.put("shaQuadro", Envelope.sha256(quadro));
+        byte[] adulterado = Envelope.montar(cab, quadro, json);
+        assertThatThrownBy(() -> servico.receberParte(coleta.token, 0, "g1", SESSAO, adulterado))
+                .isInstanceOfSatisfying(ErroDeColeta.class, e -> assertThat(e.codigo()).isEqualTo("PEDACO_SEM_CIFRA"));
+    }
+
+    @Test
+    void tetoDaColeta() {
+        assertThat(new ConfiguracaoDoBackup(pasta, 0, "", "", false, 48, 3, 1, 32, 90, 0).limiteColetaBytes())
+                .as("0 = sem teto").isEqualTo(Long.MAX_VALUE);
+        assertThat(new ConfiguracaoDoBackup(pasta, 0, "", "", false, 48, 3, 1, 32, 90, 200).limiteColetaBytes())
+                .isEqualTo(200L * 1024 * 1024 * 1024);
     }
 }

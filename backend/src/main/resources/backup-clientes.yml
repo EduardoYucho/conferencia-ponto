@@ -31,3 +31,6 @@ backup-clientes:
   # Tira do histórico da tela as coletas terminadas há mais de N dias (0 = nunca). Os backups, no computador de quem
   # recebeu, não são tocados.
   limpeza-dias: 90
+  # Teto de uma coleta, já compactada (GB): passou disso, os pedaços são recusados (0 = sem teto). Protege o computador
+  # de quem recebe de alguém que tente encher o disco dele.
+  limite-coleta-gb: 200

@@ -37,7 +37,7 @@ public final class Pedidos {
     public record Info(String cliente, String pastaSistema, List<String> selecaoAnterior, String situacao,
             String mensagem, int nivelZstd, long tamanhoBloco, long maxParte, String geracao, long proximoSeq,
             JsonNode cursor, long bytesRecebidos, Resumo resumo, Conferencia conferencia, String nomeArquivo,
-            String raiz, boolean receptorOnline, String recebidoPor) {
+            String raiz, boolean receptorOnline, String recebidoPor, boolean emOutroComputador) {
     }
 
     /** O pedaço foi gravado no computador de quem recebe. */

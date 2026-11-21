@@ -4,10 +4,33 @@ import { montarEnvelope } from './nucleo/envelope.js';
 import { sha256Hex } from './nucleo/sha256.js';
 import { listar, filtrar, oQuePesa, JA_COMPACTADOS, FORA } from './lista.js';
 import { abrirGuarda, apagarGuarda, lembrarPasta, pastaLembrada, esquecerPasta } from './guarda.js';
+import { chaveDoEndereco, importarChave, cifrar, novoSegredo } from './nucleo/cifra.js';
 
 const token = location.pathname.split('/')[2];
 const chave = sha256Hex(new TextEncoder().encode(token)).slice(0, 24);
 const $ = (id) => document.getElementById(id);
+
+/** A chave do link (depois do "#"): cifra cada pedaço; nunca sai deste navegador. */
+const textoDaChave = chaveDoEndereco(location.hash);
+let chaveDeCifra = null;
+
+/**
+ * O segredo de sessão deste navegador para esta coleta (guardado aqui): o sistema prende a coleta a ele, então um link
+ * vazado não serve para mandar nada depois que a coleta começou.
+ */
+const sessao = (() => {
+  const nome = `backup-sessao:${chave}`;
+  try {
+    let s = localStorage.getItem(nome);
+    if (!s) {
+      s = novoSegredo();
+      localStorage.setItem(nome, s);
+    }
+    return s;
+  } catch (e) {
+    return novoSegredo();
+  }
+})();
 
 // ------------------------------------------------------------------ apoio
 
@@ -25,7 +48,7 @@ async function pedir(metodo, caminho, corpo, { tempoMs = 60000, binario = false 
   const controle = new AbortController();
   const relogio = setTimeout(() => controle.abort(), tempoMs);
   try {
-    const opcoes = { method: metodo, signal: controle.signal, cache: 'no-store', headers: {} };
+    const opcoes = { method: metodo, signal: controle.signal, cache: 'no-store', headers: { 'X-Coleta-Sessao': sessao } };
     if (corpo !== undefined) {
       if (binario) {
         opcoes.body = corpo;
@@ -224,6 +247,26 @@ async function iniciar() {
   }
   if (!['AGUARDANDO', 'RECEBENDO'].includes(info.situacao)) {
     await acompanharConclusao();
+    return;
+  }
+  const parar = (texto) => {
+    $('texto-vazio').textContent = texto;
+    mostrar('passo-vazio');
+  };
+  if (!textoDaChave) {
+    parar('O link está incompleto: falta a parte depois do "#", com a chave que protege o backup. Copie o link inteiro '
+      + 'de novo na tela Backups de clientes.');
+    return;
+  }
+  try {
+    chaveDeCifra = await importarChave(textoDaChave);
+  } catch (e) {
+    parar('O link está com a chave estragada. Copie o link inteiro de novo na tela Backups de clientes.');
+    return;
+  }
+  if (info.emOutroComputador) {
+    parar('Esta coleta já está em andamento em outro computador (ou em outro navegador). Para continuar neste, peça a '
+      + `${info.recebidoPor || 'quem gerou o link'} para liberar na tela Backups de clientes e recarregue esta página.`);
     return;
   }
 
@@ -585,7 +628,7 @@ async function executar(entradas, cursor, seqInicial, compactadoAntes, naoLidosI
     const envelope = montarEnvelope({
       seq,
       geracao: est.geracao,
-      quadro,
+      quadro: await cifrar(chaveDeCifra, quadro, seq),
       bruto: bloco.brutoTamanho,
       fim: bloco.fim,
       arquivos: bloco.arquivos,
@@ -658,7 +701,7 @@ async function enviar() {
         avisarNovidade();
         return;
       } catch (erro) {
-        if (erro instanceof ErroHttp && ['GERACAO_ANTIGA', 'CANCELADA', 'VENCIDO', 'LINK_INVALIDO', 'JA_CONCLUIDA'].includes(erro.codigo)) {
+        if (erro instanceof ErroHttp && ['GERACAO_ANTIGA', 'CANCELADA', 'VENCIDO', 'LINK_INVALIDO', 'JA_CONCLUIDA', 'OUTRA_SESSAO', 'COLETA_GRANDE', 'PEDACO_SEM_CIFRA', 'SEM_SESSAO'].includes(erro.codigo)) {
           est.fatal = erro;
           avisarNovidade();
           return;

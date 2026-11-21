@@ -22,6 +22,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param tamanhoBlocoMib    tamanho de cada bloco lido no cliente (cada um vira um pedaço do envio)
  * @param maxParteMib        maior pedaço aceito (já compactado)
  * @param limpezaDias        tira do histórico as coletas terminadas há mais de N dias (0 = nunca)
+ * @param limiteColetaGb     teto de uma coleta (compactada): passou, os pedaços são recusados (0 = sem teto)
  */
 @ConfigurationProperties("backup-clientes")
 public record ConfiguracaoDoBackup(
@@ -34,7 +35,12 @@ public record ConfiguracaoDoBackup(
         int nivelZstd,
         int tamanhoBlocoMib,
         int maxParteMib,
-        int limpezaDias) {
+        int limpezaDias,
+        int limiteColetaGb) {
+
+    public long limiteColetaBytes() {
+        return limiteColetaGb <= 0 ? Long.MAX_VALUE : (long) limiteColetaGb * 1024 * 1024 * 1024;
+    }
 
     public Path pastaInterna() {
         return pastaEstado;

@@ -70,6 +70,11 @@ public class Coleta {
     public String mensagem;
     /** Identifica uma leitura da página; outra leitura (página recarregada sem a cópia local) descarta o que esperava. */
     public String geracao;
+    /**
+     * SHA-256 do segredo de sessão do navegador que começou a coleta: só ele continua (um link vazado não serve para
+     * mandar nada). Quem gerou o link pode liberar para outro computador.
+     */
+    public String sessaoHash;
     public String raiz;
     public List<String> pastas = new ArrayList<>();
     public String computador;
