@@ -2,7 +2,7 @@
 /* global __VERSAO_DO_SISTEMA__, __VERSAO_GERADA_EM__ */
 /**
  * Rodapé de todas as telas: quem desenvolveu e a versão (tecnologia.ano.número.subversão, gerada pelo
- * "ponto atualizar"; veja o README, seção Versão).
+ * "expedio atualizar"; veja o README, seção Versão).
  */
 const versao = __VERSAO_DO_SISTEMA__
 const geradaEm = __VERSAO_GERADA_EM__
@@ -16,7 +16,7 @@ const geradaEm = __VERSAO_GERADA_EM__
     <span aria-hidden="true"> · </span>
     <span>Desenvolvido por <span class="font-semibold text-tinta-suave">Eduardo Yucho</span></span>
     <span aria-hidden="true"> · </span>
-    <span :title="geradaEm ? `Gerada em ${geradaEm}` : 'Compilada fora do ponto atualizar'">
+    <span :title="geradaEm ? `Gerada em ${geradaEm}` : 'Compilada fora do expedio atualizar'">
       Versão <span class="font-mono text-tinta-suave">{{ versao }}</span>
     </span>
   </footer>

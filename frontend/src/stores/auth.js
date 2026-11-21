@@ -4,7 +4,7 @@ import { authApi } from '@/api/authApi'
 import { pontoApi } from '@/api/pontoApi'
 import { ACESSOS, INTEGRACOES, LOGS, USUARIOS } from '@/utils/permissoes'
 
-const CHAVE = 'conferencia-ponto.sessao'
+const CHAVE = 'expedio.sessao'
 
 function lerSessaoSalva() {
   try {

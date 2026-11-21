@@ -1,8 +1,8 @@
 # Expedio
 
 Ponto, atendimentos e suporte numa aplicação só (o nome antigo, Conferência de Ponto, continua nos nomes internos:
-o pacote `br.com.conferenciaponto`, a tarefa agendada `ConferenciaPonto`, a pasta `.conferencia-ponto`, o banco e o
-comando `ponto`).
+o pacote `br.com.expedio`, a tarefa agendada `Expedio`, a pasta `.expedio`, o banco e o
+comando `expedio`).
 
 Controle de jornada e banco de horas: **Spring Boot 3 + PostgreSQL + Vue 3**.
 **Vários usuários**, cada um com o próprio acesso, **horário de trabalho editável** (por dia da semana, com
@@ -21,14 +21,14 @@ planilha do **Google Sheets atualizada sozinha**, para compartilhar com quem con
 > **Licença:** [PolyForm Strict 1.0.0](LICENSE) — uso **não comercial** apenas. Veja [Licença](#licença).
 
 ```
-conferencia-ponto/
-├── instalar.cmd                instala como serviço do Windows + comando "ponto" (veja abaixo)
-├── deploy/windows/             ponto.ps1 (instalar, iniciar, parar, logs, atualizar...) e ponto.cmd
+expedio/
+├── instalar.cmd                instala como serviço do Windows + comando "expedio" (veja abaixo)
+├── deploy/windows/             expedio.ps1 (instalar, iniciar, parar, logs, atualizar...) e expedio.cmd
 ├── docker-compose.yml          PostgreSQL 16 para desenvolvimento
 ├── exemplos/comprovantes/      PDFs de teste para a importação automática
 ├── backend/                    Java 17 · Spring Boot 3.5 · JPA · Flyway · Spring Security
 │   ├── iniciar.ps1 / .cmd      sobe o back-end pelo terminal (variáveis em ambiente.local.ps1)
-│   └── src/main/java/br/com/conferenciaponto/
+│   └── src/main/java/br/com/expedio/
 │       ├── domain/             regras puras (sem Spring): motor de cálculo, agregado, portas
 │       ├── application/        casos de uso (batidas, manual, importação, auditoria, download, login, planilha)
 │       └── infrastructure/     JPA, REST/SSE, monitor de PDFs, armazenamento, segurança (JWT), Excel e
@@ -55,8 +55,8 @@ Sem Docker (ex.: PostgreSQL instalado como serviço no Windows), crie o usuário
 conectado como `postgres`:
 
 ```sql
-CREATE ROLE ponto LOGIN PASSWORD 'ponto';
-CREATE DATABASE conferencia_ponto OWNER ponto;
+CREATE ROLE expedio LOGIN PASSWORD 'expedio';
+CREATE DATABASE expedio OWNER expedio;
 ```
 
 Ou ajuste `DB_URL`, `DB_USER` e `DB_PASSWORD`. O Flyway cria as tabelas na primeira subida.
@@ -88,17 +88,17 @@ para o Eclipse quanto para o `iniciar.ps1` — e os valores dele têm prioridade
 do projeto. É o lugar da pasta dos comprovantes (ex.: a pasta de rede, veja abaixo).
 
 **Pelo Eclipse** (*Run › Run Configurations › Java Application*): main class
-`br.com.conferenciaponto.ConferenciaPontoApplication`; em *VM arguments*,
+`br.com.expedio.ExpedioApplication`; em *VM arguments*,
 `-Dnet.bytebuddy.experimental=true` (necessário em JDKs mais novos que o suportado pelo Spring Boot 3.5,
 como o 27 — o Maven lê isso do `pom.xml`, o Eclipse não); em *Environment*, as mesmas variáveis do
-`ambiente.local.ps1`. Use o **mesmo** `PONTO_JWT_SEGREDO` nos dois lugares para o login valer em ambos.
+`ambiente.local.ps1`. Use o **mesmo** `EXPEDIO_JWT_SEGREDO` nos dois lugares para o login valer em ambos.
 
 Usuários iniciais: `admin` (perfil *Administrador*, `ROLE_ADMIN` na configuração) e `coordenacao` (perfil
 *Coordenador*, `ROLE_VIEWER`), criados na primeira subida.
-Para usar outros logins e nomes, redefina a lista `ponto.seguranca.usuarios-iniciais` em
-`backend/config/application.yml`. As senhas `PONTO_ADMIN_SENHA` e `PONTO_VIEWER_SENHA` só são usadas quando o
+Para usar outros logins e nomes, redefina a lista `expedio.seguranca.usuarios-iniciais` em
+`backend/config/application.yml`. As senhas `EXPEDIO_ADMIN_SENHA` e `EXPEDIO_VIEWER_SENHA` só são usadas quando o
 usuário ainda não existe no banco. Se não forem definidas, a senha é gerada, é **provisória** (precisa ser trocada
-no primeiro acesso) e aparece só no console e no log geral, `ponto logs` (`Senha provisória gerada para
+no primeiro acesso) e aparece só no console e no log geral, `expedio logs` (`Senha provisória gerada para
 'coordenacao': ...`); ela não vai para a tela *Logs* nem para os logs por pessoa. As demais pessoas são cadastradas na tela
 **Usuários** (veja [Vários usuários](#vários-usuários) e [Controle de acessos](#controle-de-acessos)).
 
@@ -130,37 +130,37 @@ PostgreSQL rodando):
 ```
 
 O instalador compila o front-end (`npm run build`) e o back-end com o perfil Maven `app`, que coloca as telas
-**dentro do jar** (`mvn -Papp package` → `backend/target-app/conferencia-ponto.jar`): API e telas sobem juntas
+**dentro do jar** (`mvn -Papp package` → `backend/target-app/expedio.jar`): API e telas sobem juntas
 num único processo, em **http://localhost:8080**. Depois:
 
-- instala em `%USERPROFILE%\.conferencia-ponto\servico` (`app\`, `config\`, `logs\`, `bin\`), ao lado do arquivo
+- instala em `%USERPROFILE%\.expedio\servico` (`app\`, `config\`, `logs\`, `bin\`), ao lado do arquivo
   dos PDFs (`comprovantes\`);
 - copia a configuração desta máquina (`backend/config/application.yml`) para `config\application.yml` e gera
-  `config\servico.yml` (porta, o mesmo `PONTO_JWT_SEGREDO` do `ambiente.local.ps1` e o log com rotação);
-- cria a tarefa agendada **ConferenciaPonto**, que sobe a aplicação **quando você entra no Windows**, com o seu
+  `config\servico.yml` (porta, o mesmo `EXPEDIO_JWT_SEGREDO` do `ambiente.local.ps1` e o log com rotação);
+- cria a tarefa agendada **Expedio**, que sobe a aplicação **quando você entra no Windows**, com o seu
   usuário (acessa a pasta de rede com as suas credenciais), sem janela, e a sobe de novo em até 5 minutos se
   ela cair — não precisa de administrador;
-- coloca o comando **`ponto`** no PATH do usuário (abra um terminal novo).
+- coloca o comando **`expedio`** no PATH do usuário (abra um terminal novo).
 
 | Comando | O que faz |
 |---|---|
-| `ponto` | Situação: rodando?, endereço, configuração e logs |
-| `ponto abrir` | Abre no navegador |
-| `ponto iniciar` · `ponto parar` · `ponto reiniciar` | Sobe · para (e não sobe sozinho até `iniciar`) · reinicia |
-| `ponto logs` | Log **ao vivo** no terminal, colorido por gravidade (`Ctrl+C` para sair) |
-| `ponto logs maria` · `ponto logs -Erros` | Ao vivo só de um usuário (ou `sistema`) · só avisos e erros (combinam: `ponto logs maria -Erros`) |
-| `ponto logs pasta` | Abre a pasta dos logs por usuário e por hora |
-| `ponto config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `ponto reiniciar` |
-| `ponto atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida). Se o próprio comando `ponto` mudou no projeto, a atualização segue pelo novo |
-| `ponto voltar` | Volta para a versão de antes do último `ponto atualizar` (rodar de novo desfaz) — veja abaixo |
-| `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados e a regra de guarda (veja [Backup](#backup)) |
-| `ponto restaurar [pasta]` | Volta o banco para um backup: pergunta qual, pede confirmação e faz um backup de agora antes |
-| `ponto versao` | A versão instalada (a do rodapé), a anterior e as últimas geradas — veja [Versão](#versão-do-sistema) |
-| `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
-| `ponto desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
+| `expedio` | Situação: rodando?, endereço, configuração e logs |
+| `expedio abrir` | Abre no navegador |
+| `expedio iniciar` · `expedio parar` · `expedio reiniciar` | Sobe · para (e não sobe sozinho até `iniciar`) · reinicia |
+| `expedio logs` | Log **ao vivo** no terminal, colorido por gravidade (`Ctrl+C` para sair) |
+| `expedio logs maria` · `expedio logs -Erros` | Ao vivo só de um usuário (ou `sistema`) · só avisos e erros (combinam: `expedio logs maria -Erros`) |
+| `expedio logs pasta` | Abre a pasta dos logs por usuário e por hora |
+| `expedio config` | Abre `config\application.yml` (pasta dos PDFs, usuários...); depois, `expedio reiniciar` |
+| `expedio atualizar [-Testes]` | Recompila a partir da pasta do projeto, faz o **backup** do banco e troca a versão (a configuração é mantida). Se o próprio comando `expedio` mudou no projeto, a atualização segue pelo novo |
+| `expedio voltar` | Volta para a versão de antes do último `expedio atualizar` (rodar de novo desfaz) — veja abaixo |
+| `expedio backup [motivo]` · `expedio backup lista` | Backup do banco agora · os backups guardados e a regra de guarda (veja [Backup](#backup)) |
+| `expedio restaurar [pasta]` | Volta o banco para um backup: pergunta qual, pede confirmação e faz um backup de agora antes |
+| `expedio versao` | A versão instalada (a do rodapé), a anterior e as últimas geradas — veja [Versão](#versão-do-sistema) |
+| `expedio console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
+| `expedio desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
 
 A porta é a mesma do desenvolvimento de propósito: **não rode o serviço e o Eclipse ao mesmo tempo** (os dois
-importariam os mesmos PDFs). Para desenvolver, `ponto parar`; ao terminar, `ponto iniciar`. Se o Eclipse
+importariam os mesmos PDFs). Para desenvolver, `expedio parar`; ao terminar, `expedio iniciar`. Se o Eclipse
 estiver com a porta, o serviço espera e sobe sozinho quando ela liberar. O front-end em modo de desenvolvimento
 (`npm run dev`) funciona com qualquer um dos dois.
 
@@ -173,17 +173,17 @@ que o PDFBox precisa guardar vai para um arquivo temporário, apagado quando o P
 Se a memória acabar mesmo assim, a aplicação sai e a tarefa agendada a sobe de novo em até 5 minutos. Antes de
 sair, a JVM grava o que havia na memória em `logs\memoria-esgotada.hprof` (só o primeiro: enquanto o arquivo
 existir, não grava outro, para uma queda em laço não encher o disco); um erro grave da própria JVM vai para
-`logs\erro-da-jvm-<pid>.log` (ficam os 5 mais recentes). O `ponto` mostra os dois quando existem. O `.hprof` tem
+`logs\erro-da-jvm-<pid>.log` (ficam os 5 mais recentes). O `expedio` mostra os dois quando existem. O `.hprof` tem
 dados da aplicação (do ponto e dos atendimentos): **não envie para ninguém** — abra no próprio computador (por
 exemplo, no Eclipse Memory Analyzer) e apague depois de olhar.
 
 ### Voltar para a versão anterior
 
-O `ponto atualizar` guarda a versão que sai em `app\conferencia-ponto.anterior.jar` e só troca o jar depois que a
-versão nova foi copiada inteira. Se a versão nova não subir (ou subir com um problema), **`ponto voltar`** põe a
-anterior no lugar e a sobe; a que saiu fica guardada, e `ponto voltar` de novo desfaz a volta.
+O `expedio atualizar` guarda a versão que sai em `app\expedio.anterior.jar` e só troca o jar depois que a
+versão nova foi copiada inteira. Se a versão nova não subir (ou subir com um problema), **`expedio voltar`** põe a
+anterior no lugar e a sobe; a que saiu fica guardada, e `expedio voltar` de novo desfaz a volta.
 
-O banco não volta junto. Se a versão que saiu aplicou uma migração (o `ponto atualizar` mostra o backup
+O banco não volta junto. Se a versão que saiu aplicou uma migração (o `expedio atualizar` mostra o backup
 `antes-de-atualizar` que fez), a versão anterior pode não funcionar com o banco migrado: restaure esse backup (veja
 [Backup](#backup)) antes de usar o sistema.
 
@@ -196,29 +196,29 @@ Todas as telas (inclusive o login) têm um rodapé com quem desenvolveu e a vers
 |---|---|---|
 | tecnologia | A geração da tecnologia (Java, Spring Boot, Vue) | À mão, em `versao.json` (`tecnologia`), quando a troca for de geração (ex.: Java 17 → 27). O número volta a 001 |
 | ano | O ano do sistema: 2026 (`anoInicial` do `versao.json`) é o 1 | Sozinho, na virada do ano. O número volta a 001 |
-| número | A versão | Sozinho, na primeira `ponto atualizar` de cada dia (+1) |
-| subversão | Mais de uma versão no mesmo dia | Sozinho, a cada `ponto atualizar` no mesmo dia (+1); volta a 001 quando o número sobe |
+| número | A versão | Sozinho, na primeira `expedio atualizar` de cada dia (+1) |
+| subversão | Mais de uma versão no mesmo dia | Sozinho, a cada `expedio atualizar` no mesmo dia (+1); volta a 001 quando o número sobe |
 
-A versão é gerada pelo `ponto atualizar` (e pela instalação) e gravada no jar (`build-info`) e nas telas; ela só
+A versão é gerada pelo `expedio atualizar` (e pela instalação) e gravada no jar (`build-info`) e nas telas; ela só
 conta depois de instalada — uma compilação que falha não gasta número. As geradas ficam anotadas em
-`versoes.json`, na pasta da instalação (com o ramo e o commit de cada uma). O `ponto voltar` volta também a versão
-do rodapé (ela está dentro do jar); a próxima atualização continua da última gerada. Compilado fora do `ponto
+`versoes.json`, na pasta da instalação (com o ramo e o commit de cada uma). O `expedio voltar` volta também a versão
+do rodapé (ela está dentro do jar); a próxima atualização continua da última gerada. Compilado fora do `expedio
 atualizar` (Eclipse, `npm run dev`), o rodapé mostra `desenvolvimento`.
 
 ## Backup
 
-**A aplicação faz um backup por dia sozinha**: depois das 12:15 (`ponto.backup.horario`), se ainda não houver um
-backup do dia (o do `ponto atualizar` conta), ela roda `ponto backup diario`. Com o PC desligado no horário, o
-backup sai assim que ele ligar. Se falhar, tenta de novo a cada hora e avisa no sino de quem vê os logs; o `ponto`
-mostra o último backup e avisa quando passam 2 dias sem nenhum. Para desligar: `ponto.backup.automatico: false`.
+**A aplicação faz um backup por dia sozinha**: depois das 12:15 (`expedio.backup.horario`), se ainda não houver um
+backup do dia (o do `expedio atualizar` conta), ela roda `expedio backup diario`. Com o PC desligado no horário, o
+backup sai assim que ele ligar. Se falhar, tenta de novo a cada hora e avisa no sino de quem vê os logs; o `expedio`
+mostra o último backup e avisa quando passam 2 dias sem nenhum. Para desligar: `expedio.backup.automatico: false`.
 
-`ponto backup` copia o banco inteiro (`pg_dump`, formato *custom*) para `%USERPROFILE%\.conferencia-ponto\backups\`,
+`expedio backup` copia o banco inteiro (`pg_dump`, formato *custom*) para `%USERPROFILE%\.expedio\backups\`,
 uma pasta por backup: `<aaaa-mm-dd_hhmmss>[_motivo]\banco.dump` e `backup.json` (data, motivo, tamanho, versão do
 banco, ramo e commit do projeto). Antes de terminar, o arquivo é conferido com `pg_restore --list`: um backup que não
 pode ser lido não conta como feito.
 
-- `ponto backup` · `ponto backup antes-da-mudanca` (o motivo vai no nome da pasta) · `ponto backup lista`.
-- **O `ponto atualizar` faz o backup sozinho**, depois de compilar e antes de trocar a versão (é a versão nova que
+- `expedio backup` · `expedio backup antes-da-mudanca` (o motivo vai no nome da pasta) · `expedio backup lista`.
+- **O `expedio atualizar` faz o backup sozinho**, depois de compilar e antes de trocar a versão (é a versão nova que
   aplica as migrações do banco). Se o backup falhar (PostgreSQL parado, senha errada, disco cheio), a atualização
   é cancelada e a versão instalada continua a mesma.
 - **Guarda**: ficam os **10** backups mais recentes, o mais recente de cada um dos últimos **14 dias** e o mais
@@ -226,29 +226,29 @@ pode ser lido não conta como feito.
   são apagados. Arquivos `.dump` soltos na pasta (backups feitos à mão) nunca são apagados.
 - Junto com o banco vão as imagens da base de conhecimento (`atendimentos\base\`) e a chave mestra que protege as
   chaves do Gemini, quando existirem — por isso, **não compartilhe a pasta de backups**.
-- **Cópia fora do PC** (desligada até você escolher onde): com `ponto.backup.copia.pasta` na configuração (`ponto
-  config`; ou a variável de ambiente `PONTO_BACKUP_COPIA`), por exemplo `"E:/Backups"` para um HD externo ou pen
-  drive, cada backup espelha a pasta dos backups em `E:\Backups\ConferenciaPonto\backups\` (a mesma guarda) e soma os
-  PDFs dos comprovantes em `...\ConferenciaPonto\comprovantes\` (lá nada é apagado). Se a pasta não estiver
+- **Cópia fora do PC** (desligada até você escolher onde): com `expedio.backup.copia.pasta` na configuração (`expedio
+  config`; ou a variável de ambiente `EXPEDIO_BACKUP_COPIA`), por exemplo `"E:/Backups"` para um HD externo ou pen
+  drive, cada backup espelha a pasta dos backups em `E:\Backups\Expedio\backups\` (a mesma guarda) e soma os
+  PDFs dos comprovantes em `...\Expedio\comprovantes\` (lá nada é apagado). Se a pasta não estiver
   acessível, o backup no PC vale do mesmo jeito, o sino avisa e o próximo leva o que faltou.
 - Banco, usuário e senha vêm da configuração do serviço (`spring.datasource.*` ou `DB_URL`, `DB_USER`,
   `DB_PASSWORD`); a senha vai para o `pg_dump`, o `pg_restore` e o `psql` só pelo ambiente do processo
-  (`PGPASSWORD`), nunca na tela. Eles são procurados em `PONTO_PG_BIN`, no PATH e na versão mais nova em
+  (`PGPASSWORD`), nunca na tela. Eles são procurados em `EXPEDIO_PG_BIN`, no PATH e na versão mais nova em
   `C:\Program Files\PostgreSQL\`.
 
-**Restaurar um backup** — só por decisão sua: **`ponto restaurar`** mostra os backups, pergunta qual e pede para
+**Restaurar um backup** — só por decisão sua: **`expedio restaurar`** mostra os backups, pergunta qual e pede para
 digitar `RESTAURAR`. O banco volta a ser exatamente o do backup (o que foi feito depois dele se perde):
 
-1. faz um backup de agora (`antes-de-restaurar`), que desfaz a restauração (`ponto restaurar <essa pasta>`);
+1. faz um backup de agora (`antes-de-restaurar`), que desfaz a restauração (`expedio restaurar <essa pasta>`);
 2. para a aplicação;
 3. esvazia o banco e restaura o backup **numa transação só** (`psql --single-transaction`): se algo falhar no meio,
    o banco continua como estava. As tabelas e os schemas criados depois do backup também saem;
 4. põe de volta as imagens da base e a chave mestra do backup (as de agora ficam ao lado, com o sufixo
    `.antes-de-restaurar-<data>`) e sobe a aplicação.
 
-`ponto restaurar <pasta>` vai direto a um backup (o nome na pasta dos backups ou o caminho, como o da cópia fora
+`expedio restaurar <pasta>` vai direto a um backup (o nome na pasta dos backups ou o caminho, como o da cópia fora
 do PC). Se o backup é de uma versão do banco anterior à de agora, o comando avisa antes: ao subir, a versão
-instalada aplica de novo as migrações que faltam; para ficar na versão antiga do sistema, rode `ponto voltar`
+instalada aplica de novo as migrações que faltam; para ficar na versão antiga do sistema, rode `expedio voltar`
 antes (veja [Voltar para a versão anterior](#voltar-para-a-versão-anterior)). Restaurar por cima, com
 `pg_restore --clean`, não serve: o `--clean` só apaga o que está no backup, e uma tabela nova que aponta para as
 antigas faz a restauração parar no meio.
@@ -257,9 +257,9 @@ antigas faz a restauração parar no meio.
 `conhecimento`) e as linhas dessas migrações no histórico do Flyway; nenhuma tabela do ponto é tocada:
 
 ```powershell
-ponto parar
-$env:PGPASSWORD = 'ponto'
-& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' --host=localhost --username=ponto --dbname=conferencia_ponto `
+expedio parar
+$env:PGPASSWORD = 'expedio'
+& 'C:\Program Files\PostgreSQL\18\bin\psql.exe' --host=localhost --username=expedio --dbname=expedio `
     --command "BEGIN; DROP SCHEMA IF EXISTS conhecimento CASCADE; DROP SCHEMA IF EXISTS atendimento CASCADE; DELETE FROM flyway_schema_history WHERE version IN ('14', '15'); COMMIT;"
 Remove-Item Env:PGPASSWORD
 ```
@@ -268,7 +268,7 @@ Remove-Item Env:PGPASSWORD
 `BEGIN; DROP SCHEMA IF EXISTS fiscal CASCADE; DELETE FROM tb_perfil_permissao WHERE permissao LIKE 'fiscal.%';
 DELETE FROM tb_usuario_permissao WHERE permissao LIKE 'fiscal.%'; DELETE FROM flyway_schema_history WHERE version =
 '18'; COMMIT;` (as linhas do histórico de acessos ficam, como registro). Depois, instale a versão sem a migração, ou
-com ela corrigida (`ponto atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
+com ela corrigida (`expedio atualizar`). As extensões `unaccent` e `pg_trgm`, se já tiverem sido criadas, ficam: não
 atrapalham o ponto e são reaproveitadas.
 
 ## Menu lateral
@@ -308,7 +308,7 @@ lançamentos, notificações, relatórios do RH e divergências. **Feriados vale
   Também dá para **enviar os PDFs pela tela** (botão *Enviar PDFs* no painel ou arrastando os arquivos para a
   página), com as mesmas regras de duplicidade.
 - **Atualização a partir da versão de um usuário só:** a migração `V12` passa todos os dados existentes para
-  o primeiro administrador, grava o horário padrão para ele e a pasta de `ponto.importacao-pdf.diretorio`
+  o primeiro administrador, grava o horário padrão para ele e a pasta de `expedio.importacao-pdf.diretorio`
   passa a ser a pasta dele (só na primeira subida, se ninguém tiver pasta). Os saldos não mudam.
 
 ## Controle de acessos
@@ -376,7 +376,7 @@ aparece online assim que o comprovante da entrada chega ao sistema.
 Dois módulos que vivem dentro do sistema sem fazer parte do ponto: o **gerador de textos de atendimento** (lê o
 PDF da conversa do Digisac, analisa os anexos com a IA e redige o resumo ou o chamado para o
 desenvolvimento) e a **base de conhecimento** (pesquisa nos textos confirmados). Têm schemas, rotas, telas e
-regras de segurança próprios (`br.com.conferenciaponto.modulos`, `frontend/src/modulos`); o ponto não depende
+regras de segurança próprios (`br.com.expedio.modulos`, `frontend/src/modulos`); o ponto não depende
 deles. Chegam em etapas; por enquanto existem as permissões dos módulos, a chave do Gemini, a leitura do PDF do Digisac, o
 download dos anexos, o envio das ligações, do vídeo e dos prints, a análise de cada arquivo pelo Gemini (inclusive os
 passos e os quadros dos vídeos), a redação do resumo e dos chamados para o desenvolvimento e a base de conhecimento
@@ -386,7 +386,7 @@ com a pesquisa exata:
   sem custo e sem nada sair daqui. O **Ollama** (`http://localhost:11434`) roda o `gemma4:12b`, que lê as imagens,
   os documentos e os quadros dos vídeos e escreve os textos, e o `embeddinggemma` (vetores da pesquisa por
   significado); o **Whisper** (whisper.cpp, `whisper-cli.exe` com o modelo `ggml-large-v3-turbo.bin` em
-  `%USERPROFILE%\.conferencia-ponto\ia-local\`) transcreve os áudios e a fala dos vídeos. O que o modelo não lê
+  `%USERPROFILE%\.expedio\ia-local\`) transcreve os áudios e a fala dos vídeos. O que o modelo não lê
   sozinho chega pronto: o vídeo vira 16 quadros espalhados do começo ao fim (pelo ffmpeg, que passa a ser necessário
   para os vídeos), o PDF vai em texto e nas 4 primeiras páginas como imagem (PDFBox), WebP e HEIC viram PNG. As
   análises saem no mesmo esquema JSON (o Ollama obriga o formato), e os textos em **texto corrido, com as regras da
@@ -399,7 +399,7 @@ com a pesquisa exata:
   `IA_LOCAL_PARADA` (novas tentativas; esgotadas, pausa com o que fazer). Modelo não instalado: pausa
   (`IA_LOCAL_SEM_MODELO`). Com a IA local, a tela não mostra a chave do Gemini, o painel do app nem os tokens
   (`/meu-acesso` informa `iaLocal`). As análises e os textos feitos pelo Gemini antes continuam; uma falha do
-  Gemini volta a ser tentada pela IA local no Processar ou no Retomar. O `ponto` mostra a situação ("IA local:
+  Gemini volta a ser tentada pela IA local no Processar ou no Retomar. O `expedio` mostra a situação ("IA local:
   Ollama com gemma4:12b e embeddinggemma"; "Áudios: Whisper"). **Instalação** (uma vez, ~10 GB): `winget install
   Ollama.Ollama`; `ollama pull gemma4:12b` e `ollama pull embeddinggemma` (numa rede em que o download do Ollama
   trava no IPv6, os mesmos arquivos podem ser baixados pelo IPv4 com o `curl -4` e conferidos pelo SHA-256 do
@@ -418,8 +418,8 @@ com a pesquisa exata:
   o conteúdo enviado. O servidor testa a chave com o Google antes de guardar (listando um modelo, sem gastar cota),
   guarda cifrada (AES-256-GCM) e nunca a devolve: a tela mostra só os 4 últimos caracteres. A chave vai ao Google
   só no cabeçalho `x-goog-api-key`, nunca na URL nem no log. A **chave mestra** que cifra as chaves fica em
-  `%USERPROFILE%\.conferencia-ponto\atendimentos\chave-mestra` (`atendimento.chave-mestra.arquivo`), fora do
-  banco, legível só pelo usuário do serviço, e entra no `ponto backup`. Se ela se perder, as chaves guardadas
+  `%USERPROFILE%\.expedio\atendimentos\chave-mestra` (`atendimento.chave-mestra.arquivo`), fora do
+  banco, legível só pelo usuário do serviço, e entra no `expedio backup`. Se ela se perder, as chaves guardadas
   deixam de abrir (`CHAVE_MESTRA_TROCADA`) e cada pessoa cadastra a sua de novo.
 - **Novo atendimento**: a pessoa solta o PDF da conversa exportada do Digisac e vê na hora o que foi lido —
   contato, chamado, período, mensagens (lado, remetente e horário), eventos do sistema e anexos (imagem, áudio,
@@ -428,7 +428,7 @@ com a pesquisa exata:
   PDFBox); a versão do leitor fica gravada em cada atendimento. **Antes de guardar**, a chave temporária do bot e os
   dados de acesso remoto (IDs e senhas de UltraViewer, AnyDesk, TeamViewer...) viram `[omitido]`; o telefone do
   contato não é guardado. O PDF chega em fluxo (sem multipart, até `atendimento.pdf.tamanho-maximo`, 50 MB) e fica
-  em `%USERPROFILE%\.conferencia-ponto\atendimentos\<id>\conversa.pdf`. Cada pessoa vê só os próprios
+  em `%USERPROFILE%\.expedio\atendimentos\<id>\conversa.pdf`. Cada pessoa vê só os próprios
   atendimentos (o de outra pessoa responde 404, inclusive para o administrador). Enviar de novo o PDF de um chamado
   que já tem atendimento não cria outro: a tela oferece abrir o existente (e, se o PDF novo trouxe links novos, os
   dos anexos que faltam são renovados). Recusas: `PDF_INVALIDO`, `PDF_PROTEGIDO`, `PDF_NAO_E_DIGISAC`, `PDF_LAYOUT_DESCONHECIDO` (o formato do
@@ -490,7 +490,7 @@ com a pesquisa exata:
   (`atendimento.ffmpeg.caminho`; vazio = procurar no PATH e onde o `winget install Gyan.FFmpeg` o coloca, sem
   precisar reiniciar o sistema): sem ele (`FFMPEG_AUSENTE`), o vídeo é analisado do mesmo jeito, os passos ficam sem
   quadro e a tela e o texto avisam; um quadro que o ffmpeg não tira (`FFMPEG_FALHOU`) só fica de fora. A versão
-  encontrada aparece no log da subida e no `ponto`.
+  encontrada aparece no log da subida e no `expedio`.
 - **Resumo do atendimento** (Gemini, `atendimento.gemini.modelos.redacao`): os textos são escolhidos no Novo
   atendimento (o resumo e os chamados de erro e de alteração, abaixo) ou pedidos depois, na tela do atendimento. Quando não sobra download nem análise na fila, o servidor monta a **linha do
   tempo** (sem IA): as mensagens na ordem do PDF, a análise de cada anexo logo depois da mensagem em que ele foi
@@ -570,7 +570,7 @@ com a pesquisa exata:
   chamados, o número do chamado no desenvolvimento ("não identificado" fica em branco, para não entrar na pesquisa).
   Ao confirmar, o gerador marca o texto como confirmado e publica o evento `TextoConfirmado`; a base (que só
   conhece esse evento) cria o registro e **copia as imagens** do texto para `atendimentos\base\<id do registro>\`
-  (`Imagem_01.png`...), a pasta que o `ponto backup` leva e a retenção não toca. Tudo numa transação só: se a base
+  (`Imagem_01.png`...), a pasta que o `expedio backup` leva e a retenção não toca. Tudo numa transação só: se a base
   recusar (campo longo demais, `REGISTRO_INVALIDO`; base não liberada para o autor, `SEM_PERMISSAO_NA_BASE`), o texto
   continua pronto e nenhuma cópia fica. Depois de confirmado, o texto não muda mais na tela do atendimento (continua
   dando para copiar e baixar as imagens; `TEXTO_CONFIRMADO` se tentar mudar), e confirmar de novo dá
@@ -679,7 +679,7 @@ com a pesquisa exata:
 A tela **Monitor fiscal** (menu *Suporte*) mostra se cada serviço dos documentos fiscais está no ar, por estado e
 por documento (NF-e, NFC-e, CT-e e MDF-e), e guarda o histórico: serve para responder no suporte se a nota não sai
 por causa da SEFAZ ou do sistema do cliente, e para provar isso depois. É um módulo à parte
-(`br.com.conferenciaponto.modulos.fiscal`, `frontend/src/modulos/fiscal`, schema `fiscal`), separado do ponto e dos
+(`br.com.expedio.modulos.fiscal`, `frontend/src/modulos/fiscal`, schema `fiscal`), separado do ponto e dos
 outros módulos pelas regras do `ArquiteturaModulosTest`.
 
 - **De onde vem:** a cada 5 min (`fiscal.coleta.intervalo`), numa thread própria, o sistema lê os **painéis
@@ -718,7 +718,7 @@ outros módulos pelas regras do `ArquiteturaModulosTest`.
 A tela **Backups de clientes** (menu *Suporte*) traz o backup **inteiro** das pastas do sistema de um cliente (AppSrc,
 Data com os `.DAT`/`.K*`/`.VLD`/`.TAG`, DDSrc, logs…) para uma pasta **do computador de quem está usando a tela**,
 sem instalar nada no cliente (lá, só o Chrome ou o Edge) e **sem gravar o backup no servidor do sistema** nem no banco.
-É um módulo à parte (`br.com.conferenciaponto.modulos.backup`, `frontend/src/modulos/backup`), sem tabelas.
+É um módulo à parte (`br.com.expedio.modulos.backup`, `frontend/src/modulos/backup`), sem tabelas.
 
 ```
 cliente (Chrome/Edge)                 servidor do sistema               quem gerou o link (Chrome/Edge)
@@ -744,7 +744,7 @@ a tela mostra o passo a passo quando o seletor não está disponível.
 
 **O túnel.** O navegador do cliente chega aqui por um túnel rápido do **cloudflared**, que o próprio sistema abre ao
 subir (`https://….trycloudflare.com`, mostrado no alto da tela), sem abrir porta no firewall. Instale uma vez com
-`ponto tunel`. O túnel publica só uma porta extra (`backup-clientes.porta-publica`, 8086, em 127.0.0.1), que atende
+`expedio tunel`. O túnel publica só uma porta extra (`backup-clientes.porta-publica`, 8086, em 127.0.0.1), que atende
 **apenas** a página de coleta (`/c/...`). O endereço muda quando o sistema reinicia (copie o link de novo; a coleta
 continua de onde parou); para um endereço fixo, use um túnel nomeado em `backup-clientes.endereco-publico`.
 
@@ -834,9 +834,9 @@ e é relatado ao servidor (`POST /erros-de-tela`), caindo no log do usuário.
 
 | Onde | O quê |
 |---|---|
-| Console | Ao vivo: `ponto logs [usuario] [-Erros]` (serviço) ou a própria saída do `.\iniciar.ps1` / Eclipse |
-| `logs/conferencia-ponto.log` | Tudo, com `[usuario\|protocolo]` em cada linha |
-| `logs/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log` | **Um arquivo por usuário e por hora** (`sistema` = o que não é de uma pessoa: subida, tarefas agendadas); guardados por `ponto.logs.dias` (30) dias |
+| Console | Ao vivo: `expedio logs [usuario] [-Erros]` (serviço) ou a própria saída do `.\iniciar.ps1` / Eclipse |
+| `logs/expedio.log` | Tudo, com `[usuario\|protocolo]` em cada linha |
+| `logs/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log` | **Um arquivo por usuário e por hora** (`sistema` = o que não é de uma pessoa: subida, tarefas agendadas); guardados por `expedio.logs.dias` (30) dias |
 | Tela **Logs** (`logs.ver`) | "Ao vivo" (atualiza a cada 2 s; filtros por pessoa, gravidade e texto/protocolo; pausar) e "Arquivos por pessoa e hora" |
 
 Os avisos das fontes dos PDFs (comprovantes e conversas: "No Unicode mapping...", centenas por semana, sem efeito
@@ -844,8 +844,8 @@ na leitura) ficam fora do log: `org.apache.pdfbox.pdmodel.font` e `org.apache.fo
 Cada requisição da API vira uma linha de acesso (`GET /api/v1/jornadas?ano=…  -> 200 (12 ms)`) no arquivo de
 quem a fez; entradas no sistema e tentativas de login recusadas também ficam registradas (a senha, nunca). O
 que roda em segundo plano por causa de uma pessoa (leitura da pasta de PDFs, conferência do relatório do RH,
-gravação da planilha do Google) cai no arquivo dela. A pasta padrão é `~/.conferencia-ponto/logs`
-(`PONTO_LOGS_DIR`); no serviço do Windows, `%USERPROFILE%\.conferencia-ponto\servico\logs`.
+gravação da planilha do Google) cai no arquivo dela. A pasta padrão é `~/.expedio/logs`
+(`EXPEDIO_LOGS_DIR`); no serviço do Windows, `%USERPROFILE%\.expedio\servico\logs`.
 
 ## Planilha de conferência (Excel e Google Sheets)
 
@@ -875,7 +875,7 @@ abas — o arquivo é gerado pelo próprio sistema, sem bibliotecas. A pasta de 
    *Usuários → Planilhas no Google Sheets* (a tela traz o passo a passo): criar um projeto em
    `console.cloud.google.com`, ativar a **Google Sheets API**, criar a conta em *IAM e administrador → Contas de
    serviço* e baixar uma chave **JSON** na aba *Chaves*. O sistema confere a chave com o Google e a grava em
-   `~/.conferencia-ponto/google/conta-de-servico.json` (`ponto.google.credencial`) — fora do banco de dados e
+   `~/.expedio/google/conta-de-servico.json` (`expedio.google.credencial`) — fora do banco de dados e
    nunca devolvida pela API.
 2. **Cada pessoa**, em *Minha conta → Planilha no Google*: cria uma planilha (`sheets.new`), compartilha com o
    e-mail da conta de serviço como **Editor** e cola o link. A planilha é gravada na hora.
@@ -1056,7 +1056,7 @@ Migrações em `backend/src/main/resources/db/migration`:
 
 Os schemas dos módulos só se ligam ao ponto por `tb_usuario`; para desfazê-los sem tocar no ponto, veja
 [Backup](#backup). `MigracoesPostgresTest` aplica todas as migrações num PostgreSQL temporário (o mesmo 18.6,
-baixado pelo Maven, criado numa pasta temporária e apagado no fim do teste), com o usuário `ponto` sem
+baixado pelo Maven, criado numa pasta temporária e apagado no fim do teste), com o usuário `expedio` sem
 superusuário, e confere que nada do schema `public` muda; `ArquiteturaModulosTest` confere que o código do
 ponto não depende dos módulos e vice-versa.
 
@@ -1072,14 +1072,14 @@ atual", com o gráfico mês a mês do ciclo):
   do saldo congelado) e só fecha com "Fechar mesmo assim" (`GET /ciclos/pendencias?ultimoDia=`;
   `POST /ciclos/fechar {…, mesmoComPendencias}`, senão `422 CICLO_COM_PENDENCIAS`).
 - **Período**: corrige o início/previsão do ciclo aberto (o primeiro ciclo nasce de
-  `ponto.banco-horas.inicio-primeiro-ciclo`, padrão `2026-05-25` — dia seguinte ao zeramento de 24/05/2026). O
+  `expedio.banco-horas.inicio-primeiro-ciclo`, padrão `2026-05-25` — dia seguinte ao zeramento de 24/05/2026). O
   saldo do ciclo é apurado na hora, a partir do início: mudar o período muda o banco do painel, da auditoria e da
   planilha.
 - **O mesmo banco em todo lugar**: o painel, a auditoria (cartão "Banco de horas") e a planilha (coluna "Banco de
   horas no fim do mês") mostram o acumulado do ciclo que cobre o mês (quando um ciclo fecha no meio do mês, vale o
   seguinte). O acumulado do ano (de janeiro em diante, em `/saldos`) não é o banco de horas: ele atravessa o
   fechamento do RH.
-- **Avisos**: todo dia à 01:00 (`@Scheduled`, `ponto.banco-horas.cron-alertas`) e na subida, o sistema confere o
+- **Avisos**: todo dia à 01:00 (`@Scheduled`, `expedio.banco-horas.cron-alertas`) e na subida, o sistema confere o
   prazo e cria avisos no sino a **30** e **15 dias** da previsão e quando ela passa. Cada aviso sai uma vez; os do
   ciclo anterior são arquivados ao fechar.
 
@@ -1197,7 +1197,7 @@ Quando o relógio falha (batida não registrada, comprovante não gerado) e o RH
 Cada PDF importado é **copiado** (o original na pasta de Downloads fica intacto) para a pasta gerenciada:
 
 ```
-~/.conferencia-ponto/comprovantes/        (ou PONTO_ARMAZENAMENTO_DIR)
+~/.expedio/comprovantes/        (ou EXPEDIO_ARMAZENAMENTO_DIR)
 └── 2026/09/comprovante_<uuid>.pdf        uuid = id da linha em tb_comprovante
 ```
 
@@ -1272,7 +1272,7 @@ TCPDF e trazem no cabeçalho o texto `Comprovante de Ponto - dd/MM/yyyy HH:mm:ss
 tolera quebras de linha, traços `–`/`—`, maiúsculas e hora sem segundos. O teste gera um PDF no mesmo
 formato (fonte embutida, cabeçalho em pedaços); o comprovante real não fica no repositório (a assinatura
 digital dele tem dados pessoais). Se o layout mudar, ajuste
-`ponto.importacao-pdf.regex` no `application.yml` (mantendo os grupos `(?<data>…)` e `(?<hora>…)`),
+`expedio.importacao-pdf.regex` no `application.yml` (mantendo os grupos `(?<data>…)` e `(?<hora>…)`),
 sem recompilar.
 
 ### Eventos SSE (`GET /api/v1/eventos`)

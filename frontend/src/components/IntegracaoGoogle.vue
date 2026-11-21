@@ -149,7 +149,7 @@ async function copiarEmail() {
         <li>
           Entre em
           <a href="https://console.cloud.google.com/projectcreate" target="_blank" rel="noopener" class="font-semibold underline underline-offset-4">console.cloud.google.com</a>
-          com uma conta do Google e crie um projeto (ex.: <span class="carimbo">conferencia-ponto</span>). É gratuito.
+          com uma conta do Google e crie um projeto (ex.: <span class="carimbo">expedio</span>). É gratuito.
         </li>
         <li>
           Com o projeto selecionado, abra

@@ -7,12 +7,14 @@
  * endereço do sistema (veja {@link seletorDisponivel}).
  */
 
-const BANCO = 'conferencia-ponto-backups'
+const BANCO = 'expedio-backups'
+/** O nome de antes (o sistema se chamava Conferência de Ponto): as pastas guardadas nele passam para o novo. */
+const BANCO_ANTIGO = 'conferencia-ponto-backups'
 const PADRAO = 'destino-padrao'
 
-function abrir() {
+function abrir(nome = BANCO) {
   return new Promise((resolver, rejeitar) => {
-    const pedido = indexedDB.open(BANCO, 1)
+    const pedido = indexedDB.open(nome, 1)
     pedido.onupgradeneeded = () => {
       pedido.result.createObjectStore('pastas')
     }
@@ -21,7 +23,44 @@ function abrir() {
   })
 }
 
+/** Traz as pastas lembradas com o nome antigo (uma vez; depois apaga o banco antigo). */
+async function trazerDoNomeAntigo() {
+  if (typeof indexedDB?.databases !== 'function') return
+  const bancos = await indexedDB.databases()
+  if (!bancos.some((b) => b.name === BANCO_ANTIGO)) return
+  const antigo = await abrir(BANCO_ANTIGO)
+  let itens
+  try {
+    itens = await new Promise((resolver, rejeitar) => {
+      const tx = antigo.transaction('pastas', 'readonly')
+      const chaves = tx.objectStore('pastas').getAllKeys()
+      const valores = tx.objectStore('pastas').getAll()
+      tx.oncomplete = () => resolver(chaves.result.map((chave, i) => [chave, valores.result[i]]))
+      tx.onerror = () => rejeitar(tx.error)
+    })
+  } finally {
+    antigo.close()
+  }
+  const novo = await abrir()
+  try {
+    await new Promise((resolver, rejeitar) => {
+      const tx = novo.transaction('pastas', 'readwrite')
+      const pastas = tx.objectStore('pastas')
+      for (const [chave, valor] of itens) pastas.put(valor, chave)
+      tx.oncomplete = resolver
+      tx.onerror = () => rejeitar(tx.error)
+    })
+  } finally {
+    novo.close()
+  }
+  indexedDB.deleteDatabase(BANCO_ANTIGO)
+}
+
+let migracao = null
+
 async function usar(modo, acao) {
+  // falha na migração não impede o uso: no pior caso, a pasta é escolhida de novo
+  await (migracao ??= trazerDoNomeAntigo().catch(() => {}))
   const db = await abrir()
   try {
     return await new Promise((resolver, rejeitar) => {

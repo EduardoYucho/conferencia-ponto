@@ -330,7 +330,7 @@ async function exportarExcel() {
   if (exportando.value) return
   exportando.value = true
   try {
-    salvarResposta(await pontoApi.exportarPlanilha(), `conferencia-ponto-${auth.pessoaEmTela?.login ?? 'eu'}-${dataISO()}.xlsx`)
+    salvarResposta(await pontoApi.exportarPlanilha(), `expedio-${auth.pessoaEmTela?.login ?? 'eu'}-${dataISO()}.xlsx`)
   } catch (e) {
     mostrarAviso(`Não foi possível exportar. ${mensagemDe(e)}`, 'erro')
   } finally {

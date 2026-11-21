@@ -1,0 +1,509 @@
+package br.com.expedio.modulos.atendimento.application.processamento;
+
+import br.com.expedio.domain.exception.RecursoNaoEncontradoException;
+import br.com.expedio.domain.exception.RegraNegocioException;
+import br.com.expedio.domain.model.Usuario;
+import br.com.expedio.modulos.atendimento.application.analise.EstadoDaAnalise;
+import br.com.expedio.modulos.atendimento.application.analise.EtapaDeAnalise;
+import br.com.expedio.modulos.atendimento.application.redacao.EtapaDeRedacao;
+import br.com.expedio.modulos.atendimento.domain.analise.SituacaoDaAnalise;
+import br.com.expedio.modulos.atendimento.domain.atendimento.ArquivoDoAtendimento;
+import br.com.expedio.modulos.atendimento.domain.atendimento.ArquivoParaBaixar;
+import br.com.expedio.modulos.atendimento.domain.atendimento.Arquivos;
+import br.com.expedio.modulos.atendimento.domain.atendimento.Atendimentos;
+import br.com.expedio.modulos.atendimento.domain.atendimento.EstadoDoAtendimento;
+import br.com.expedio.modulos.atendimento.domain.atendimento.SituacaoDoArquivo;
+import br.com.expedio.modulos.atendimento.domain.atendimento.SituacaoDoAtendimento;
+import br.com.expedio.modulos.atendimento.domain.fila.AcompanhamentoDaFila;
+import br.com.expedio.modulos.atendimento.domain.fila.ResultadoDaTarefa;
+import br.com.expedio.modulos.atendimento.domain.fila.Tarefa;
+import br.com.expedio.modulos.atendimento.domain.fila.Tarefas;
+import br.com.expedio.modulos.atendimento.domain.fila.TipoDeTarefa;
+import br.com.expedio.modulos.atendimento.domain.saida.TipoDeSaida;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.transaction.support.TransactionOperations;
+import org.springframework.stereotype.Service;
+
+import java.time.Clock;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.UUID;
+
+/**
+ * O processamento de um atendimento: processar (baixar os anexos, analisar cada arquivo e, no fim, montar a linha do
+ * tempo e redigir as saídas pedidas), cancelar, retomar, tentar de novo um arquivo e gerar de novo uma saída; e, como
+ * {@link AcompanhamentoDaFila}, a situação do atendimento e dos arquivos conforme as tarefas terminam (o anexo
+ * baixado entra na fila da análise; a linha do tempo pronta põe a redação na fila). Cada pessoa só mexe nos próprios
+ * atendimentos (o de outra pessoa dá 404).
+ */
+@Service
+public class ProcessarAtendimentos implements AcompanhamentoDaFila {
+
+    private static final Logger log = LoggerFactory.getLogger(ProcessarAtendimentos.class);
+    private static final DateTimeFormatter DIA_E_HORA = DateTimeFormatter.ofPattern("dd/MM 'às' HH:mm");
+    static final String LINK_VENCIDO = "O link deste anexo venceu (o Digisac assina os links por 24 horas). Exporte a "
+            + "conversa de novo no Digisac e envie o PDF neste atendimento, ou envie o arquivo à mão.";
+
+    private final Atendimentos atendimentos;
+    private final Arquivos arquivos;
+    private final Tarefas tarefas;
+    private final PublicadorDeProgresso publicador;
+    /** As tarefas que usam o Gemini: a cota ou a chave param só estas (os downloads seguem). */
+    private static final Set<TipoDeTarefa> TAREFAS_DE_IA = EnumSet.of(TipoDeTarefa.ANALISAR, TipoDeTarefa.REDIGIR);
+    private static final Set<SituacaoDoAtendimento> FINAIS = EnumSet.of(SituacaoDoAtendimento.PRONTO, SituacaoDoAtendimento.COM_FALHAS);
+
+    private final Clock clock;
+    private final int tentativasDoDownload;
+    private final EtapaDeAnalise analise;
+    private final EtapaDeRedacao redacao;
+    /**
+     * O que entra na fila junto entra numa gravação só: a varredura nunca vê a tarefa nova sem a pausa dela (rodaria
+     * com o atendimento pausado), nem o texto pedido sem a análise que ele espera (seria escrito antes da hora).
+     */
+    private final TransactionOperations transacao;
+
+    @Autowired
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock,
+                                 @Value("${atendimento.download.tentativas:5}") int tentativasDoDownload,
+                                 EtapaDeAnalise analise, EtapaDeRedacao redacao, TransactionOperations transacao) {
+        this.transacao = transacao;
+        this.atendimentos = atendimentos;
+        this.arquivos = arquivos;
+        this.tarefas = tarefas;
+        this.publicador = publicador;
+        this.clock = clock;
+        this.tentativasDoDownload = tentativasDoDownload;
+        this.analise = analise;
+        this.redacao = redacao;
+    }
+
+    /** Sem transação própria (testes que não dependem dela). */
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload,
+                                 EtapaDeAnalise analise, EtapaDeRedacao redacao) {
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, analise, redacao,
+                TransactionOperations.withoutTransaction());
+    }
+
+    /** Downloads e análises, sem redação (os testes da etapa da análise). */
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload,
+                                 EtapaDeAnalise analise) {
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, analise, EtapaDeRedacao.NENHUMA);
+    }
+
+    /** Só os downloads (os testes da etapa de download). */
+    public ProcessarAtendimentos(Atendimentos atendimentos, Arquivos arquivos, Tarefas tarefas,
+                                 PublicadorDeProgresso publicador, Clock clock, int tentativasDoDownload) {
+        this(atendimentos, arquivos, tarefas, publicador, clock, tentativasDoDownload, EtapaDeAnalise.NENHUMA,
+                EtapaDeRedacao.NENHUMA);
+    }
+
+    /** Processa sem pedir saída nova (as já pedidas continuam). */
+    public ProgressoView processar(Usuario usuario, UUID atendimentoId) {
+        return processar(usuario, atendimentoId, Set.of());
+    }
+
+    /**
+     * Põe na fila o download dos anexos que faltam (os de link vencido viram "vencido" na hora, sem rede), a análise
+     * dos arquivos prontos que ainda não têm e as saídas pedidas que ainda não existem (redigidas quando os
+     * downloads e as análises terminarem).
+     */
+    public ProgressoView processar(Usuario usuario, UUID atendimentoId, Set<TipoDeSaida> saidas) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        Instant agora = clock.instant();
+        int pedidas = redacao.pedir(atendimentoId, saidas, agora) + redacao.refazerAsQueFalharam(atendimentoId, agora);
+        if (estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+            return retomar(usuario, atendimentoId);
+        }
+        int vencidos = arquivos.vencerLinks(atendimentoId, agora, LINK_VENCIDO);
+        int criadas = 0;
+        for (ArquivoParaBaixar anexo : arquivos.aBaixar(atendimentoId)) {
+            // a tarefa e o "aguardando" do anexo aparecem juntos: se a fila pegasse o download entre um e outro, o
+            // "aguardando" chegaria com ele em andamento e o arquivo baixado seria descartado ("mudou durante o
+            // download"), deixando o anexo para trás
+            boolean criada = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!tarefas.criar(TipoDeTarefa.BAIXAR, atendimentoId, anexo.id(), null, tentativasDoDownload, agora)) {
+                    return false;
+                }
+                arquivos.aguardar(anexo.id());
+                return true;
+            }));
+            if (criada) {
+                criadas++;
+            }
+        }
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        if (tarefas.ativas(atendimentoId) > 0 || redacao.esperando(atendimentoId)) {
+            atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            atualizarSituacao(atendimentoId); // sem download nem análise na fila, a redação começa já
+        } else {
+            atendimentos.mudarSituacao(atendimentoId, situacaoFinal(atendimentoId), null, agora);
+        }
+        log.info("Atendimento {} processando: {} download(s), {} análise(s) e {} saída(s) pedidas, {} link(s) vencido(s)",
+                atendimentoId, criadas, analises, pedidas, vencidos);
+        publicador.publicar(atendimentoId);
+        return progresso(atendimentoId);
+    }
+
+    /** Cancela o que ainda não começou (o que já está baixando termina). */
+    public ProgressoView cancelar(Usuario usuario, UUID atendimentoId) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        if (estado.situacao() == SituacaoDoAtendimento.PROCESSANDO || estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+            Instant agora = clock.instant();
+            int canceladas = tarefas.cancelarDoAtendimento(atendimentoId, agora);
+            atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.CANCELADO, null, agora);
+            log.info("Atendimento {} cancelado: {} tarefa(s) canceladas", atendimentoId, canceladas);
+            publicador.publicar(atendimentoId);
+        }
+        return progresso(atendimentoId);
+    }
+
+    /**
+     * Retoma um atendimento pausado (ou processa de novo um cancelado): as tarefas pausadas voltam com as tentativas
+     * do começo, as análises que falharam por motivo passageiro e os textos que falharam voltam para a fila, e os
+     * textos só são escritos depois das análises.
+     */
+    public ProgressoView retomar(Usuario usuario, UUID atendimentoId) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
+            return processar(usuario, atendimentoId);
+        }
+        Instant agora = clock.instant();
+        int retomadas = tarefas.retomarDoAtendimento(atendimentoId, agora);
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        int textos = redacao.refazerAsQueFalharam(atendimentoId, agora);
+        atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+        log.info("Atendimento {} retomado: {} tarefa(s) de volta à fila, {} análise(s) e {} texto(s) pedidos de novo",
+                atendimentoId, retomadas, analises, textos);
+        atualizarSituacao(atendimentoId); // nada pausado na fila: segue para a redação ou termina
+        publicador.publicar(atendimentoId);
+        return progresso(atendimentoId);
+    }
+
+    /**
+     * O vigia retoma sozinho uma pausa cujo motivo costuma passar (VigiaDosAtendimentos): o mesmo do Retomar, sem
+     * dono. Só vale para o atendimento ainda pausado: se a pessoa retomou ou cancelou nesse meio-tempo, nada muda.
+     *
+     * @return true se retomou
+     */
+    public boolean retomarSozinho(UUID atendimentoId) {
+        Instant agora = clock.instant();
+        if (!atendimentos.mudarSituacaoSe(atendimentoId, Set.of(SituacaoDoAtendimento.PAUSADO),
+                SituacaoDoAtendimento.PROCESSANDO, null, agora)) {
+            return false;
+        }
+        int retomadas = tarefas.retomarDoAtendimento(atendimentoId, agora);
+        int analises = analise.pedirParaOAtendimento(atendimentoId, agora);
+        int textos = redacao.refazerAsQueFalharam(atendimentoId, agora);
+        log.info("Atendimento {} retomado sozinho: {} tarefa(s) de volta à fila, {} análise(s) e {} texto(s) pedidos de novo",
+                atendimentoId, retomadas, analises, textos);
+        atualizarSituacao(atendimentoId);
+        publicador.publicar(atendimentoId);
+        return true;
+    }
+
+    /** Tenta de novo o download de um anexo que falhou ou a análise de um arquivo pronto que ainda não tem. */
+    public ProgressoView tentarDeNovo(Usuario usuario, UUID atendimentoId, UUID arquivoId) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        ArquivoDoAtendimento arquivo = arquivos.buscar(atendimentoId, arquivoId).orElseThrow(ProcessarAtendimentos::arquivoNaoEncontrado);
+        SituacaoDoArquivo situacao = SituacaoDoArquivo.doCodigo(arquivo.situacao());
+        Instant agora = clock.instant();
+        if (situacao == SituacaoDoArquivo.PRONTO) {
+            boolean pausado = estado.situacao() == SituacaoDoAtendimento.PAUSADO;
+            boolean pedida = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!analise.pedir(atendimentoId, arquivoId, agora)) {
+                    return false;
+                }
+                if (pausado) {
+                    tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // volta junto com as outras no Retomar
+                }
+                return true;
+            }));
+            if (!pedida) {
+                throw new RegraNegocioException("NADA_A_TENTAR", "Este arquivo já está pronto e analisado (ou a análise "
+                        + "dele já está na fila).");
+            }
+            if (!pausado) {
+                atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            }
+            publicador.publicar(atendimentoId);
+            return progresso(atendimentoId);
+        }
+        if (!arquivo.daConversa() || !Set.of(SituacaoDoArquivo.FALHOU, SituacaoDoArquivo.VENCIDO, SituacaoDoArquivo.AGUARDANDO)
+                .contains(situacao)) {
+            throw new RegraNegocioException("NADA_A_TENTAR", "Este arquivo não tem download para tentar de novo.");
+        }
+        ArquivoParaBaixar anexo = arquivos.paraBaixar(arquivoId).orElseThrow(ProcessarAtendimentos::arquivoNaoEncontrado);
+        if (anexo.url() == null) {
+            throw new RegraNegocioException("SEM_LINK", "Este anexo não tem link para download. Envie o arquivo à mão.");
+        }
+        if (anexo.validoAte() != null && !agora.isBefore(anexo.validoAte())) {
+            arquivos.registrarFalha(arquivoId, SituacaoDoArquivo.VENCIDO, "LINK_VENCIDO", LINK_VENCIDO);
+            throw new RegraNegocioException("LINK_VENCIDO", "O link deste anexo venceu em "
+                    + DIA_E_HORA.format(anexo.validoAte().atZone(fuso())) + ". Exporte a conversa de novo no Digisac e envie "
+                    + "o PDF neste atendimento, ou envie o arquivo à mão.");
+        }
+        arquivos.aguardar(arquivoId);
+        tarefas.criar(TipoDeTarefa.BAIXAR, atendimentoId, arquivoId, null, tentativasDoDownload, agora);
+        if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
+            atendimentos.mudarSituacao(atendimentoId, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+        }
+        // pausado, continua pausado: o download não usa a IA e roda; a análise dele entra pausada (analisarOBaixado) e
+        // volta com as outras no Retomar. Sem isso, a fila esvaziava, o texto saía sem as análises pausadas e elas
+        // ficavam pausadas para sempre
+        publicador.publicar(atendimentoId);
+        return progresso(atendimentoId);
+    }
+
+    /**
+     * "Gerar de novo": uma versão nova da saída, redigida com as análises guardadas (a linha do tempo é montada de
+     * novo, com o que houver de novo no atendimento). A análise que falta (falhou por motivo passageiro, ou é de um
+     * prompt anterior) é feita antes: o texto espera por ela.
+     */
+    public ProgressoView gerar(Usuario usuario, UUID atendimentoId, TipoDeSaida tipo) {
+        EstadoDoAtendimento estado = doDono(usuario, atendimentoId);
+        if (!tipo.disponivel()) {
+            throw new RegraNegocioException("TIPO_INDISPONIVEL", "Este tipo de texto ainda não existe nesta versão do sistema.");
+        }
+        if (estado.situacao() == SituacaoDoAtendimento.NOVO || estado.situacao() == SituacaoDoAtendimento.CANCELADO) {
+            throw new RegraNegocioException("PROCESSE_PRIMEIRO", "Clique em Processar: os anexos são baixados e analisados "
+                    + "e o texto é gerado no fim.");
+        }
+        Instant agora = clock.instant();
+        // o texto pedido e as análises que ele espera aparecem juntos na fila (e já pausados, se for o caso)
+        Integer pedidas = transacao.execute(status -> {
+            if (!redacao.pedirNova(atendimentoId, tipo, agora)) {
+                return null;
+            }
+            int quantas = analise.pedirParaOAtendimento(atendimentoId, agora);
+            if (quantas > 0 && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+                tarefas.pausarDoAtendimento(atendimentoId, TAREFAS_DE_IA, agora); // voltam junto com as outras no Retomar
+            }
+            return quantas;
+        });
+        if (pedidas == null) {
+            throw new RegraNegocioException("JA_EM_REDACAO", "Este texto já está sendo gerado. Aguarde terminar.");
+        }
+        int analises = pedidas;
+        if (estado.situacao() != SituacaoDoAtendimento.PAUSADO) {
+            atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            atualizarSituacao(atendimentoId);
+        }
+        log.info("Atendimento {}: {} pedido de novo{}", atendimentoId, tipo.codigo(),
+                analises > 0 ? " (espera " + analises + " análise(s) antes)" : "");
+        publicador.publicar(atendimentoId);
+        return progresso(atendimentoId);
+    }
+
+    public ProgressoView progresso(Usuario usuario, UUID atendimentoId) {
+        doDono(usuario, atendimentoId);
+        return progresso(atendimentoId);
+    }
+
+    /** Um arquivo novo (ligação, vídeo, print): se o atendimento está processando, a análise dele entra na fila. */
+    public void arquivoNovo(UUID atendimentoId, UUID arquivoId) {
+        if (processando(atendimentoId)) {
+            analise.pedir(atendimentoId, arquivoId, clock.instant());
+        }
+    }
+
+    /** O conteúdo de um arquivo foi trocado (envio à mão): a análise antiga deixa de valer. */
+    public void conteudoTrocado(UUID atendimentoId, UUID arquivoId) {
+        analise.esquecer(arquivoId);
+        if (processando(atendimentoId)) {
+            analise.pedir(atendimentoId, arquivoId, clock.instant());
+        }
+    }
+
+    /** Um arquivo saiu do atendimento: a análise dele também. */
+    public void arquivoTirado(UUID arquivoId) {
+        analise.esquecer(arquivoId);
+    }
+
+    private boolean processando(UUID atendimentoId) {
+        return atendimentos.estado(atendimentoId).map(e -> e.situacao() == SituacaoDoAtendimento.PROCESSANDO).orElse(false);
+    }
+
+    /**
+     * Depois de uma mudança fora da fila (arquivo enviado à mão ou tirado): se não há mais nada para fazer, o
+     * atendimento que estava processando fica pronto (ou com falhas).
+     */
+    public void atualizarSituacao(UUID atendimentoId) {
+        atendimentos.estado(atendimentoId).ifPresent(estado -> {
+            if (estado.situacao() == SituacaoDoAtendimento.PROCESSANDO && tarefas.ativas(atendimentoId) == 0) {
+                // sem download nem análise na fila: as saídas pedidas seguem para a redação; sem nada, termina
+                // (só se continuar sem nada a fazer no momento da gravação)
+                if (!redacao.seguir(atendimentoId, clock.instant())) {
+                    atendimentos.finalizarSeOcioso(atendimentoId, situacaoFinal(atendimentoId), clock.instant());
+                }
+            } else if (FINAIS.contains(estado.situacao()) && situacaoFinal(atendimentoId) != estado.situacao()) {
+                atendimentos.mudarSituacaoSe(atendimentoId, FINAIS, situacaoFinal(atendimentoId), null, clock.instant());
+            }
+        });
+    }
+
+    // ------------------------------------------------------------------------------------- acompanhamento da fila
+
+    @Override
+    public void aoComecar(Tarefa tarefa) {
+        // o download avisa sozinho quando começa (marca "baixando"); a análise aparece como "analisando"
+        if (TAREFAS_DE_IA.contains(tarefa.tipo())) {
+            // um "pronto" que chegou antes da hora (outra tarefa viu a fila vazia) volta a "processando"
+            atendimentos.mudarSituacaoSe(tarefa.atendimentoId(), FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, clock.instant());
+            publicador.publicar(tarefa.atendimentoId());
+        }
+    }
+
+    @Override
+    public void antesDeConcluir(Tarefa tarefa) {
+        if (tarefa.tipo() == TipoDeTarefa.BAIXAR && tarefa.arquivoId() != null) {
+            analisarOBaixado(tarefa);
+        } else if (tarefa.tipo() == TipoDeTarefa.LINHA_DO_TEMPO) {
+            redigir(tarefa);
+        }
+    }
+
+    @Override
+    public void aoTerminar(Tarefa tarefa, ResultadoDaTarefa resultado) {
+        if (tarefa.tipo() == TipoDeTarefa.BAIXAR && tarefa.arquivoId() != null) {
+            registrarNoArquivo(tarefa, resultado);
+        } else if (tarefa.tipo() == TipoDeTarefa.LINHA_DO_TEMPO || tarefa.tipo() == TipoDeTarefa.REDIGIR) {
+            redacao.registrar(tarefa, resultado);
+        } else if (tarefa.tipo() == TipoDeTarefa.ANALISAR && tarefa.arquivoId() != null
+                && resultado instanceof ResultadoDaTarefa.Concluida && analisado(tarefa)) {
+            // a análise que faltava chegou: o texto escrito sem ela é gerado de novo quando a fila esvaziar
+            redacao.refazerAsQueFicaramSem(tarefa.atendimentoId(), tarefa.arquivoId(), clock.instant());
+        }
+        if (resultado instanceof ResultadoDaTarefa.Pausar pausa) {
+            Instant agora = clock.instant();
+            if (TAREFAS_DE_IA.contains(tarefa.tipo())) {
+                tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+            } else {
+                tarefas.pausarDoAtendimento(tarefa.atendimentoId(), agora);
+            }
+            // cancelado continua cancelado; de resto, a pausa vale (inclusive sobre um "pronto" que veio antes da hora)
+            atendimentos.mudarSituacaoSe(tarefa.atendimentoId(), EnumSet.complementOf(EnumSet.of(SituacaoDoAtendimento.CANCELADO)),
+                    SituacaoDoAtendimento.PAUSADO, pausa.mensagem(), agora);
+            log.warn("Atendimento {} pausado: {}", tarefa.atendimentoId(), pausa.codigo());
+        } else {
+            atualizarSituacao(tarefa.atendimentoId());
+        }
+        publicador.publicar(tarefa.atendimentoId());
+    }
+
+    /**
+     * O anexo baixado entra na fila da análise: pausada, se o atendimento está pausado; nada, se ele foi cancelado.
+     * Chamado com o download ainda ativo, então a fila do atendimento não fica vazia entre uma etapa e outra; se
+     * mesmo assim ele aparecer como pronto (vindo de antes), volta a "processando".
+     */
+    private void analisarOBaixado(Tarefa tarefa) {
+        atendimentos.estado(tarefa.atendimentoId()).ifPresent(estado -> {
+            if (estado.situacao() == SituacaoDoAtendimento.CANCELADO) {
+                return;
+            }
+            Instant agora = clock.instant();
+            boolean pausado = estado.situacao() == SituacaoDoAtendimento.PAUSADO;
+            boolean pedida = Boolean.TRUE.equals(transacao.execute(status -> {
+                if (!analise.pedir(tarefa.atendimentoId(), tarefa.arquivoId(), agora)) {
+                    return false;
+                }
+                if (pausado) {
+                    tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+                }
+                return true;
+            }));
+            if (!pedida) {
+                return;
+            }
+            if (!pausado) {
+                // só desfaz um "pronto" antes da hora: se nesse meio-tempo pausou, a pausa fica
+                atendimentos.mudarSituacaoSe(tarefa.atendimentoId(), FINAIS, SituacaoDoAtendimento.PROCESSANDO, null, agora);
+            }
+        });
+    }
+
+    /**
+     * A linha do tempo ficou pronta: a redação das saídas entra na fila (pausada, se o atendimento está pausado;
+     * nada, se ele foi cancelado).
+     */
+    private void redigir(Tarefa tarefa) {
+        atendimentos.estado(tarefa.atendimentoId()).ifPresent(estado -> {
+            if (estado.situacao() == SituacaoDoAtendimento.CANCELADO) {
+                return;
+            }
+            Instant agora = clock.instant();
+            transacao.executeWithoutResult(status -> {
+                if (redacao.redigirAsEsperando(tarefa.atendimentoId(), agora) > 0
+                        && estado.situacao() == SituacaoDoAtendimento.PAUSADO) {
+                    tarefas.pausarDoAtendimento(tarefa.atendimentoId(), TAREFAS_DE_IA, agora);
+                }
+            });
+        });
+    }
+
+    private void registrarNoArquivo(Tarefa tarefa, ResultadoDaTarefa resultado) {
+        if (resultado instanceof ResultadoDaTarefa.FalhaTemporaria t) {
+            arquivos.registrarFalha(tarefa.arquivoId(), SituacaoDoArquivo.AGUARDANDO, t.codigo(),
+                    "Tentativa " + tarefa.tentativa() + " de " + tarefa.maxTentativas() + " não deu certo: " + t.mensagem());
+        } else if (resultado instanceof ResultadoDaTarefa.FalhaDefinitiva f) {
+            SituacaoDoArquivo situacao = switch (f.codigo()) {
+                case "LINK_VENCIDO" -> SituacaoDoArquivo.VENCIDO;
+                case "ARQUIVO_GRANDE_DEMAIS", "TIPO_NAO_SUPORTADO" -> SituacaoDoArquivo.NAO_SUPORTADO;
+                default -> SituacaoDoArquivo.FALHOU;
+            };
+            arquivos.registrarFalha(tarefa.arquivoId(), situacao, f.codigo(), f.mensagem());
+        } else if (resultado instanceof ResultadoDaTarefa.Pausar p) {
+            arquivos.registrarFalha(tarefa.arquivoId(), SituacaoDoArquivo.AGUARDANDO, p.codigo(), p.mensagem());
+        }
+    }
+
+    // --------------------------------------------------------------------------------------------- apoio
+
+    private boolean analisado(Tarefa tarefa) {
+        EstadoDaAnalise estado = analise.panorama(tarefa.atendimentoId()).estados().get(tarefa.arquivoId());
+        return estado != null && estado.situacao() == SituacaoDaAnalise.PRONTA;
+    }
+
+    /** Com falhas: um anexo que não foi baixado, uma análise ou uma saída que falhou de vez. */
+    private SituacaoDoAtendimento situacaoFinal(UUID atendimentoId) {
+        boolean comFalha = arquivos.doAtendimento(atendimentoId).stream()
+                .filter(ArquivoDoAtendimento::daConversa)
+                .anyMatch(a -> a.situacao().equals(SituacaoDoArquivo.FALHOU.codigo())
+                        || a.situacao().equals(SituacaoDoArquivo.VENCIDO.codigo()));
+        return comFalha || analise.panorama(atendimentoId).comFalha() || redacao.comFalha(atendimentoId)
+                ? SituacaoDoAtendimento.COM_FALHAS
+                : SituacaoDoAtendimento.PRONTO;
+    }
+
+    private ProgressoView progresso(UUID atendimentoId) {
+        return publicador.progresso(atendimentoId).orElseThrow(ProcessarAtendimentos::naoEncontrado);
+    }
+
+    private EstadoDoAtendimento doDono(Usuario usuario, UUID atendimentoId) {
+        return atendimentos.estado(atendimentoId)
+                .filter(e -> e.usuarioId().equals(usuario.id()))
+                .orElseThrow(ProcessarAtendimentos::naoEncontrado);
+    }
+
+    private ZoneId fuso() {
+        return clock.getZone();
+    }
+
+    static RecursoNaoEncontradoException naoEncontrado() {
+        return new RecursoNaoEncontradoException("ATENDIMENTO_NAO_ENCONTRADO",
+                "Atendimento não encontrado. Ele pode ter sido apagado.");
+    }
+
+    static RecursoNaoEncontradoException arquivoNaoEncontrado() {
+        return new RecursoNaoEncontradoException("ARQUIVO_NAO_ENCONTRADO",
+                "Arquivo não encontrado neste atendimento. Ele pode ter sido tirado.");
+    }
+}

@@ -1,0 +1,93 @@
+package br.com.expedio.application.usecase;
+
+import br.com.expedio.application.TravaDosMesesConferidos;
+import br.com.expedio.application.TextoDuracao;
+import br.com.expedio.application.evento.LancamentoBancoAlteradoEvento;
+import br.com.expedio.domain.exception.RecursoNaoEncontradoException;
+import br.com.expedio.domain.exception.RegraNegocioException;
+import br.com.expedio.domain.model.CicloBanco;
+import br.com.expedio.domain.model.LancamentoBanco;
+import br.com.expedio.domain.port.CicloBancoRepository;
+import br.com.expedio.domain.port.LancamentoBancoRepository;
+import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Clock;
+import java.time.LocalDate;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+import java.util.UUID;
+
+/**
+ * Lançamentos avulsos no banco de horas: abater horas (ex.: compensar com uma folga ou saída antecipada,
+ * horas pagas pela empresa) ou creditar (correção do RH). Só valem no ciclo aberto: o saldo de um ciclo
+ * fechado já foi congelado.
+ */
+@Service
+public class GerenciarLancamentosBancoUseCase {
+
+    private static final DateTimeFormatter DATA = DateTimeFormatter.ofPattern("dd/MM/yyyy");
+
+    private final LancamentoBancoRepository lancamentos;
+    private final CicloBancoRepository ciclos;
+    private final TravaDosMesesConferidos trava;
+    private final ApplicationEventPublisher eventos;
+    private final Clock clock;
+
+    public GerenciarLancamentosBancoUseCase(LancamentoBancoRepository lancamentos, CicloBancoRepository ciclos,
+                                            TravaDosMesesConferidos trava, ApplicationEventPublisher eventos,
+                                            Clock clock) {
+        this.lancamentos = lancamentos;
+        this.ciclos = ciclos;
+        this.trava = trava;
+        this.eventos = eventos;
+        this.clock = clock;
+    }
+
+    @Transactional(readOnly = true)
+    public List<LancamentoBanco> listar(UUID usuarioId, LocalDate inicio, LocalDate fim) {
+        return lancamentos.listarNoPeriodo(usuarioId, inicio, fim);
+    }
+
+    /**
+     * @param segundos negativo abate do banco; positivo credita
+     */
+    @Transactional
+    public LancamentoBanco lancar(UUID usuarioId, LocalDate data, int segundos, String descricao, String usuario) {
+        LancamentoBanco novo = LancamentoBanco.novo(usuarioId, data, segundos, descricao, usuario, clock.instant());
+        exigirCicloAberto(usuarioId, data);
+        trava.exigirAberto(usuarioId, data);
+        LocalDate limite = LocalDate.now(clock).plusYears(1);
+        if (data.isAfter(limite)) {
+            throw new RegraNegocioException("LANCAMENTO_DISTANTE", "A data do lançamento pode ser no máximo um ano à frente.");
+        }
+        lancamentos.salvar(novo);
+        eventos.publishEvent(new LancamentoBancoAlteradoEvento(usuarioId, data, "%s %s no banco em %s · %s".formatted(
+                novo.isDebito() ? "Abatido" : "Creditado", TextoDuracao.duracao(segundos), DATA.format(data),
+                novo.descricao())));
+        return novo;
+    }
+
+    @Transactional
+    public void excluir(UUID usuarioId, UUID id) {
+        LancamentoBanco lancamento = lancamentos.buscarPorId(id)
+                .filter(l -> l.usuarioId().equals(usuarioId))
+                .orElseThrow(() -> new RecursoNaoEncontradoException("LANCAMENTO_NAO_ENCONTRADO",
+                        "Lançamento no banco de horas não encontrado."));
+        exigirCicloAberto(usuarioId, lancamento.data());
+        trava.exigirAberto(usuarioId, lancamento.data());
+        lancamentos.excluir(id);
+        eventos.publishEvent(new LancamentoBancoAlteradoEvento(usuarioId, lancamento.data(), "Lançamento de %s removido (%s)"
+                .formatted(DATA.format(lancamento.data()), TextoDuracao.saldo(lancamento.segundos()))));
+    }
+
+    private void exigirCicloAberto(UUID usuarioId, LocalDate data) {
+        CicloBanco aberto = ciclos.buscarAberto(usuarioId).orElse(null);
+        if (aberto != null && data.isBefore(aberto.dataInicio())) {
+            throw new RegraNegocioException("LANCAMENTO_EM_CICLO_FECHADO",
+                    "O banco de horas foi fechado e o ciclo atual começou em %s: lance a partir dessa data."
+                            .formatted(DATA.format(aberto.dataInicio())));
+        }
+    }
+}

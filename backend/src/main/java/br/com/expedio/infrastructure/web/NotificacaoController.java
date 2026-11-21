@@ -1,0 +1,69 @@
+package br.com.expedio.infrastructure.web;
+
+import java.util.List;
+import br.com.expedio.application.usecase.NotificacoesUseCase;
+import br.com.expedio.domain.model.Usuario;
+import br.com.expedio.infrastructure.web.acesso.AcessoUsuarios;
+import br.com.expedio.infrastructure.web.acesso.Titular;
+import br.com.expedio.infrastructure.web.dto.ApiResponse;
+import br.com.expedio.infrastructure.web.dto.NotificacoesResponse;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.UUID;
+
+/**
+ * <pre>
+ * GET  /api/v1/notificacoes            últimas 30 + quantidade não lida
+ * POST /api/v1/notificacoes/{id}/lida  marca uma como lida
+ * POST /api/v1/notificacoes/lidas      marca todas como lidas
+ * </pre>
+ */
+@RestController
+@RequestMapping("/api/v1/notificacoes")
+public class NotificacaoController {
+
+    private final NotificacoesUseCase notificacoes;
+    private final AcessoUsuarios acesso;
+
+    public NotificacaoController(NotificacoesUseCase notificacoes, AcessoUsuarios acesso) {
+        this.notificacoes = notificacoes;
+        this.acesso = acesso;
+    }
+
+    /** Os avisos são sempre os do próprio usuário; quem só consulta (coordenação) não tem avisos. */
+    @GetMapping
+    public ApiResponse<NotificacoesResponse> listar(Titular titular) {
+        if (!titular.logado().isTitular()) {
+            return ApiResponse.ok(new NotificacoesResponse(0, List.of()));
+        }
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(titular.logado().id())));
+    }
+
+    /*
+     * Marcar como lido é sempre nos próprios avisos e não é "lançar no ponto": quem só consulta o próprio ponto também
+     * recebe avisos (mês conferido, prazo do banco) e precisa conseguir limpá-los do sino.
+     */
+    @PostMapping("/{id}/lida")
+    public ApiResponse<NotificacoesResponse> marcarLida(@PathVariable UUID id) {
+        Usuario eu = acesso.logado();
+        if (!eu.isTitular()) {
+            return ApiResponse.ok(new NotificacoesResponse(0, List.of()));
+        }
+        notificacoes.marcarLida(eu.id(), id);
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(eu.id())));
+    }
+
+    @PostMapping("/lidas")
+    public ApiResponse<NotificacoesResponse> marcarTodas() {
+        Usuario eu = acesso.logado();
+        if (!eu.isTitular()) {
+            return ApiResponse.ok(new NotificacoesResponse(0, List.of()));
+        }
+        notificacoes.marcarTodasLidas(eu.id());
+        return ApiResponse.ok(NotificacoesResponse.de(notificacoes.listar(eu.id())));
+    }
+}

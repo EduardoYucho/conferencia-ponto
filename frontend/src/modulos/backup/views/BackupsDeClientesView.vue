@@ -351,7 +351,7 @@ onBeforeUnmount(() => clearInterval(relogio))
               <span v-else>{{ tunel?.mensagem }}</span>
             </div>
             <p v-if="tunel?.modo === 'SEM_CLOUDFLARED'" class="mt-1 text-sm text-tinta-suave">
-              Sem o túnel, o link só abre nesta rede. No computador onde o sistema roda, rode <code class="font-mono">ponto tunel</code> num terminal.
+              Sem o túnel, o link só abre nesta rede. No computador onde o sistema roda, rode <code class="font-mono">expedio tunel</code> num terminal.
             </p>
           </section>
 

@@ -23,8 +23,8 @@ const auth = useAuthStore()
 const modulos = useAcessoModulosStore()
 const route = useRoute()
 
-const CHAVE_RECOLHIDO = 'conferencia-ponto.menu.recolhido'
-const CHAVE_FECHADOS = 'conferencia-ponto.menu.fechados'
+const CHAVE_RECOLHIDO = 'expedio.menu.recolhido'
+const CHAVE_FECHADOS = 'expedio.menu.fechados'
 
 function ler(chave) {
   try {
