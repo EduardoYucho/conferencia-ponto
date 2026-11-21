@@ -500,7 +500,7 @@ public class MontadorPlanilhaConferencia {
         int colunas = 12;
         List<List<Celula>> linhas = new ArrayList<>();
         linhas.add(linhaDeTexto(colunas, "Conferência de ponto · " + nome, Estilo.TITULO));
-        linhas.add(linhaDeTexto(colunas, atualizado + " pelo sistema de conferência de ponto. As abas são reescritas "
+        linhas.add(linhaDeTexto(colunas, atualizado + " pelo Expedio. As abas são reescritas "
                 + "a cada atualização: anote em outra aba.", Estilo.SUBTITULO));
         linhas.add(linhaVazia(colunas));
 

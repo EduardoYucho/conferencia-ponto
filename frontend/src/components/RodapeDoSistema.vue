@@ -12,7 +12,7 @@ const geradaEm = __VERSAO_GERADA_EM__
 
 <template>
   <footer class="border-t border-linha px-4 py-3 text-center text-xs text-tinta-apagada sm:px-6">
-    <span>Conferência de Ponto</span>
+    <span>Expedio</span>
     <span aria-hidden="true"> · </span>
     <span>Desenvolvido por <span class="font-semibold text-tinta-suave">Eduardo Yucho</span></span>
     <span aria-hidden="true"> · </span>

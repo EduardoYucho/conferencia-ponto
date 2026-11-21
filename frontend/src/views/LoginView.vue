@@ -45,9 +45,9 @@ async function entrar() {
 <template>
   <main class="grid flex-1 place-items-center px-4 py-10">
     <form class="cartao perfurado w-full max-w-sm animate-surgir py-6 pr-6" novalidate @submit.prevent="entrar">
-      <p class="rotulo text-carimbo">Banco de horas · conferência do RH</p>
+      <p class="rotulo text-carimbo">Ponto · atendimentos · suporte</p>
       <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%]">
-        Conferência de Ponto
+        Expedio
       </h1>
       <p class="mt-2 text-sm text-tinta-suave">Entre com seu usuário para acessar o painel ou a auditoria.</p>
 

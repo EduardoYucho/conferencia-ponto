@@ -179,7 +179,7 @@ async function criar() {
 
 async function copiarCredenciais() {
   const c = credenciais.value
-  const texto = `Conferência de Ponto\nEndereço: ${window.location.origin}\nLogin: ${c.login}\nSenha provisória: ${c.senha}\n(você vai criar sua senha no primeiro acesso)`
+  const texto = `Expedio\nEndereço: ${window.location.origin}\nLogin: ${c.login}\nSenha provisória: ${c.senha}\n(você vai criar sua senha no primeiro acesso)`
   try {
     await navigator.clipboard.writeText(texto)
     mostrar('Dados de acesso copiados.')

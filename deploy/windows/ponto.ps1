@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Conferência de Ponto no Windows: o comando "ponto", de qualquer terminal, sem abrir a pasta do projeto.
+  Expedio no Windows: o comando "ponto", de qualquer terminal, sem abrir a pasta do projeto.
 
 .DESCRIPTION
   A aplicação inteira (API + telas) roda num único jar, iniciado pela tarefa agendada "ConferenciaPonto"
@@ -148,7 +148,7 @@ function Porta-Configurada {
 
 function Exigir-Instalacao {
     if (-not (Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue)) {
-        Falhar 'A Conferência de Ponto não está instalada. Na pasta do projeto, rode: .\instalar.cmd'
+        Falhar 'O Expedio não está instalado. Na pasta do projeto, rode: .\instalar.cmd'
     }
 }
 
@@ -360,7 +360,7 @@ function Versao-DoJar([string] $jar) {
 }
 
 function Cmd-Versao {
-    Titulo 'Versão da Conferência de Ponto'
+    Titulo 'Versão do Expedio'
     $instalada = Versao-DoJar $Jar
     $anterior = Versao-DoJar $JarAnterior
     Info "Instalada:      $(if ($instalada) { $instalada } else { 'sem número (de antes da numeração)' })"
@@ -509,7 +509,7 @@ function Registrar-Tarefa([string] $javaw, [int] $porta) {
     $argumentos = ($ArgumentosJava | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
     $inicio = (Get-Date).AddMinutes(1).ToString('yyyy-MM-ddTHH:mm:00')
     $comando = if ($javaw -match '\s') { "`"$javaw`"" } else { $javaw }
-    $descricao = "Conferência de Ponto em http://localhost:$porta (criada por 'ponto instalar'; controle pelo comando 'ponto')."
+    $descricao = "Expedio em http://localhost:$porta (criada por 'ponto instalar'; controle pelo comando 'ponto')."
 
     # Dois gatilhos: no logon (15 s depois, para a rede subir) e a cada 5 minutos, que só tem efeito se a
     # aplicação não estiver rodando (IgnoreNew): é o que a sobe de novo se ela cair.
@@ -682,7 +682,7 @@ function Iniciar-Aplicacao {
         $dono = Dono-Da-Porta $porta
         if ($dono) {
             Aviso "A porta $porta está ocupada por $($dono.ProcessName) (PID $($dono.Id)) — provavelmente o back-end no Eclipse."
-            Aviso 'Pare-o: a Conferência de Ponto sobe sozinha em até 5 minutos (ou rode "ponto iniciar" de novo).'
+            Aviso 'Pare-o: o Expedio sobe sozinho em até 5 minutos (ou rode "ponto iniciar" de novo).'
             return
         }
         Start-ScheduledTask -TaskName $NomeTarefa
@@ -1119,7 +1119,7 @@ function Cmd-ListarBackups {
 # roda o "ponto backup diario" todo dia, usa o código para avisar no sino).
 function Cmd-Backup([string] $alvo) {
     if ($alvo -in 'lista', 'listar') { Cmd-ListarBackups; exit 0 }
-    Titulo 'Backup da Conferência de Ponto'
+    Titulo 'Backup do Expedio'
     try { $feito = Fazer-Backup $alvo }
     catch { Falhar "Backup não feito: $($_.Exception.Message)" }
     $conteudo = 'banco'
@@ -1197,7 +1197,7 @@ function Restaurar-Arquivos($backup) {
 
 function Cmd-Restaurar([string] $alvo) {
     $teste = Banco-DeTeste
-    Titulo 'Restaurar um backup da Conferência de Ponto'
+    Titulo 'Restaurar um backup do Expedio'
     if ($teste) {
         Aviso "Banco de teste ($env:PONTO_BANCO_URL): só ele muda; a aplicação e os arquivos não são tocados."
         if (-not $alvo) { Falhar 'No teste, diga qual backup: ponto restaurar <pasta>' }
@@ -1337,8 +1337,8 @@ function Cmd-Instalar([switch] $Atualizacao) {
     $estado = Ler-Estado
     $porta = if ($Porta -gt 0) { $Porta } elseif ($estado -and $estado.porta) { [int] $estado.porta } else { $PortaPadrao }
 
-    if ($Atualizacao) { Titulo "Atualizando a Conferência de Ponto a partir de $repositorio" }
-    else { Titulo "Instalando a Conferência de Ponto a partir de $repositorio" }
+    if ($Atualizacao) { Titulo "Atualizando o Expedio a partir de $repositorio" }
+    else { Titulo "Instalando o Expedio a partir de $repositorio" }
 
     $java = Resolver-Java
     Passo "Java $($java.Versao): $($java.Javaw)"
@@ -1522,7 +1522,7 @@ function Mostrar-Diagnostico {
 }
 
 function Cmd-Status {
-    Titulo 'Conferência de Ponto'
+    Titulo 'Expedio'
     $tarefa = Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue
     if (-not $tarefa) {
         Info 'Não instalada. Na pasta do projeto, rode: .\instalar.cmd'
@@ -1635,7 +1635,7 @@ function Cmd-Console {
 }
 
 function Cmd-Desinstalar {
-    Titulo 'Removendo a Conferência de Ponto'
+    Titulo 'Removendo o Expedio'
     Parar-Aplicacao -Silencioso
     if (Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue) {
         Unregister-ScheduledTask -TaskName $NomeTarefa -Confirm:$false
