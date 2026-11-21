@@ -7,6 +7,7 @@ import { useNotificacoesStore } from '@/stores/notificacoes'
 import SinoNotificacoes from '@/components/SinoNotificacoes.vue'
 import AvisosGlobais from '@/components/AvisosGlobais.vue'
 import MenuLateral from '@/components/MenuLateral.vue'
+import RodapeDoSistema from '@/components/RodapeDoSistema.vue'
 import { useAcessoModulosStore } from '@/modulos/acessoAosModulos'
 
 const auth = useAuthStore()
@@ -105,7 +106,7 @@ function sair() {
 <template>
   <div v-if="mostrarBarra" class="flex min-h-screen">
     <MenuLateral ref="menuLateral" v-model:aberto="menuAberto" />
-    <div class="min-w-0 flex-1">
+    <div class="flex min-w-0 flex-1 flex-col">
       <header class="sticky top-0 z-20 border-b border-linha bg-cartao/80 backdrop-blur-sm">
         <div class="flex h-12 items-center justify-between gap-3 px-4 sm:px-6">
           <div class="flex min-w-0 items-center gap-2 text-sm">
@@ -169,9 +170,16 @@ function sair() {
           <button type="button" class="ml-2 font-semibold text-carimbo underline underline-offset-4" @click="trocarPessoa(null)">voltar aos meus dados</button>
         </div>
       </header>
-      <RouterView :key="chaveTela" />
+      <div class="flex-1">
+        <RouterView :key="chaveTela" />
+      </div>
+      <RodapeDoSistema />
     </div>
   </div>
-  <RouterView v-else :key="chaveTela" />
+  <!-- Login e troca de senha: a tela ocupa o que sobra (flex-1 nela) e o rodapé fica no fim da janela -->
+  <div v-else class="flex min-h-dvh flex-col">
+    <RouterView :key="chaveTela" />
+    <RodapeDoSistema />
+  </div>
   <AvisosGlobais />
 </template>

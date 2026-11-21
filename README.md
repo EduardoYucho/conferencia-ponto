@@ -151,6 +151,7 @@ num único processo, em **http://localhost:8080**. Depois:
 | `ponto voltar` | Volta para a versão de antes do último `ponto atualizar` (rodar de novo desfaz) — veja abaixo |
 | `ponto backup [motivo]` · `ponto backup lista` | Backup do banco agora · os backups guardados e a regra de guarda (veja [Backup](#backup)) |
 | `ponto restaurar [pasta]` | Volta o banco para um backup: pergunta qual, pede confirmação e faz um backup de agora antes |
+| `ponto versao` | A versão instalada (a do rodapé), a anterior e as últimas geradas — veja [Versão](#versão-do-sistema) |
 | `ponto console` | Roda no próprio terminal, com a saída na tela — para diagnosticar um erro de subida |
 | `ponto desinstalar` | Remove a tarefa e o comando (mantém configuração, logs, banco e PDFs) |
 
@@ -181,6 +182,24 @@ anterior no lugar e a sobe; a que saiu fica guardada, e `ponto voltar` de novo d
 O banco não volta junto. Se a versão que saiu aplicou uma migração (o `ponto atualizar` mostra o backup
 `antes-de-atualizar` que fez), a versão anterior pode não funcionar com o banco migrado: restaure esse backup (veja
 [Backup](#backup)) antes de usar o sistema.
+
+### Versão do sistema
+
+Todas as telas (inclusive o login) têm um rodapé com quem desenvolveu e a versão, no formato
+**tecnologia.ano.número.subversão** — por exemplo `1.1.001.001`:
+
+| Parte | O que é | Quando muda |
+|---|---|---|
+| tecnologia | A geração da tecnologia (Java, Spring Boot, Vue) | À mão, em `versao.json` (`tecnologia`), quando a troca for de geração (ex.: Java 17 → 27). O número volta a 001 |
+| ano | O ano do sistema: 2026 (`anoInicial` do `versao.json`) é o 1 | Sozinho, na virada do ano. O número volta a 001 |
+| número | A versão | Sozinho, na primeira `ponto atualizar` de cada dia (+1) |
+| subversão | Mais de uma versão no mesmo dia | Sozinho, a cada `ponto atualizar` no mesmo dia (+1); volta a 001 quando o número sobe |
+
+A versão é gerada pelo `ponto atualizar` (e pela instalação) e gravada no jar (`build-info`) e nas telas; ela só
+conta depois de instalada — uma compilação que falha não gasta número. As geradas ficam anotadas em
+`versoes.json`, na pasta da instalação (com o ramo e o commit de cada uma). O `ponto voltar` volta também a versão
+do rodapé (ela está dentro do jar); a próxima atualização continua da última gerada. Compilado fora do `ponto
+atualizar` (Eclipse, `npm run dev`), o rodapé mostra `desenvolvimento`.
 
 ## Backup
 
