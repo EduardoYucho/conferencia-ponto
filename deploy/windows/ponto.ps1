@@ -27,6 +27,7 @@
     ponto backup lista  mostra os backups guardados (e a regra de guarda)
     ponto restaurar     volta o banco para um backup (pergunta qual e pede confirmação; faz um backup de agora antes)
     ponto console       roda no próprio terminal, com a saída na tela (diagnóstico; Ctrl+C para parar)
+    ponto tunel         instala o cloudflared (o túnel dos Backups de clientes) pelo winget e reinicia
     ponto desinstalar   remove a tarefa e o comando (mantém configuração, logs, banco e PDFs)
 
   Instalado em %USERPROFILE%\.conferencia-ponto\servico (ao lado de comprovantes\, o arquivo dos PDFs):
@@ -507,8 +508,54 @@ function Parar-Aplicacao([switch] $Silencioso) {
         Stop-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue
     }
     foreach ($processo in Obter-Processos) { Stop-Process -Id $processo.ProcessId -Force -ErrorAction SilentlyContinue }
+    Parar-Tunel
     for ($i = 0; $i -lt 30 -and (Obter-Processo); $i++) { Start-Sleep -Milliseconds 500 }
     if (-not $Silencioso) { Ok 'Parado. Não sobe sozinho até "ponto iniciar".' }
+}
+
+# ------------------------------------------------------------------------------------------ túnel (Backups de clientes)
+# O sistema abre um túnel rápido do cloudflared ("cloudflared tunnel --url http://127.0.0.1:<porta pública>") para o
+# navegador do cliente chegar à página de coleta. Parar a aplicação à força deixa o cloudflared vivo: encerra junto.
+function Parar-Tunel {
+    Get-CimInstance Win32_Process -Filter "Name = 'cloudflared.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.CommandLine -like '*tunnel*--url http://127.0.0.1:*' } |
+        ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+function Achar-Cloudflared {
+    $comando = Get-Command cloudflared.exe -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($comando) { return $comando.Source }
+    foreach ($c in @("${env:ProgramFiles(x86)}\cloudflared\cloudflared.exe", "$env:ProgramFiles\cloudflared\cloudflared.exe",
+            "$env:LOCALAPPDATA\Microsoft\WinGet\Links\cloudflared.exe")) {
+        if ($c -and (Test-Path -LiteralPath $c)) { return $c }
+    }
+    return $null
+}
+
+function Cmd-Tunel {
+    Titulo 'Túnel dos Backups de clientes (cloudflared)'
+    $achado = Achar-Cloudflared
+    if ($achado) {
+        Ok "cloudflared já instalado: $achado"
+    } else {
+        if (-not (Get-Command winget -ErrorAction SilentlyContinue)) {
+            Falhar ('winget não encontrado. Baixe o cloudflared em https://github.com/cloudflare/cloudflared/releases ' +
+                'e informe o caminho em backup-clientes.cloudflared (ponto config).')
+        }
+        Info 'Instalando pelo winget (Cloudflare.cloudflared)...'
+        & winget install --id Cloudflare.cloudflared -e --accept-source-agreements --accept-package-agreements
+        if (-not (Achar-Cloudflared)) {
+            Aviso 'O winget terminou, mas o cloudflared não apareceu. Abra um terminal novo e rode: ponto reiniciar'
+            return
+        }
+        Ok 'cloudflared instalado.'
+    }
+    if (Get-ScheduledTask -TaskName $NomeTarefa -ErrorAction SilentlyContinue) {
+        Info 'Reiniciando o sistema para abrir o túnel...'
+        Parar-Aplicacao -Silencioso
+        Iniciar-Aplicacao
+        Info 'O endereço público aparece em Suporte > Backups de clientes.'
+    }
 }
 
 function Iniciar-Aplicacao {
@@ -1498,6 +1545,7 @@ switch ($Comando.ToLowerInvariant()) {
     'console'     { Cmd-Console }
     'backup'      { Cmd-Backup $Alvo }
     'restaurar'   { Cmd-Restaurar $Alvo }
+    'tunel'       { Cmd-Tunel }
     'desinstalar' { Cmd-Desinstalar }
     'path'        { Alterar-Path; Ok "$PastaBin está no PATH do usuário (vale para terminais novos)." }
     { $_ -in 'ajuda', 'help', '-h', '/?', '--help' } { Get-Help $PSCommandPath -Detailed }

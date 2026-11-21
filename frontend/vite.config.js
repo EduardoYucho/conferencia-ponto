@@ -15,6 +15,8 @@ export default defineConfig({
     // Em desenvolvimento, /api é encaminhado ao Spring Boot (sem CORS no navegador)
     proxy: {
       '/api': 'http://localhost:8080',
+      // página de coleta e worker dos backups de clientes (servidos pelo sistema)
+      '/c/': 'http://localhost:8080',
     },
   },
 })

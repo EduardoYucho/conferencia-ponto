@@ -114,6 +114,21 @@ class ArquiteturaModulosTest {
             .because("o monitor fiscal pode ser retirado sem mexer nos atendimentos nem na base")
             .allowEmptyShould(true);
 
+    @ArchTest
+    static final ArchRule os_backups_de_clientes_nao_conhecem_os_outros_modulos = noClasses()
+            .that().resideInAPackage(MODULOS + ".backup..")
+            .should().dependOnClassesThat().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..",
+                    MODULOS + ".fiscal..")
+            .because("os backups de clientes são um módulo à parte")
+            .allowEmptyShould(true);
+
+    @ArchTest
+    static final ArchRule os_outros_modulos_nao_conhecem_os_backups = noClasses()
+            .that().resideInAnyPackage(MODULOS + ".atendimento..", MODULOS + ".conhecimento..", MODULOS + ".fiscal..")
+            .should().dependOnClassesThat().resideInAPackage(MODULOS + ".backup..")
+            .because("os backups de clientes podem ser retirados sem mexer nos outros módulos")
+            .allowEmptyShould(true);
+
     static ArchRule regraDosModulos() {
         return noClasses()
                 .that().resideInAPackage(MODULOS + "..")

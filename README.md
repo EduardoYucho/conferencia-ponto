@@ -690,6 +690,101 @@ outros módulos pelas regras do `ArquiteturaModulosTest`.
 - **Permissões:** *Ver o monitor fiscal* (dada aos perfis Usuário e Coordenador pela V18) e *Configurar o monitor*
   (só o Administrador, de fábrica).
 
+## Backups de clientes
+
+A tela **Backups de clientes** (menu *Suporte*) traz o backup **inteiro** das pastas do sistema de um cliente (AppSrc,
+Data com os `.DAT`/`.K*`/`.VLD`/`.TAG`, DDSrc, logs…) para uma pasta **do computador de quem está usando a tela**,
+sem instalar nada no cliente (lá, só o Chrome ou o Edge) e **sem gravar o backup no servidor do sistema** nem no banco.
+É um módulo à parte (`br.com.conferenciaponto.modulos.backup`, `frontend/src/modulos/backup`), sem tabelas.
+
+```
+cliente (Chrome/Edge)                 servidor do sistema               quem gerou o link (Chrome/Edge)
+lê, monta o .tar, SHA-256,  ──PUT──►  só na memória, até quem  ──GET──►  grava em <pasta>\<nome>.partes,
+compacta (zstd), guarda os            recebe confirmar                   confirma; no fim junta o .tar.zst,
+pedaços prontos (OPFS)      ◄──ok───  (nada do backup em disco) ◄─POST─  confere cada arquivo e avisa
+```
+
+**Uso.** Em *Onde o backup fica*, **Escolher pasta…** abre o seletor de pastas **deste computador** (vazio até alguém
+escolher; o navegador lembra a escolha e mostra só o nome da pasta, não o caminho). Cadastre o cliente (nome e, como
+lembrete, a pasta do sistema nele, ex.: `G:\sislojas3`) → **Gerar link** (já vai para a área de transferência) → no
+cliente, pelo WTS no servidor (de preferência) ou pelo UltraViewer, abra o link no Chrome/Edge → **Escolher pasta** →
+marque as subpastas → **Iniciar coleta**. Quem gera o link é quem recebe: deixe o sistema aberto (nesta tela ou em
+outra) enquanto o backup chega; se fechar, o cliente espera (já com tudo lido e compactado) e continua quando você abrir
+esta tela de novo. No fim ficam na pasta `<Cliente>_<aaaa-mm-dd_hhmmss>.tar.zst` e o relatório `.json`, e o sino avisa.
+**Extrair em…** descompacta numa pasta escolhida; o arquivo também abre no `tar` do Windows 11
+(`tar -xf arquivo.tar.zst`), no 7-Zip ZS e no PeaZip.
+
+**Seletor de pastas e http.** O Chrome e o Edge só abrem o seletor de pastas em endereço seguro (https) ou em
+`localhost`. No computador onde o sistema roda, use `http://localhost:8080`. Nos outros (pela rede, `http://<ip>:8080`),
+libere o endereço uma vez em `chrome://flags/#unsafely-treat-insecure-origin-as-secure` (no Edge, `edge://flags/...`):
+a tela mostra o passo a passo quando o seletor não está disponível.
+
+**O túnel.** O navegador do cliente chega aqui por um túnel rápido do **cloudflared**, que o próprio sistema abre ao
+subir (`https://….trycloudflare.com`, mostrado no alto da tela), sem abrir porta no firewall. Instale uma vez com
+`ponto tunel`. O túnel publica só uma porta extra (`backup-clientes.porta-publica`, 8086, em 127.0.0.1), que atende
+**apenas** a página de coleta (`/c/...`). O endereço muda quando o sistema reinicia (copie o link de novo; a coleta
+continua de onde parou); para um endereço fixo, use um túnel nomeado em `backup-clientes.endereco-publico`.
+
+**Como funciona por baixo.**
+- **Leitura rápida, envio no ritmo da internet.** A página lê e compacta tudo em minutos (zstd nível 17 em wasm, metade
+  dos núcleos até 4) e guarda os pedaços prontos numa área temporária do navegador do cliente (OPFS; até metade do espaço
+  que ele oferece, no máximo 8 GB). Assim a "foto" do sistema fica consistente mesmo com upload de 0,4 Mbps. Medido em
+  registros parecidos com `.DAT`, por núcleo: nível 15 = 40 MB/s e 20×; **17 = 17 MB/s e 35×**; 19 = 1,4 MB/s e 37×.
+- **Só de passagem.** Cada pedaço fica na memória do servidor só até o navegador de quem recebe gravá-lo e confirmar
+  (com o SHA-256); só então a página do cliente apaga a cópia dela. No servidor ficam os dados de controle
+  (`backup-clientes.pasta-estado`): onde a leitura parou e a lista de arquivos com o SHA-256 de cada um.
+- **Continua de onde parou.** Pedaço que falha é reenviado sozinho. Aba do cliente fechada: o link aberto de novo
+  continua dos pedaços guardados, sem ler de novo; sem eles, continua a leitura do ponto confirmado (até do meio de um
+  `.DAT` grande, com o SHA-256 parcial salvo). Se aquele arquivo mudou nesse meio-tempo, volta para antes dele e ele é
+  lido de novo inteiro.
+- **Sistema em uso.** Arquivo pequeno que muda durante a leitura é lido de novo; arquivo grande que muda no meio sai
+  **marcado** no relatório ("mudaram durante a leitura"); arquivo travado ganha novas tentativas e, se não der, vai para
+  "não lidos" com o motivo.
+- **Integridade.** Cada pedaço leva o SHA-256 do próprio conteúdo (corrompido no caminho é recusado e reenviado). O
+  último pedaço é o manifesto (`_coleta/manifesto.json`, com o SHA-256 de cada arquivo calculado no cliente); o
+  navegador de quem recebe junta tudo, descompacta de passagem e confere arquivo por arquivo antes de dar por íntegro.
+
+**Configuração** (`backup-clientes.*` em `backend/src/main/resources/backup-clientes.yml`; os valores desta máquina em
+`config/application.yml`): `pasta-estado` (só os dados de controle), `porta-publica`, `endereco-publico`, `cloudflared`
+(caminho; vazio = PATH e pastas do winget), `tunel-ativo`, `validade-link-horas` (48), `nivel-zstd` (17),
+`tamanho-bloco-mib` (8), `limpeza-dias` (90: tira do histórico da tela as coletas antigas; os backups não são tocados).
+
+**Permissões:** *Coletar backups de clientes* (a tela inteira) e *Apagar backups de clientes* (tirar do histórico).
+Nenhum perfil as recebe de fábrica além do Administrador: libere em Perfis de acesso.
+
+**Segurança.**
+- **Computador do cliente:** a página roda dentro do navegador, só **lê** a pasta que a pessoa escolher (o navegador
+  pede a permissão e não deixa a página ver mais nada) e não instala nem executa nada. Ela só carrega os arquivos do
+  próprio sistema e só fala com ele (política `Content-Security-Policy` rígida, sem conteúdo de terceiros), não abre
+  dentro de outro site e não passa o link adiante (`no-referrer`).
+- **Criptografia de ponta a ponta:** cada pedaço é cifrado no navegador do cliente com AES-256-GCM, com uma chave que
+  nasce na tela de quem gera o link e vai **no link, depois do `#`** (essa parte do endereço o navegador nunca envia a
+  servidor nenhum). O sistema e o túnel (Cloudflare) só veem o conteúdo cifrado; o navegador de quem recebe decifra e
+  confere a etiqueta de cada pedaço (adulterado, trocado de lugar ou de outra chave: não é gravado nem confirmado).
+  Pedaço sem cifra é recusado. O Cloudflare ainda vê os nomes e tamanhos dos arquivos (vão no cabeçalho, para o sistema
+  saber onde a leitura parou).
+- **Link:** token de 32 bytes aleatórios, um por coleta, que vence sem uso e deixa de valer ao concluir ou cancelar.
+  Ao começar, a coleta fica **presa ao navegador do cliente que a começou** (um segredo de sessão gerado por ele): um
+  link vazado não serve para mandar nada; para continuar em outro computador, quem gerou o link usa **Liberar para
+  outro computador**.
+- **Sistema:** pela porta do túnel só passa `/c/...`; o link, a sessão e a geração são conferidos **antes** de ler o
+  corpo de um pedaço; cada coleta tem teto (`limite-coleta-gb`, 200 GB) e cada pedaço também; quem tenta 20 links
+  inexistentes em 10 minutos é barrado por 30 minutos. Só quem gerou o link recebe os pedaços (com o login dessa pessoa).
+- **Computador de quem recebe:** os arquivos só são gravados na pasta escolhida (o navegador não deixa sair dela); na
+  extração, caminho com `..`, absoluto, com letra de unidade ou nome reservado do Windows é ignorado e listado. Um
+  backup traz os arquivos do cliente como estão: não execute programas de dentro dele.
+
+**Limites conhecidos.** Precisa do Chrome ou do Edge nos dois lados. Em Windows Server 2012 R2 o último Chrome que roda lá
+(109) tem o necessário, mas ainda não foi testado num servidor real. O Chrome não deixa escolher a raiz de um disco
+(`G:\`) nem pastas do sistema. O navegador do cliente não informa o caminho completo nem o nome do computador (o caminho
+fica no cadastro do cliente; o computador é um campo opcional). A coleta grava no navegador onde o link foi gerado.
+
+**Testes:** `ServicoDeColetasTest` (repasse fora de ordem, quem recebe ausente, outro login tentando receber, SHA-256
+errado, voltar ao início de um arquivo, retomar depois de reiniciar, nada do backup no disco do servidor),
+`FiltroDaPortaPublicaTest`, `NomesSegurosTest` e `backend/src/test/js/backup-ponta-a-ponta.mjs`, que faz os papéis da
+página do cliente e do navegador de quem recebe com os mesmos módulos JS do sistema (leitura, `.tar`, SHA-256, zstd em
+wasm e o montador), contra o sistema rodando (`SistemaDeTeste` sobe um com PostgreSQL temporário).
+
 ## Erros, protocolo e logs
 
 **Mensagens.** Nenhuma falha chega à tela como texto técnico. O servidor responde sempre com uma frase em

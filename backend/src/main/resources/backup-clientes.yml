@@ -1,0 +1,36 @@
+# Configuração dos Backups de clientes (importada pelo application.yml).
+# Os valores desta máquina vão em config/application.yml (fora do Git): lá eles têm prioridade sobre os daqui.
+#
+# Como funciona: na tela "Backups de clientes" (menu Suporte) você escolhe uma pasta do SEU computador e gera um link;
+# no cliente (pelo WTS ou pelo UltraViewer) o Chrome/Edge abre o link, lê as pastas do sistema, compacta com zstd e
+# envia em pedaços pelo túnel do cloudflared. Cada pedaço passa pela memória do sistema e vai direto para o seu
+# navegador, que grava na pasta escolhida: o backup nunca fica gravado neste computador (nem no banco).
+
+backup-clientes:
+  # Só os dados de controle (andamento, lista de arquivos com o SHA-256, clientes). O backup não vem para cá.
+  pasta-estado: ${user.home}/.conferencia-ponto/backups-clientes
+  # Porta só deste computador (127.0.0.1) que o túnel publica na internet. Ela atende apenas a página de coleta
+  # (/c/...); o resto do sistema continua só na porta de sempre.
+  porta-publica: 8086
+  # Endereço fixo (túnel nomeado com domínio próprio, rodando à parte). Vazio = túnel rápido do cloudflared, aberto
+  # pelo próprio sistema (o endereço muda quando ele reinicia; a tela mostra sempre o atual).
+  endereco-publico: ""
+  # Caminho do cloudflared.exe. Vazio = procura no PATH e nas pastas do winget ("ponto tunel" instala).
+  cloudflared: ""
+  tunel-ativo: true
+  # O link vale por esse tempo sem contato (cada contato da página renova)
+  validade-link-horas: 48
+  # Nível do zstd usado pelo navegador do cliente (1 a 19). Medido em registros parecidos com .DAT do DataFlex
+  # (blocos de 8 MB, por núcleo): 15 = 40 MB/s e 20x; 17 = 17 MB/s e 35x; 19 = 1,4 MB/s e 37x. O 17 compacta quase
+  # igual ao 19 e lê uma base de 10 GB em minutos, não em horas.
+  nivel-zstd: 17
+  # Tamanho de cada bloco lido antes de compactar (MiB). Cada bloco vira um pedaço do envio.
+  tamanho-bloco-mib: 8
+  # Maior pedaço aceito (MiB, já compactado)
+  max-parte-mib: 32
+  # Tira do histórico da tela as coletas terminadas há mais de N dias (0 = nunca). Os backups, no computador de quem
+  # recebeu, não são tocados.
+  limpeza-dias: 90
+  # Teto de uma coleta, já compactada (GB): passou disso, os pedaços são recusados (0 = sem teto). Protege o computador
+  # de quem recebe de alguém que tente encher o disco dele.
+  limite-coleta-gb: 200

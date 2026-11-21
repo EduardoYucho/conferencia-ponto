@@ -30,6 +30,8 @@
         <java.version>17</java.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <jsoup.version>1.23.2</jsoup.version>
+        <commons-compress.version>1.28.0</commons-compress.version>
+        <zstd-jni.version>1.5.7-6</zstd-jni.version>
         <archunit.version>1.5.1</archunit.version>
         <embedded-postgres.version>2.2.2</embedded-postgres.version>
         <!-- a mesma versão do PostgreSQL da máquina de produção -->
@@ -94,6 +96,18 @@
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>${jsoup.version}</version>
+        </dependency>
+
+        <!-- Backups de clientes: o .tar.zst que chega pelo navegador (conferir, extrair e fechar com o manifesto) -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-compress</artifactId>
+            <version>${commons-compress.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>${zstd-jni.version}</version>
         </dependency>
 
         <dependency>
