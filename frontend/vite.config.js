@@ -5,6 +5,11 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   plugins: [vue(), tailwindcss()],
+  // A versão do rodapé: o "ponto atualizar" passa a gerada (1.1.001.001); fora dele, "desenvolvimento"
+  define: {
+    __VERSAO_DO_SISTEMA__: JSON.stringify(process.env.PONTO_VERSAO || 'desenvolvimento'),
+    __VERSAO_GERADA_EM__: JSON.stringify(process.env.PONTO_VERSAO_GERADA_EM || ''),
+  },
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

@@ -27,6 +27,8 @@
     </licenses>
 
     <properties>
+        <!-- A versão do sistema (1.1.001.001), passada pelo "ponto atualizar" (-Dponto.versao); vai para o build-info -->
+        <ponto.versao>desenvolvimento</ponto.versao>
         <java.version>17</java.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <jsoup.version>1.23.2</jsoup.version>
@@ -160,6 +162,19 @@
                     <!-- Permite que o Byte Buddy (Hibernate) rode em JDKs mais novos que o suportado oficialmente -->
                     <jvmArguments>-Dnet.bytebuddy.experimental=true</jvmArguments>
                 </configuration>
+                <executions>
+                    <!-- META-INF/build-info.properties com a versão do sistema (build.versao) -->
+                    <execution>
+                        <goals>
+                            <goal>build-info</goal>
+                        </goals>
+                        <configuration>
+                            <additionalProperties>
+                                <versao>${ponto.versao}</versao>
+                            </additionalProperties>
+                        </configuration>
+                    </execution>
+                </executions>
             </plugin>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

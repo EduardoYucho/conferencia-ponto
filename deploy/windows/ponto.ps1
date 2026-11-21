@@ -28,6 +28,7 @@
     ponto restaurar     volta o banco para um backup (pergunta qual e pede confirmação; faz um backup de agora antes)
     ponto console       roda no próprio terminal, com a saída na tela (diagnóstico; Ctrl+C para parar)
     ponto tunel         instala o cloudflared (o túnel dos Backups de clientes) pelo winget e reinicia
+    ponto versao        a versão instalada (a do rodapé), a anterior e as últimas geradas
     ponto desinstalar   remove a tarefa e o comando (mantém configuração, logs, banco e PDFs)
 
   Instalado em %USERPROFILE%\.conferencia-ponto\servico (ao lado de comprovantes\, o arquivo dos PDFs):
@@ -79,6 +80,8 @@ $ArquivoEstado = Join-Path $Raiz 'instalacao.json'
 $ArquivoLog    = Join-Path $PastaLogs 'conferencia-ponto.log'
 $PastaLogsUsuarios = Join-Path $PastaLogs 'usuarios'
 $LogBuild      = Join-Path $PastaLogs 'build.log'
+# Versões geradas ("ponto atualizar"): a numeração 1.1.001.001 continua daqui (veja Proxima-Versao)
+$ArquivoVersoes = if ($env:PONTO_VERSOES) { $env:PONTO_VERSOES } else { Join-Path $Raiz 'versoes.json' }
 # Diagnóstico de quedas da JVM (veja $ArgumentosJava): a memória que acabou e os erros graves da própria JVM
 $ArquivoMemoriaEsgotada = Join-Path $PastaLogs 'memoria-esgotada.hprof'
 $ErrosDaJvmGuardados = 5
@@ -219,7 +222,7 @@ function Mostrar-FimDoLog([string] $arquivo, [int] $linhas = 25) {
 }
 
 # ------------------------------------------------------------------------------------------ build
-function Compilar([string] $repositorio) {
+function Compilar([string] $repositorio, [string] $versao) {
     $frontend = Join-Path $repositorio 'frontend'
     $backend  = Join-Path $repositorio 'backend'
 
@@ -248,6 +251,9 @@ function Compilar([string] $repositorio) {
             Mostrar-FimDoLog $LogBuild; Falhar "Falhou o npm ci. Log completo: $LogBuild"
         }
     }
+    # A versão vai para o rodapé das telas (vite.config.js) e para o jar (build-info, lido por "ponto versao")
+    $env:PONTO_VERSAO = $versao
+    $env:PONTO_VERSAO_GERADA_EM = (Get-Date).ToString('s')
     Passo 'Front-end: npm run build'
     if ((Executar-NoLog $frontend $npm.Source 'run build') -ne 0) {
         Mostrar-FimDoLog $LogBuild; Falhar "Falhou o build do front-end. Log completo: $LogBuild"
@@ -256,7 +262,7 @@ function Compilar([string] $repositorio) {
         Falhar 'O build do front-end não gerou frontend\dist\index.html.'
     }
 
-    $argumentos = '-B -Papp clean package'
+    $argumentos = "-B -Papp clean package -Dponto.versao=$versao"
     if ($Testes) { Passo 'Back-end: Maven com testes (pode levar alguns minutos)' }
     else { Passo 'Back-end: Maven (sem testes; use -Testes para rodá-los)'; $argumentos += ' -DskipTests' }
     if ((Executar-NoLog $backend $maven $argumentos) -ne 0) {
@@ -271,6 +277,111 @@ function Compilar([string] $repositorio) {
     finally { $zip.Dispose() }
     if (-not $temTelas) { Falhar 'O jar gerado não contém o front-end (static/index.html).' }
     return $gerado
+}
+
+# ------------------------------------------------------------------------------------------ versão
+# A versão do rodapé: tecnologia.ano.número.subversão (ex.: 1.1.001.001), gerada a cada "ponto atualizar".
+#   tecnologia  versao.json do projeto; sobe à mão quando muda a geração do Java, do Spring ou do Vue
+#   ano         ano do sistema: o anoInicial do versao.json é o 1
+#   número      sobe na primeira atualização de cada dia; volta a 001 quando o ano ou a tecnologia muda
+#   subversão   sobe a cada atualização no mesmo dia; volta a 001 quando o número sobe
+# As geradas ficam em versoes.json (na instalação). Uma versão só conta depois de instalada: compilação que falha
+# não gasta número.
+
+function Ler-Versoes {
+    if (-not (Test-Path -LiteralPath $ArquivoVersoes)) { return @() }
+    $lidas = Get-Content -LiteralPath $ArquivoVersoes -Raw -Encoding UTF8 | ConvertFrom-Json
+    if (-not $lidas -or -not $lidas.historico) { return @() }
+    return @($lidas.historico)
+}
+
+function Proxima-Versao([string] $repositorio, [datetime] $agora = (Get-Date)) {
+    $arquivo = Join-Path $repositorio 'versao.json'
+    if (-not (Test-Path -LiteralPath $arquivo)) { Falhar "Falta $arquivo (a tecnologia e o ano inicial da versão)." }
+    $base = Get-Content -LiteralPath $arquivo -Raw -Encoding UTF8 | ConvertFrom-Json
+    $tecnologia = [int] $base.tecnologia
+    $ano = $agora.Year - [int] $base.anoInicial + 1
+    if ($tecnologia -lt 1 -or $ano -lt 1) { Falhar "versao.json inválido: tecnologia $tecnologia, ano do sistema $ano." }
+    $dia = $agora.ToString('yyyy-MM-dd')
+
+    $numero = 1; $sub = 1
+    $ultima = Ler-Versoes | Select-Object -Last 1
+    if ($ultima -and [int] $ultima.tecnologia -eq $tecnologia -and [int] $ultima.ano -eq $ano) {
+        if ($ultima.dia -eq $dia) { $numero = [int] $ultima.numero; $sub = [int] $ultima.sub + 1 }
+        else { $numero = [int] $ultima.numero + 1 }
+    }
+    return [pscustomobject]@{
+        versao     = '{0}.{1}.{2:D3}.{3:D3}' -f $tecnologia, $ano, $numero, $sub
+        tecnologia = $tecnologia
+        ano        = $ano
+        numero     = $numero
+        sub        = $sub
+        dia        = $dia
+    }
+}
+
+function Registrar-Versao($versao) {
+    $projeto = Versao-Do-Projeto
+    $nova = [ordered]@{
+        versao     = $versao.versao
+        tecnologia = $versao.tecnologia
+        ano        = $versao.ano
+        numero     = $versao.numero
+        sub        = $versao.sub
+        dia        = $versao.dia
+        geradaEm   = (Get-Date).ToString('s')
+        ramo       = if ($projeto) { $projeto.ramo } else { $null }
+        commit     = if ($projeto) { $projeto.commit } else { $null }
+    }
+    $historico = @(Ler-Versoes) + @([pscustomobject] $nova)
+    $json = [ordered]@{ historico = $historico } | ConvertTo-Json -Depth 4
+    [IO.File]::WriteAllText($ArquivoVersoes, $json, (New-Object Text.UTF8Encoding $false))
+}
+
+# A versão gravada dentro de um jar (build-info do Maven); $null se o jar não existe ou é de antes da numeração
+function Versao-DoJar([string] $jar) {
+    if (-not (Test-Path -LiteralPath $jar)) { return $null }
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $zip = [IO.Compression.ZipFile]::OpenRead($jar)
+    try {
+        # O Spring Boot põe o build-info na raiz do jar (META-INF/); o outro caminho cobre um empacotamento diferente
+        $entrada = $zip.Entries |
+            Where-Object { $_.FullName -in 'META-INF/build-info.properties', 'BOOT-INF/classes/META-INF/build-info.properties' } |
+            Select-Object -First 1
+        if (-not $entrada) { return $null }
+        $leitor = New-Object IO.StreamReader($entrada.Open())
+        try { $texto = $leitor.ReadToEnd() } finally { $leitor.Dispose() }
+    } finally { $zip.Dispose() }
+    $linha = ($texto -split "`r?`n") | Where-Object { $_ -like 'build.versao=*' } | Select-Object -First 1
+    if (-not $linha) { return $null }
+    $valor = $linha.Substring('build.versao='.Length).Trim()
+    if (-not $valor -or $valor -eq 'desenvolvimento') { return $null }
+    return $valor
+}
+
+function Cmd-Versao {
+    Titulo 'Versão da Conferência de Ponto'
+    $instalada = Versao-DoJar $Jar
+    $anterior = Versao-DoJar $JarAnterior
+    Info "Instalada:      $(if ($instalada) { $instalada } else { 'sem número (de antes da numeração)' })"
+    if (Test-Path -LiteralPath $JarAnterior) {
+        Info "Anterior:       $(if ($anterior) { $anterior } else { 'sem número' })  (ponto voltar)"
+    }
+    $geradas = @(Ler-Versoes)
+    if ($geradas.Count -gt 0) {
+        Write-Host ''
+        Info 'Últimas geradas:'
+        foreach ($v in ($geradas | Select-Object -Last 10)) {
+            $quando = ([datetime] $v.geradaEm).ToString('dd/MM/yyyy HH:mm')
+            $origem = if ($v.commit) { "  $($v.ramo) $($v.commit)" } else { '' }
+            Info "  $($v.versao)   $quando$origem"
+        }
+    }
+    $estado = Ler-Estado
+    if ($estado -and $estado.repositorio -and (Test-Path -LiteralPath (Join-Path $estado.repositorio 'versao.json'))) {
+        Write-Host ''
+        Info "Próxima:        $((Proxima-Versao $estado.repositorio).versao)  (no próximo ponto atualizar)"
+    }
 }
 
 # ------------------------------------------------------------------------------------------ configuração
@@ -603,7 +714,8 @@ function Cmd-Voltar {
     }
     Titulo 'Voltando para a versão anterior'
     $quando = (Get-Item -LiteralPath $JarAnterior).LastWriteTime.ToString('dd/MM/yyyy HH:mm')
-    Passo "Versão anterior: compilada em $quando"
+    $numero = Versao-DoJar $JarAnterior
+    Passo "Versão anterior: $(if ($numero) { "$numero, " } else { '' })compilada em $quando"
     Parar-Aplicacao -Silencioso
     $troca = "$Jar.troca"
     Move-Item -LiteralPath $Jar -Destination $troca -Force
@@ -1231,7 +1343,9 @@ function Cmd-Instalar([switch] $Atualizacao) {
     $java = Resolver-Java
     Passo "Java $($java.Versao): $($java.Javaw)"
     New-Item -ItemType Directory -Force -Path $Raiz, $PastaApp, $PastaLogs | Out-Null
-    $gerado = Compilar $repositorio
+    $versao = Proxima-Versao $repositorio
+    Passo "Versão $($versao.versao)"
+    $gerado = Compilar $repositorio $versao.versao
 
     # Já instalada: o banco é copiado antes de a versão nova subir (é ela que aplica as migrações).
     # Sem backup, sem troca de versão.
@@ -1267,6 +1381,9 @@ function Cmd-Instalar([switch] $Atualizacao) {
         }
         exit 1
     }
+    # Instalada: o número passa a contar (a próxima atualização continua dele)
+    try { Registrar-Versao $versao }
+    catch { Aviso "A versão $($versao.versao) foi instalada mas não ficou anotada em ${ArquivoVersoes}: $($_.Exception.Message)" }
     Copiar-Scripts $repositorio
     Preparar-Config $repositorio $porta
     Alterar-Path
@@ -1275,6 +1392,7 @@ function Cmd-Instalar([switch] $Atualizacao) {
 
     Iniciar-Aplicacao
     Titulo 'Pronto.'
+    Info "Versão:         $($versao.versao)"
     Info "Endereço:       http://localhost:$porta"
     Info 'Início:         automático quando você entra no Windows (tarefa agendada "ConferenciaPonto")'
     Info "Configuração:   $(Join-Path $PastaConfig 'application.yml')"
@@ -1427,7 +1545,9 @@ function Cmd-Status {
         if ($dono) { Aviso "                a porta $porta está ocupada por $($dono.ProcessName) (PID $($dono.Id)) — Eclipse?" }
     }
     Info "Endereço:       http://localhost:$porta"
-    $automatico = if ($tarefa.State -eq 'Disabled') { 'desligado (ponto iniciar religa)' } else { 'no logon do Windows' }
+    $instalada = Versao-DoJar $Jar
+    if ($instalada) { Info "Versão:         $instalada  (ponto versao: as anteriores)" }
+    $automatico =if ($tarefa.State -eq 'Disabled') { 'desligado (ponto iniciar religa)' } else { 'no logon do Windows' }
     Info "Início:         $automatico"
     Info "Configuração:   $(Join-Path $PastaConfig 'application.yml')"
     Info "Logs:           $ArquivoLog"
@@ -1546,6 +1666,7 @@ switch ($Comando.ToLowerInvariant()) {
     'backup'      { Cmd-Backup $Alvo }
     'restaurar'   { Cmd-Restaurar $Alvo }
     'tunel'       { Cmd-Tunel }
+    'versao'      { Cmd-Versao }
     'desinstalar' { Cmd-Desinstalar }
     'path'        { Alterar-Path; Ok "$PastaBin está no PATH do usuário (vale para terminais novos)." }
     { $_ -in 'ajuda', 'help', '-h', '/?', '--help' } { Get-Help $PSCommandPath -Detailed }

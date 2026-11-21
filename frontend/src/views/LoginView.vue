@@ -43,7 +43,7 @@ async function entrar() {
 </script>
 
 <template>
-  <main class="grid min-h-dvh place-items-center px-4 py-10">
+  <main class="grid flex-1 place-items-center px-4 py-10">
     <form class="cartao perfurado w-full max-w-sm animate-surgir py-6 pr-6" novalidate @submit.prevent="entrar">
       <p class="rotulo text-carimbo">Banco de horas · conferência do RH</p>
       <h1 class="mt-1 font-sans text-3xl leading-none font-extrabold tracking-tight [font-stretch:80%]">
