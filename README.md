@@ -1,4 +1,8 @@
-# Conferência de Ponto
+# Expedio
+
+Ponto, atendimentos e suporte numa aplicação só (o nome antigo, Conferência de Ponto, continua nos nomes internos:
+o pacote `br.com.conferenciaponto`, a tarefa agendada `ConferenciaPonto`, a pasta `.conferencia-ponto`, o banco e o
+comando `ponto`).
 
 Controle de jornada e banco de horas: **Spring Boot 3 + PostgreSQL + Vue 3**.
 **Vários usuários**, cada um com o próprio acesso, **horário de trabalho editável** (por dia da semana, com

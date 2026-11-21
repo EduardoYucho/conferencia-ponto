@@ -1,6 +1,6 @@
 ﻿<#
 .SYNOPSIS
-  Sobe o back-end da Conferência de Ponto pelo terminal (PowerShell).
+  Sobe o back-end do Expedio pelo terminal (PowerShell).
 
 .DESCRIPTION
   1. Carrega as variáveis de ambiente de ambiente.local.ps1 (criado na primeira execução,
