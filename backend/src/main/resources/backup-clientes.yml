@@ -8,14 +8,14 @@
 
 backup-clientes:
   # Só os dados de controle (andamento, lista de arquivos com o SHA-256, clientes). O backup não vem para cá.
-  pasta-estado: ${user.home}/.conferencia-ponto/backups-clientes
+  pasta-estado: ${user.home}/.expedio/backups-clientes
   # Porta só deste computador (127.0.0.1) que o túnel publica na internet. Ela atende apenas a página de coleta
   # (/c/...); o resto do sistema continua só na porta de sempre.
   porta-publica: 8086
   # Endereço fixo (túnel nomeado com domínio próprio, rodando à parte). Vazio = túnel rápido do cloudflared, aberto
   # pelo próprio sistema (o endereço muda quando ele reinicia; a tela mostra sempre o atual).
   endereco-publico: ""
-  # Caminho do cloudflared.exe. Vazio = procura no PATH e nas pastas do winget ("ponto tunel" instala).
+  # Caminho do cloudflared.exe. Vazio = procura no PATH e nas pastas do winget ("expedio tunel" instala).
   cloudflared: ""
   tunel-ativo: true
   # O link vale por esse tempo sem contato (cada contato da página renova)

@@ -1,0 +1,21 @@
+package br.com.expedio.domain.port;
+
+import br.com.expedio.domain.model.Divergencia;
+import br.com.expedio.domain.model.StatusDivergencia;
+
+import java.time.LocalDate;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+public interface DivergenciaRepository {
+
+    void salvar(Divergencia divergencia);
+
+    Optional<Divergencia> buscarPorId(UUID id);
+
+    /** Por data; {@code status}, {@code inicio} ou {@code fim} nulos = sem filtro. */
+    List<Divergencia> listar(UUID usuarioId, StatusDivergencia status, LocalDate inicio, LocalDate fim);
+
+    void excluir(UUID id);
+}

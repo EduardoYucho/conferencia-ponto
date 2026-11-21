@@ -11,10 +11,10 @@
         <relativePath/>
     </parent>
 
-    <groupId>br.com.conferenciaponto</groupId>
-    <artifactId>conferencia-ponto-api</artifactId>
+    <groupId>br.com.expedio</groupId>
+    <artifactId>expedio-api</artifactId>
     <version>0.1.0-SNAPSHOT</version>
-    <name>conferencia-ponto-api</name>
+    <name>expedio-api</name>
     <description>API de controle de jornada e banco de horas</description>
 
     <licenses>
@@ -27,8 +27,8 @@
     </licenses>
 
     <properties>
-        <!-- A versão do sistema (1.1.001.001), passada pelo "ponto atualizar" (-Dponto.versao); vai para o build-info -->
-        <ponto.versao>desenvolvimento</ponto.versao>
+        <!-- A versão do sistema (1.1.001.001), passada pelo "expedio atualizar" (-Dexpedio.versao); vai para o build-info -->
+        <expedio.versao>desenvolvimento</expedio.versao>
         <java.version>17</java.version>
         <pdfbox.version>3.0.8</pdfbox.version>
         <jsoup.version>1.23.2</jsoup.version>
@@ -170,7 +170,7 @@
                         </goals>
                         <configuration>
                             <additionalProperties>
-                                <versao>${ponto.versao}</versao>
+                                <versao>${expedio.versao}</versao>
                             </additionalProperties>
                         </configuration>
                     </execution>
@@ -196,7 +196,7 @@
             <id>app</id>
             <build>
                 <directory>${project.basedir}/target-app</directory>
-                <finalName>conferencia-ponto</finalName>
+                <finalName>expedio</finalName>
                 <plugins>
                     <plugin>
                         <groupId>org.apache.maven.plugins</groupId>

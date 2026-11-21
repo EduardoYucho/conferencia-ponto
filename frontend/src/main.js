@@ -4,6 +4,7 @@ import App from './App.vue'
 import { router } from './router'
 import { configurarAutenticacao } from './api/http'
 import { instalarTratamentoGlobal } from './utils/erros'
+import { migrarArmazenamentoLocal } from './utils/nomeAntigo'
 import { useAuthStore } from './stores/auth'
 import { usePontoStore } from './stores/ponto'
 import { useNotificacoesStore } from './stores/notificacoes'
@@ -12,6 +13,9 @@ import '@fontsource/ibm-plex-mono/400.css'
 import '@fontsource/ibm-plex-mono/500.css'
 import '@fontsource/ibm-plex-mono/600.css'
 import './style.css'
+
+// antes de qualquer store ler a sessão guardada
+migrarArmazenamentoLocal()
 
 const app = createApp(App)
 const pinia = createPinia()

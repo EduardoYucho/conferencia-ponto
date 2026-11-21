@@ -1,6 +1,6 @@
 spring:
   application:
-    name: conferencia-ponto
+    name: expedio
   config:
     # módulos (atendimentos e base de conhecimento; monitor fiscal; backups de clientes): configuração em arquivo próprio
     import:
@@ -8,9 +8,9 @@ spring:
       - optional:classpath:fiscal.yml
       - optional:classpath:backup-clientes.yml
   datasource:
-    url: ${DB_URL:jdbc:postgresql://localhost:5432/conferencia_ponto}
-    username: ${DB_USER:ponto}
-    password: ${DB_PASSWORD:ponto}
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/expedio}
+    username: ${DB_USER:expedio}
+    password: ${DB_PASSWORD:expedio}
   jpa:
     open-in-view: false
     hibernate:
@@ -36,7 +36,7 @@ server:
   tomcat:
     max-swallow-size: -1         # envio grande demais recebe a resposta 413 em vez de a conexão cair
 
-ponto:
+expedio:
   fuso-horario: America/Sao_Paulo
   tolerancia-minutos: 5
   grade:
@@ -56,11 +56,11 @@ ponto:
 
   # Importação automática dos comprovantes (PDF) baixados do Ponto Fácil
   importacao-pdf:
-    habilitado: ${PONTO_PDF_HABILITADO:true}
+    habilitado: ${EXPEDIO_PDF_HABILITADO:true}
     # Cada usuário escolhe a própria pasta em "Minha conta" (local ou de rede, ex.: //192.168.0.10/Ponto).
     # Este valor só é usado uma vez: na atualização para vários usuários, se ninguém tiver pasta, ela passa
     # a ser a pasta do primeiro administrador.
-    diretorio: ${PONTO_PDF_DIR:}
+    diretorio: ${EXPEDIO_PDF_DIR:}
     processar-existentes: true      # ao iniciar, importa PDFs que já estavam na pasta (sem duplicar)
     varredura-periodica: 30s        # confere a pasta mesmo sem aviso do Windows (pasta de rede); 0 desliga
     intervalo-reconexao: 15s        # pasta inacessível (VPN caiu, outro PC desligado): tenta de novo
@@ -73,42 +73,42 @@ ponto:
 
   # Arquivo dos PDFs de comprovante (fora do banco): <diretorio>/<ano>/<mês>/comprovante_<uuid>.pdf
   armazenamento:
-    diretorio: ${PONTO_ARMAZENAMENTO_DIR:${user.home}/.conferencia-ponto/comprovantes}
+    diretorio: ${EXPEDIO_ARMAZENAMENTO_DIR:${user.home}/.expedio/comprovantes}
     url-base: /api/comprovantes
 
-  # Backup automático (no Windows, pelo comando "ponto"): todo dia, depois do horário, se ainda não houver um
-  # backup do dia na pasta (o do "ponto atualizar" conta), a aplicação roda "ponto backup diario". Se falhar,
+  # Backup automático (no Windows, pelo comando "expedio"): todo dia, depois do horário, se ainda não houver um
+  # backup do dia na pasta (o do "expedio atualizar" conta), a aplicação roda "expedio backup diario". Se falhar,
   # tenta de novo a cada hora e avisa no sino de quem vê os logs. A guarda e a cópia fora do PC são do comando
   # (README, seção Backup).
   backup:
     automatico: true
     horario: "12:15"
-    pasta: ${PONTO_BACKUP_DIR:${user.home}/.conferencia-ponto/backups}
-    script: ${user.home}/.conferencia-ponto/servico/bin/ponto.ps1
+    pasta: ${EXPEDIO_BACKUP_DIR:${user.home}/.expedio/backups}
+    script: ${user.home}/.expedio/servico/bin/expedio.ps1
     verificacao: 15m
-    # Cópia fora do PC (outro disco ou pen drive), lida pelo comando "ponto": vazio = desligada.
-    # Ex.: "E:/Backups" (os backups vão para E:/Backups/ConferenciaPonto/backups e os PDFs para .../comprovantes)
+    # Cópia fora do PC (outro disco ou pen drive), lida pelo comando "expedio": vazio = desligada.
+    # Ex.: "E:/Backups" (os backups vão para E:/Backups/Expedio/backups e os PDFs para .../comprovantes)
     copia:
-      pasta: ${PONTO_BACKUP_COPIA:}
+      pasta: ${EXPEDIO_BACKUP_COPIA:}
 
   # Planilha de conferência no Google Sheets (opcional). O administrador envia pela tela (Usuários) a chave de
   # uma conta de serviço do Google Cloud; cada pessoa compartilha a planilha dela com o e-mail dessa conta e
   # cola o link em "Minha conta". A chave fica neste arquivo, fora do banco de dados.
   google:
-    credencial: ${PONTO_GOOGLE_CREDENCIAL:}   # vazio = ~/.conferencia-ponto/google/conta-de-servico.json
+    credencial: ${EXPEDIO_GOOGLE_CREDENCIAL:}   # vazio = ~/.expedio/google/conta-de-servico.json
     espera: 4s                                # junta mudanças seguidas (vários PDFs) numa gravação só
 
   # Logs: além do log geral (logging.file.name), cada linha vai para um arquivo por usuário e por hora em
   # <diretorio>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log ("sistema" = o que não é de uma pessoa).
   logs:
-    diretorio: ${PONTO_LOGS_DIR:${user.home}/.conferencia-ponto/logs}
+    diretorio: ${EXPEDIO_LOGS_DIR:${user.home}/.expedio/logs}
     dias: 30                        # os arquivos por usuário mais antigos são apagados
 
   seguranca:
     jwt:
-      segredo: ${PONTO_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida
+      segredo: ${EXPEDIO_JWT_SEGREDO:}   # >= 32 caracteres; vazio = chave aleatória a cada subida
       expiracao: 8h
-      emissor: conferencia-ponto
+      emissor: expedio
     # Criados na primeira subida, se não existirem. Senha vazia = gerada e exibida uma vez no log.
     # Para usar outros logins/nomes, redefina a lista inteira em config/application.yml.
     # perfis: os do sistema (ROLE_ADMIN = Administrador, ROLE_USER = Usuário, ROLE_VIEWER = Coordenador);
@@ -116,18 +116,18 @@ ponto:
     usuarios-iniciais:
       - login: admin
         nome: Administrador
-        senha: ${PONTO_ADMIN_SENHA:}
+        senha: ${EXPEDIO_ADMIN_SENHA:}
         perfis: [ROLE_ADMIN]
       - login: coordenacao
         nome: Coordenação
-        senha: ${PONTO_VIEWER_SENHA:}
+        senha: ${EXPEDIO_VIEWER_SENHA:}
         perfis: [ROLE_VIEWER]
 
 logging:
   pattern:
     correlation: "[%X{usuario:-sistema}|%X{protocolo:--}] "   # de quem é a linha e o protocolo da requisição
   level:
-    br.com.conferenciaponto.infrastructure.importacao: INFO
+    br.com.expedio.infrastructure.importacao: INFO
     # As fontes dos PDFs (comprovantes, conversas do Digisac) geram centenas de avisos por semana que não mudam a
     # leitura ("No Unicode mapping...", "Using fallback font..."): só os erros delas vão para o log.
     org.apache.pdfbox.pdmodel.font: ERROR

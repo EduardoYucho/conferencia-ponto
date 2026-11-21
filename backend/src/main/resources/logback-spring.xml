@@ -1,35 +1,35 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
   Logs da aplicação:
-    * CONSOLE      ao vivo no terminal (iniciar.ps1, Eclipse, "ponto console"); no serviço fica desligado por
-                   logging.threshold.console=OFF e o acompanhamento é pelo comando "ponto logs";
+    * CONSOLE      ao vivo no terminal (iniciar.ps1, Eclipse, "expedio console"); no serviço fica desligado por
+                   logging.threshold.console=OFF e o acompanhamento é pelo comando "expedio logs";
     * FILE         o log geral (tudo, de todos), com rotação por tamanho;
     * POR_USUARIO  um arquivo por usuário e por hora: <pasta>/usuarios/<login>/<aaaa-mm-dd>/<hh>h.log
                    (o que não é de uma pessoa vai para "sistema");
     * MEMORIA      as últimas linhas, para a tela "Logs" do administrador.
-  A pasta vem de ponto.logs.diretorio (padrão: ~/.conferencia-ponto/logs).
+  A pasta vem de expedio.logs.diretorio (padrão: ~/.expedio/logs).
 -->
 <configuration>
     <include resource="org/springframework/boot/logging/logback/defaults.xml"/>
 
-    <springProperty scope="context" name="PONTO_LOGS" source="ponto.logs.diretorio"
-                    defaultValue="${user.home}/.conferencia-ponto/logs"/>
-    <springProperty scope="context" name="PONTO_FUSO" source="ponto.fuso-horario" defaultValue="America/Sao_Paulo"/>
-    <property name="LOG_FILE" value="${LOG_FILE:-${PONTO_LOGS}/conferencia-ponto.log}"/>
+    <springProperty scope="context" name="EXPEDIO_LOGS" source="expedio.logs.diretorio"
+                    defaultValue="${user.home}/.expedio/logs"/>
+    <springProperty scope="context" name="EXPEDIO_FUSO" source="expedio.fuso-horario" defaultValue="America/Sao_Paulo"/>
+    <property name="LOG_FILE" value="${LOG_FILE:-${EXPEDIO_LOGS}/expedio.log}"/>
 
     <include resource="org/springframework/boot/logging/logback/console-appender.xml"/>
     <include resource="org/springframework/boot/logging/logback/file-appender.xml"/>
 
     <appender name="POR_USUARIO" class="ch.qos.logback.classic.sift.SiftingAppender">
-        <discriminator class="br.com.conferenciaponto.infrastructure.log.DiscriminadorUsuarioHora">
-            <fuso>${PONTO_FUSO}</fuso>
+        <discriminator class="br.com.expedio.infrastructure.log.DiscriminadorUsuarioHora">
+            <fuso>${EXPEDIO_FUSO}</fuso>
         </discriminator>
         <!-- o arquivo de uma hora é fechado 40 minutos depois da última linha -->
         <timeout>40 minutes</timeout>
         <maxAppenderCount>200</maxAppenderCount>
         <sift>
             <appender name="USUARIO-${arquivo}" class="ch.qos.logback.core.FileAppender">
-                <file>${PONTO_LOGS}/usuarios/${arquivo}.log</file>
+                <file>${EXPEDIO_LOGS}/usuarios/${arquivo}.log</file>
                 <encoder>
                     <charset>UTF-8</charset>
                     <pattern>%d{HH:mm:ss.SSS} %-5level [%X{protocolo:--}] %logger{0} - %msg%n%ex</pattern>
@@ -38,9 +38,9 @@
         </sift>
     </appender>
 
-    <appender name="MEMORIA" class="br.com.conferenciaponto.infrastructure.log.AppenderMemoria"/>
+    <appender name="MEMORIA" class="br.com.expedio.infrastructure.log.AppenderMemoria"/>
 
-    <!-- a senha provisória gerada na primeira subida: só no console e no log geral ("ponto logs"), nunca na tela
+    <!-- a senha provisória gerada na primeira subida: só no console e no log geral ("expedio logs"), nunca na tela
          "Logs" nem nos logs por pessoa -->
     <logger name="senha-inicial" level="INFO" additivity="false">
         <appender-ref ref="CONSOLE"/>

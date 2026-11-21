@@ -62,10 +62,10 @@ export function relatar(erro, origem = '') {
 
 // ------------------------------------------------------------------ versão antiga das telas na aba
 
-const CHAVE_RECARGA = 'conferencia-ponto.recarga'
+const CHAVE_RECARGA = 'expedio.recarga'
 /** Uma recarga a menos de 30 s da anterior não é feita: a aba só avisa (sem laço de recargas). */
 const INTERVALO_ENTRE_RECARGAS = 30_000
-/** Enquanto o sistema reinicia (`ponto atualizar`), a aba espera ele responder antes de recarregar. */
+/** Enquanto o sistema reinicia (`expedio atualizar`), a aba espera ele responder antes de recarregar. */
 const ESPERA_PELO_SERVIDOR = { tentativas: 40, intervalo: 3000 }
 
 /** Quando o Vite avisou a última falha ao carregar um arquivo de tela (`vite:preloadError`). */
@@ -86,7 +86,7 @@ const ehTelaAntiga = (erro) => {
 
 const espera = (ms) => new Promise((resolver) => setTimeout(resolver, ms))
 
-/** O sistema responde? (durante o `ponto atualizar` ele fica alguns segundos fora) */
+/** O sistema responde? (durante o `expedio atualizar` ele fica alguns segundos fora) */
 async function servidorResponde() {
   try {
     const resposta = await fetch(import.meta.env.BASE_URL || '/', { cache: 'no-store' })

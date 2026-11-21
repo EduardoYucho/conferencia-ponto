@@ -27,7 +27,7 @@ const OPCOES = [
 ]
 
 const auth = useAuthStore()
-const chave = () => `conferencia-ponto.habilidade.${auth.usuario?.login ?? 'anonimo'}.versao`
+const chave = () => `expedio.habilidade.${auth.usuario?.login ?? 'anonimo'}.versao`
 function versaoGuardada() {
   try {
     return Number(localStorage.getItem(chave()) ?? 0)
